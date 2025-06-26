@@ -1,0 +1,460 @@
+// App.tsx – GTM Analyzer completo
+import React, { useRef, useState } from "react";
+import {
+  Upload, LayoutDashboard, Tags, ActivitySquare, Variable,
+  FileText, FlaskConical, Info, Sparkles, X
+} from "lucide-react";
+import {
+  PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend
+} from "recharts";
+
+// ---------- Tipizzazione ----------------------------------------------------
+
+interface GTMContainer {
+  tag?: any[];
+  trigger?: any[];
+  variable?: any[];
+  containerId?: string;
+  containerVersionId?: string;
+  containerVersion?: { container?: { publicId?: string } };
+}
+
+// ---------- Root ------------------------------------------------------------
+
+export default function GTMAnalyzer() {
+  const [container, setContainer] = useState<GTMContainer | null>(null);
+  const [page, setPage] = useState<
+    "dashboard" | "tags" | "triggers" | "variables" | "plan" | "testing"
+  >("dashboard");
+
+  const handleFile = async (file: File) => {
+    try {
+      const json = JSON.parse(await file.text());
+      const candidate =
+        json.tag && json.trigger
+          ? json
+          : json.containerVersion?.tag
+            ? json.containerVersion
+            : undefined;
+      if (!candidate) throw new Error();
+      setContainer(candidate);
+    } catch {
+      alert("❌ Il file non sembra un JSON valido GTM.");
+    }
+  };
+
+  return (
+    <div className="flex min-h-screen font-sans">
+      <Sidebar current={page} setCurrent={setPage} disabled={!container} />
+      <main className="flex-1 p-6 space-y-6 bg-gray-50 overflow-y-auto">
+        {!container && <FileUpload onFile={handleFile} />}
+
+        {container && page === "dashboard" && (
+          <Dashboard data={container} onReplace={() => setContainer(null)} />
+        )}
+        {container && page === "tags" && (
+          <List items={container.tag ?? []} type="tag" />
+        )}
+        {container && page === "triggers" && (
+          <List items={container.trigger ?? []} type="trigger" />
+        )}
+        {container && page === "variables" && (
+          <List items={container.variable ?? []} type="variable" />
+        )}
+
+        {/* “plan” e “testing” da implementare in seguito */}
+        {container && page === "plan" && <div>Sezione Piano (coming soon)</div>}
+        {container && page === "testing" && (
+          <div>Sezione Testing (coming soon)</div>
+        )}
+      </main>
+    </div>
+  );
+}
+
+// ---------- Sidebar ---------------------------------------------------------
+
+function Sidebar({
+  current,
+  setCurrent,
+  disabled,
+}: {
+  current: string;
+  setCurrent: (p: any) => void;
+  disabled: boolean;
+}) {
+  const links = [
+    { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+    { id: "tags", label: "Tag", icon: Tags },
+    { id: "triggers", label: "Trigger", icon: ActivitySquare },
+    { id: "variables", label: "Variabili", icon: Variable },
+    { id: "plan", label: "Piano", icon: FileText },
+    { id: "testing", label: "Testing", icon: FlaskConical },
+  ];
+
+  return (
+    <aside className="w-64 bg-[#1a365d] text-white py-6 space-y-2 shrink-0">
+      <h1 className="text-center font-bold text-xl mb-4">GTM Analyzer</h1>
+      {links.map(({ id, label, icon: Icon }) => (
+        <button
+          key={id}
+          onClick={() => !disabled && setCurrent(id)}
+          disabled={disabled}
+          className={`w-full flex gap-2 items-center px-5 py-2 transition ${
+            current === id ? "bg-white/10" : ""
+          } ${
+            disabled
+              ? "opacity-30 cursor-not-allowed"
+              : "hover:bg-white/10"
+          }`}
+        >
+          <Icon className="w-5 h-5" /> {label}
+        </button>
+      ))}
+    </aside>
+  );
+}
+
+// ---------- Upload ----------------------------------------------------------
+
+function FileUpload({ onFile }: { onFile: (f: File) => void }) {
+  const input = useRef<HTMLInputElement>(null);
+
+  return (
+    <div className="flex flex-col items-center justify-center h-full space-y-8">
+      <div className="text-center space-y-2">
+        <h1 className="text-3xl font-bold text-[#1a365d]">🚀 GTM Analyzer</h1>
+        <p className="text-sm text-gray-600 max-w-md">
+          Carica un file JSON esportato da Google Tag Manager per analizzare tag,
+          trigger e variabili con una dashboard interattiva.
+        </p>
+      </div>
+
+      <div
+        onClick={() => input.current?.click()}
+        className="border-2 border-dashed border-gray-300 hover:border-[#FF6B35] rounded-xl p-10 w-full max-w-2xl text-center bg-white cursor-pointer transition-all shadow-sm hover:shadow-lg"
+      >
+        <Upload className="mx-auto w-10 h-10 text-[#FF6B35]" />
+        <p className="mt-2 text-gray-700 font-medium">
+          Clicca o trascina qui il file JSON del contenitore GTM
+        </p>
+        <input
+          ref={input}
+          hidden
+          type="file"
+          accept="application/json"
+          onChange={(e) => e.target.files?.[0] && onFile(e.target.files[0])}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ---------- Dashboard -------------------------------------------------------
+
+function Dashboard({
+  data,
+  onReplace,
+}: {
+  data: GTMContainer;
+  onReplace: () => void;
+}) {
+  // -- conteggi totali
+  const tagCount = data.tag?.length ?? 0;
+  const triggerCount = data.trigger?.length ?? 0;
+  const varCount = data.variable?.length ?? 0;
+
+  // -- mappa tipi
+  const typeLabels: Record<string, string> = {
+    awct: "Google Ads Conversion",
+    gclidw: "GCLID Linker",
+    sp: "Google Ads Remarketing",
+    img: "Pixel Image",
+    html: "Custom HTML",
+    ua: "Universal Analytics",
+    gaawc: "GA4 Event",
+    ldp: "LinkedIn Insight",
+  };
+
+  const tagsByType: Record<string, number> = {};
+  data.tag?.forEach((t) => {
+    const raw = t.type || "(sconosciuto)";
+    tagsByType[raw] = (tagsByType[raw] || 0) + 1;
+  });
+
+  const pieData = Object.entries(tagsByType).map(([k, v]) => ({
+    name:
+      typeLabels[k] ||
+      data.tag?.find((t) => t.type === k)?.name?.slice(0, 40) ||
+      "Altro",
+    value: v,
+  }));
+
+  const topBarData = [...pieData]
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 5);
+
+  const colors = ["#FF6B35", "#1a365d", "#4caf50", "#ffc107", "#2196f3"];
+
+  // -- metriche rapide
+  const pausedTags = data.tag?.filter((t) => t.paused)?.length ?? 0;
+
+  const unusedTriggers =
+    (data.trigger ?? []).filter(
+      (tr) =>
+        !(data.tag ?? []).some((tag) =>
+          (tag.triggerId ?? []).includes(tr.triggerId)
+        )
+    ).length ?? 0;
+
+  const usedVarIds = new Set<number>();
+  data.tag?.forEach((tag) =>
+    (tag.variableId ?? []).forEach((v: number) => usedVarIds.add(v))
+  );
+  const unusedVariables =
+    (data.variable ?? []).filter(
+      (v) => !usedVarIds.has(v.variableId as number)
+    ).length ?? 0;
+
+  const uaTags = data.tag?.filter((t) => t.type === "ua")?.length ?? 0;
+
+  const issues = pausedTags + unusedTriggers + unusedVariables + uaTags;
+  const quality =
+    issues === 0 ? "Ottimo" : issues < 10 ? "Buono" : "Da migliorare";
+
+  const containerId =
+    data.containerVersion?.container?.publicId ??
+    data.containerId ??
+    "(ID sconosciuto)";
+  const versione = data.containerVersionId ?? "-";
+
+  return (
+    <div className="space-y-6">
+      {/* header */}
+      <div className="flex justify-between items-center">
+        <div>
+          <h1 className="text-2xl font-bold text-[#1a365d]">
+            📊 Dashboard del contenitore
+          </h1>
+          <p className="text-sm text-gray-600 mt-1">
+            ID: <strong>{containerId}</strong> – Versione:{" "}
+            <strong>{versione}</strong>
+          </p>
+        </div>
+
+        <button
+          onClick={onReplace}
+          className="px-4 py-2 bg-[#FF6B35] text-white rounded-md text-sm shadow hover:brightness-110 transition"
+        >
+          Sostituisci file JSON
+        </button>
+      </div>
+
+      {/* counters */}
+      <div className="grid grid-cols-3 gap-6">
+        <Card title="Tag" value={tagCount} />
+        <Card title="Trigger" value={triggerCount} />
+        <Card title="Variabili" value={varCount} />
+      </div>
+
+      {/* grafico + metriche */}
+      <div className="grid grid-cols-2 gap-6">
+        {/* grafico */}
+        <div className="bg-white p-4 rounded-xl shadow">
+          <h2 className="text-lg font-semibold mb-2">
+            Distribuzione tipi di tag
+          </h2>
+
+          {pieData.length ? (
+            <ResponsiveContainer width="100%" height={250}>
+              <PieChart>
+                <Pie
+                  data={pieData}
+                  dataKey="value"
+                  nameKey="name"
+                  cx="50%"
+                  cy="50%"
+                  outerRadius={80}
+                >
+                  {pieData.map((_, i) => (
+                    <Cell key={i} fill={colors[i % colors.length]} />
+                  ))}
+                </Pie>
+                <Tooltip />
+              </PieChart>
+            </ResponsiveContainer>
+          ) : (
+            <p className="text-sm text-gray-500 italic mt-4">
+              Nessun dato disponibile.
+            </p>
+          )}
+        </div>
+
+        {/* metriche */}
+        <div className="bg-white p-4 rounded-xl shadow space-y-2">
+          <h2 className="text-lg font-semibold">📌 Metriche rapide</h2>
+          <ul className="list-disc pl-5 text-sm text-gray-700 leading-6">
+            <li>{data.tag?.filter((t) => !t.name)?.length ?? 0} tag senza nome</li>
+            <li>{unusedTriggers} trigger non utilizzati</li>
+            <li>{Object.keys(tagsByType).length} tipi di tag unici</li>
+            <li>
+              Top tipo: <strong>{pieData[0]?.name || "-"}</strong> (
+              {pieData[0]?.value || 0})
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      {/* qualità */}
+      <div className="bg-white p-4 rounded-xl shadow space-y-2">
+        <h2 className="text-lg font-semibold">🩺 Qualità del container</h2>
+        <ul className="list-disc pl-5 text-sm text-gray-700 leading-6">
+          <li>{pausedTags} tag in pausa</li>
+          <li>{unusedVariables} variabili non usate</li>
+          <li>{uaTags} tag Universal Analytics (obsoleti)</li>
+          <li>
+            Stato generale:{" "}
+            <span
+              className={
+                quality === "Ottimo"
+                  ? "text-green-600 font-semibold"
+                  : quality === "Buono"
+                  ? "text-yellow-600 font-semibold"
+                  : "text-red-600 font-semibold"
+              }
+            >
+              {quality}
+            </span>
+          </li>
+        </ul>
+      </div>
+
+      {/* top 5 bar */}
+      <div className="bg-white p-4 rounded-xl shadow">
+        <h2 className="text-lg font-semibold mb-2">
+          🏆 Classifica tipi di tag (Top 5)
+        </h2>
+        <ResponsiveContainer width="100%" height={250}>
+          <BarChart data={topBarData} layout="vertical">
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis type="number" />
+            <YAxis dataKey="name" type="category" width={200} />
+            <Tooltip />
+            <Legend />
+            <Bar dataKey="value" fill="#1a365d" radius={[0, 6, 6, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
+// ---------- Card ------------------------------------------------------------
+
+function Card({ title, value }: { title: string; value: number }) {
+  return (
+    <div className="bg-white rounded-xl shadow p-6 text-center">
+      <div className="text-4xl font-bold text-[#1a365d]">{value}</div>
+      <div className="mt-1 text-sm">{title}</div>
+    </div>
+  );
+}
+
+// ---------- List con Modale -------------------------------------------------
+
+function List({
+  items,
+  type,
+}: {
+  items: any[];
+  type: "tag" | "trigger" | "variable";
+}) {
+  const [selected, setSelected] = useState<any | null>(null);
+
+  const explain = (item: any) => {
+    if (type === "tag")
+      return `🔖 Tag tipo "${item.type}" con trigger ${
+        item.triggerId?.join(", ") ?? "–"
+      }`;
+    if (type === "trigger")
+      return `⚡ Trigger attivo quando ${item.filter
+        ?.map((f: any) => `${f.type} ${f.value}`)
+        .join(" e ")}`;
+    return `📦 Variabile di tipo "${item.type}"`;
+  };
+
+  return (
+    <>
+      <div className="space-y-4">
+        {items.map((it, index) => {
+          const id = it.tagId || it.triggerId || it.variableId || index;
+          return (
+            <div
+              key={id}
+              className="bg-white rounded-xl shadow p-4 flex justify-between items-center"
+            >
+              <div>
+                <h3 className="font-semibold">
+                  {it.name ?? "(senza nome)"}
+                </h3>
+                <p className="text-xs text-gray-500">ID: {id}</p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setSelected(it)}
+                  className="px-3 py-1.5 rounded bg-[#1a365d] text-white text-sm flex items-center gap-1"
+                >
+                  <Info className="w-4 h-4" /> Dettagli
+                </button>
+                <button
+                  onClick={() => alert(explain(it))}
+                  className="px-3 py-1.5 rounded bg-[#FF6B35] text-white text-sm flex items-center gap-1"
+                >
+                  <Sparkles className="w-4 h-4" /> AI
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {selected && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white max-w-3xl w-full max-h-[80vh] overflow-y-auto p-6 rounded-lg shadow-lg">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-semibold">Dettagli</h2>
+              <button onClick={() => setSelected(null)}>
+                <X className="w-5 h-5 text-gray-500 hover:text-black" />
+              </button>
+            </div>
+            <table className="w-full text-sm">
+              <tbody>
+                {Object.entries(selected).map(([key, value]) => (
+                  <tr key={key} className="border-t">
+                    <td className="font-semibold py-2 pr-4 align-top whitespace-nowrap">
+                      {key}
+                    </td>
+                    <td className="py-2 break-words">
+                      <pre className="whitespace-pre-wrap break-words bg-gray-100 p-2 rounded">
+                        {JSON.stringify(value, null, 2)}
+                      </pre>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div className="text-right mt-6">
+              <button
+                onClick={() => setSelected(null)}
+                className="px-4 py-2 bg-[#1a365d] text-white rounded hover:brightness-110 text-sm"
+              >
+                Chiudi
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
