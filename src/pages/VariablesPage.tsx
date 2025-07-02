@@ -1,6 +1,7 @@
 import React from "react";
 import { useContainer } from "../context/ContainerContext";
 import ItemList from "../components/ItemList";
+import DetailsModal from "./DetailsModal";
 
 export default function VariablesPage() {
   const { container } = useContainer();

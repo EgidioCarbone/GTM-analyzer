@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { Info, Sparkles, Trash2, ChevronDown, ChevronUp, X } from "lucide-react";
+import DetailsModal from "./DetailsModal";
 
 export default function TagSection({
   tags,
@@ -43,8 +44,7 @@ export default function TagSection({
   };
 
   const explain = (item: any) =>
-    `🔖 Tag tipo "${item.type}" con trigger ${
-      item.triggerId?.join(", ") ?? "–"
+    `🔖 Tag tipo "${item.type}" con trigger ${item.triggerId?.join(", ") ?? "–"
     }`;
 
   return (
@@ -109,9 +109,7 @@ export default function TagSection({
 
       {/* modali identici al tuo originale (detail + error) */}
       {detail && (
-        <Modal title="Dettagli" onClose={() => setDetail(null)}>
-          {detail}
-        </Modal>
+        <DetailsModal item={detail} onClose={() => setDetail(null)} />
       )}
       {errorMsg && (
         <Modal title="Avviso" onClose={() => setErrorMsg(null)}>
