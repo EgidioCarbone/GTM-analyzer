@@ -10,6 +10,7 @@ export default function ItemList({
   type: "tag" | "trigger" | "variable";
 }) {
   const [selected, setSelected] = useState<any | null>(null);
+  const [searchTerm, setSearchTerm] = useState("");
 
   const explain = (item: any) => {
     if (type === "tag") {
@@ -23,10 +24,33 @@ export default function ItemList({
     return `📦 Variabile di tipo "${item.type}"`;
   };
 
+  const filteredItems = items.filter((item) => {
+    const name = item.name ?? "";
+    const id = item.tagId || item.triggerId || item.variableId || "";
+    return (
+      name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      id.toString().includes(searchTerm)
+    );
+  });
+
   return (
     <>
+      <div className="mb-4">
+        <input
+          type="text"
+          placeholder={`🔍 Cerca ${type}...`}
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring focus:border-[#FF6B35]"
+        />
+      </div>
+
+      {filteredItems.length === 0 && (
+        <p className="text-gray-500 text-sm">Nessun risultato trovato.</p>
+      )}
+
       <div className="space-y-4">
-        {items.map((item, index) => {
+        {filteredItems.map((item, index) => {
           const id = item.tagId || item.triggerId || item.variableId || index;
           return (
             <div

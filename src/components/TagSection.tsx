@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Info, Sparkles, Trash2, ChevronDown, ChevronUp, X } from "lucide-react";
+import { Info, Sparkles, Trash2, ChevronDown, ChevronUp } from "lucide-react";
 import DetailsModal from "./DetailsModal";
 
 export default function TagSection({
@@ -14,6 +14,7 @@ export default function TagSection({
   const [detail, setDetail] = useState<any | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [open, setOpen] = useState<string | null>("Tag in pausa");
+  const [searchTerm, setSearchTerm] = useState("");
 
   const paused = tags.filter((t) => t.paused);
   const ua = tags.filter((t) => t.type === "ua" && !t.paused);
@@ -33,9 +34,7 @@ export default function TagSection({
   const handleDelete = (tag: any) => {
     if (hasTriggers(tag)) {
       const list = (tag.triggerId ?? []).join(", ");
-      setErrorMsg(
-        `Impossibile eliminare: il tag è agganciato ai trigger ${list}.`
-      );
+      setErrorMsg(`Impossibile eliminare: il tag è agganciato ai trigger ${list}.`);
       return;
     }
     if (confirm(`Vuoi davvero eliminare il tag “${tag.name}”?`)) {
@@ -44,21 +43,36 @@ export default function TagSection({
   };
 
   const explain = (item: any) =>
-    `🔖 Tag tipo "${item.type}" con trigger ${item.triggerId?.join(", ") ?? "–"
-    }`;
+    `🔖 Tag tipo "${item.type}" con trigger ${item.triggerId?.join(", ") ?? "–"}`;
 
   return (
     <>
-      {groups.map(({ id, label, emoji, data }) =>
-        data.length ? (
+      {/* Search Bar */}
+      <div className="mb-4">
+        <input
+          type="text"
+          placeholder="🔍 Cerca tag..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring focus:border-[#FF6B35]"
+        />
+      </div>
+
+      {groups.map(({ id, label, emoji, data }) => {
+        const filteredData = data.filter((t) =>
+          (t.name ?? "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+          String(t.tagId ?? "").includes(searchTerm)
+        );
+
+        if (filteredData.length === 0) return null;
+
+        return (
           <div key={id} className="mb-4 border rounded-xl bg-white shadow">
             <button
               className="w-full px-4 py-3 flex justify-between items-center font-semibold text-[#1a365d]"
               onClick={() => setOpen(open === label ? null : label)}
             >
-              <span>
-                {emoji} {label}
-              </span>
+              <span>{emoji} {label}</span>
               {open === label ? (
                 <ChevronUp className="w-4 h-4" />
               ) : (
@@ -67,16 +81,14 @@ export default function TagSection({
             </button>
 
             {open === label && (
-              <div className="divide-y">
-                {data.map((t: any, i: number) => (
+              <div className="divide-y max-h-[400px] overflow-y-auto">
+                {filteredData.map((t: any, i: number) => (
                   <div
                     key={i}
-                    className="flex justify-between items-center p-4"
+                    className="flex justify-between items-center p-4 hover:bg-gray-50 transition"
                   >
                     <div>
-                      <h3 className="font-semibold">
-                        {t.name || "(senza nome)"}
-                      </h3>
+                      <h3 className="font-semibold">{t.name || "(senza nome)"}</h3>
                       <p className="text-xs text-gray-500">ID: {t.tagId}</p>
                     </div>
                     <div className="flex gap-2">
@@ -104,47 +116,20 @@ export default function TagSection({
               </div>
             )}
           </div>
-        ) : null
-      )}
+        );
+      })}
 
-      {/* modali identici al tuo originale (detail + error) */}
+      {/* Modali */}
       {detail && (
         <DetailsModal item={detail} onClose={() => setDetail(null)} />
       )}
       {errorMsg && (
-        <Modal title="Avviso" onClose={() => setErrorMsg(null)}>
-          {errorMsg}
-        </Modal>
+        <DetailsModal
+          item={{ message: errorMsg }}
+          onClose={() => setErrorMsg(null)}
+          title="Avviso"
+        />
       )}
     </>
-  );
-}
-
-/* Modal di servizio, minimale */
-function Modal({
-  title,
-  children,
-  onClose,
-}: {
-  title: string;
-  children: React.ReactNode;
-  onClose: () => void;
-}) {
-  return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-      <div className="bg-white w-full max-w-3xl p-6 rounded shadow-xl">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-xl font-semibold">{title}</h2>
-          <button onClick={onClose}>✖️</button>
-        </div>
-        {typeof children === "string" ? (
-          <p className="whitespace-pre-wrap text-sm">{children}</p>
-        ) : (
-          <pre className="text-xs whitespace-pre-wrap">
-            {JSON.stringify(children, null, 2)}
-          </pre>
-        )}
-      </div>
-    </div>
   );
 }
