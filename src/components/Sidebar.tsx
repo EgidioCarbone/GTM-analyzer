@@ -19,8 +19,7 @@ export default function Sidebar() {
 
   return (
     <aside
-      className="w-64 bg-[#1a365d] dark:bg-gray-900 text-white
-                 flex flex-col justify-between h-screen fixed md:static"
+      className="fixed top-0 left-0 h-screen w-64 bg-[#1a365d] text-white py-6 space-y-4 shrink-0"
     >
       <div className="flex-1 flex flex-col overflow-y-auto">
         <h1 className="text-center font-bold text-xl py-6">
@@ -36,7 +35,7 @@ export default function Sidebar() {
                 className={({ isActive }) =>
                   `block px-4 py-2 rounded transition
                    ${isActive ? "bg-white/20 font-semibold"
-                               : "hover:bg-white/10"}`
+                    : "hover:bg-white/10"}`
                 }
               >
                 {label}
@@ -48,8 +47,7 @@ export default function Sidebar() {
           </p>
         )}
       </div>
-
-      <div className="px-4 py-4 flex items-center justify-between">
+      <div className="absolute bottom-4 left-0 w-full px-4 flex items-center justify-between">
         <span className="text-xs text-white/70">Dark Mode</span>
         <button
           onClick={() => setIsDark(!isDark)}
@@ -62,6 +60,8 @@ export default function Sidebar() {
           )}
         </button>
       </div>
+
+
     </aside>
   );
 }

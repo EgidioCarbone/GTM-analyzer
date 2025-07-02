@@ -17,6 +17,7 @@ export default function DashboardPage() {
           : json.container?.tag
           ? json.container
           : undefined;
+
       if (!candidate) throw new Error();
       setContainer(candidate);
     } catch {
@@ -25,12 +26,14 @@ export default function DashboardPage() {
   };
 
   return (
-    <main className="p-6 space-y-6
-                    bg-gray-50 dark:bg-gray-900
-                    text-gray-900 dark:text-gray-100">
-      {!container
-        ? <FileUpload onFile={handleFile} />
-        : <Dashboard data={container} onReplace={() => setContainer(null)} />}
+    <main className={`p-6 space-y-6 ${!container ? "flex items-center justify-center h-full" : ""}`}>
+      {!container ? (
+        <div className="max-w-2xl w-full"> {/* aumentata la larghezza */}
+          <FileUpload onFile={handleFile} />
+        </div>
+      ) : (
+        <Dashboard data={container} onReplace={() => setContainer(null)} />
+      )}
     </main>
   );
 }

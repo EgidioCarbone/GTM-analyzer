@@ -1,33 +1,41 @@
-import React, { createContext, useContext, useState } from "react";
+// src/context/ContainerContext.tsx
 
-export interface GTMContainer {
-  tag?: any[];
-  trigger?: any[];
-  variable?: any[];
-  containerId?: string;
-  containerVersionId?: string;
-  containerVersion?: { container?: { publicId?: string } };
-}
+import React, { createContext, useContext, useState, useEffect } from "react";
 
-interface Ctx {
-  container: GTMContainer | null;
-  setContainer: (c: GTMContainer | null) => void;
-}
+const ContainerContext = createContext(null);
 
-const ContainerContext = createContext<Ctx>({
-  container: null,
-  setContainer: () => {},
-});
+export function ContainerProvider({ children }) {
+  const [container, setContainer] = useState(null);
 
-export function useContainer() {
-  return useContext(ContainerContext);
-}
+  // 🔹 Ripristino automatico all'avvio
+  useEffect(() => {
+    const saved = localStorage.getItem("gtmContainer");
+    if (saved) {
+      try {
+        setContainer(JSON.parse(saved));
+        console.log("✅ Container ripristinato da LocalStorage");
+      } catch {
+        console.error("❌ Errore nel ripristino del container salvato.");
+      }
+    }
+  }, []);
 
-export function ContainerProvider({ children }: { children: React.ReactNode }) {
-  const [container, setContainer] = useState<GTMContainer | null>(null);
+  // 🔹 Salvataggio automatico
+  useEffect(() => {
+    if (container) {
+      localStorage.setItem("gtmContainer", JSON.stringify(container));
+    } else {
+      localStorage.removeItem("gtmContainer");
+    }
+  }, [container]);
+
   return (
     <ContainerContext.Provider value={{ container, setContainer }}>
       {children}
     </ContainerContext.Provider>
   );
+}
+
+export function useContainer() {
+  return useContext(ContainerContext);
 }
