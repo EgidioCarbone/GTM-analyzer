@@ -1,5 +1,7 @@
+// src/components/ItemList.tsx
+
 import React, { useState } from "react";
-import { Info, Sparkles } from "lucide-react";
+import { typeIcons } from "../utils/iconMap";
 import DetailsModal from "./DetailsModal";
 
 export default function ItemList({
@@ -9,82 +11,139 @@ export default function ItemList({
   items: any[];
   type: "tag" | "trigger" | "variable";
 }) {
-  const [selected, setSelected] = useState<any | null>(null);
-  const [searchTerm, setSearchTerm] = useState("");
+  const [search, setSearch] = useState("");
+  const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
+  const [showUA, setShowUA] = useState(false);
+  const [showPaused, setShowPaused] = useState(false);
+  const [detail, setDetail] = useState<any | null>(null);
 
-  const explain = (item: any) => {
-    if (type === "tag") {
-      return `🔖 Tag tipo "${item.type}" con trigger ${item.triggerId?.join(", ") ?? "–"}`;
-    }
-    if (type === "trigger") {
-      return `⚡ Trigger attivo quando ${item.filter
-        ?.map((f: any) => `${f.type} ${f.value}`)
-        .join(" e ") || "-"}`;
-    }
-    return `📦 Variabile di tipo "${item.type}"`;
+  const typesFound = Array.from(new Set(items.map((i) => i.type).filter(Boolean)));
+
+  const toggleType = (t: string) => {
+    setSelectedTypes((prev) =>
+      prev.includes(t) ? prev.filter((p) => p !== t) : [...prev, t]
+    );
   };
 
-  const filteredItems = items.filter((item) => {
-    const name = item.name ?? "";
-    const id = item.tagId || item.triggerId || item.variableId || "";
-    return (
-      name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      id.toString().includes(searchTerm)
-    );
+  const filtered = items.filter((i) => {
+    const matchesSearch =
+      i.name?.toLowerCase().includes(search.toLowerCase()) ||
+      i.type?.toLowerCase().includes(search.toLowerCase()) ||
+      String(i[type + "Id"])?.includes(search);
+    const matchesType =
+      selectedTypes.length === 0 || selectedTypes.includes(i.type);
+    const matchesUA = !showUA || i.type === "ua";
+    const matchesPaused = !showPaused || i.paused === true;
+    return matchesSearch && matchesType && matchesUA && matchesPaused;
   });
 
   return (
-    <>
-      <div className="mb-4">
+    <div className="flex flex-col md:flex-row gap-6">
+      {/* Sidebar filtri */}
+      <div className="md:w-64 shrink-0 bg-white rounded-lg shadow p-4">
+        <h2 className="text-sm font-semibold mb-2">Filtra per tipo</h2>
+        <div className="space-y-1 mb-4">
+          {typesFound.map((t) => (
+            <label key={t} className="flex items-center gap-2 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={selectedTypes.includes(t)}
+                onChange={() => toggleType(t)}
+              />
+              {typeIcons[t] ?? <span>🏷️</span>}
+              <span>{t}</span>
+            </label>
+          ))}
+        </div>
+
+        {type === "tag" && (
+          <>
+            <h2 className="text-sm font-semibold mt-4 mb-2">Potenzialmente eliminabili</h2>
+            <div className="space-y-1">
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={showUA}
+                  onChange={() => setShowUA(!showUA)}
+                />
+                <span>🛑 UA (obsoleti)</span>
+              </label>
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={showPaused}
+                  onChange={() => setShowPaused(!showPaused)}
+                />
+                <span>⏸️ In pausa</span>
+              </label>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Main area */}
+      <div className="flex-1 space-y-4">
         <input
           type="text"
-          placeholder={`🔍 Cerca ${type}...`}
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring focus:border-[#FF6B35]"
+          placeholder="🔍 Cerca per nome, tipo o ID..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="border rounded px-4 py-2 w-full"
         />
+
+        {filtered.length === 0 ? (
+          <p className="text-gray-500 text-sm">Nessun elemento trovato.</p>
+        ) : (
+          <div className="space-y-2">
+            {filtered.map((i) => (
+              <div
+                key={i[type + "Id"]}
+                className="bg-white rounded shadow p-4 flex justify-between items-center hover:bg-gray-50 transition"
+              >
+                <div className="flex items-center gap-2">
+                  {typeIcons[i.type] ?? <span>🏷️</span>}
+                  <div>
+                    <h3 className="font-semibold flex items-center gap-2">
+                      {i.name || "(senza nome)"}
+                      {type === "tag" && i.type === "ua" && (
+                        <span className="bg-blue-100 text-blue-800 text-xs px-2 py-0.5 rounded-full">
+                          UA
+                        </span>
+                      )}
+                      {type === "tag" && i.paused && (
+                        <span className="bg-yellow-100 text-yellow-800 text-xs px-2 py-0.5 rounded-full">
+                          Pausa
+                        </span>
+                      )}
+                    </h3>
+                    <p className="text-xs text-gray-500">
+                      ID: {i[type + "Id"]} | Tipo: {i.type}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setDetail(i)}
+                    className="px-3 py-1 text-sm bg-[#1a365d] text-white rounded hover:brightness-110"
+                  >
+                    Dettagli
+                  </button>
+                  <button
+                    onClick={() => alert(`Analisi AI per ${i.name}`)}
+                    className="px-3 py-1 text-sm bg-[#FF6B35] text-white rounded hover:brightness-110"
+                  >
+                    AI
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
-      {filteredItems.length === 0 && (
-        <p className="text-gray-500 text-sm">Nessun risultato trovato.</p>
+      {detail && (
+        <DetailsModal item={detail} onClose={() => setDetail(null)} />
       )}
-
-      <div className="space-y-4">
-        {filteredItems.map((item, index) => {
-          const id = item.tagId || item.triggerId || item.variableId || index;
-          return (
-            <div
-              key={id}
-              className="bg-white rounded-xl shadow p-4 flex justify-between items-center hover:shadow-md transition"
-            >
-              <div>
-                <h3 className="font-semibold">
-                  {item.name ?? "(senza nome)"}
-                </h3>
-                <p className="text-xs text-gray-500">ID: {id}</p>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setSelected(item)}
-                  className="px-3 py-1.5 rounded bg-[#1a365d] text-white text-sm flex items-center gap-1"
-                >
-                  <Info className="w-4 h-4" /> Dettagli
-                </button>
-                <button
-                  onClick={() => alert(explain(item))}
-                  className="px-3 py-1.5 rounded bg-[#FF6B35] text-white text-sm flex items-center gap-1"
-                >
-                  <Sparkles className="w-4 h-4" /> AI
-                </button>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {selected && (
-        <DetailsModal item={selected} onClose={() => setSelected(null)} />
-      )}
-    </>
+    </div>
   );
 }

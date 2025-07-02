@@ -1,9 +1,11 @@
+// src/pages/TagsPage.tsx
+
 import React from "react";
 import { useContainer } from "../context/ContainerContext";
-import TagSection from "../components/TagSection";
+import ItemList from "../components/ItemList";
 
 export default function TagsPage() {
-  const { container, setContainer } = useContainer();
+  const { container } = useContainer();
 
   if (!container) {
     return (
@@ -14,12 +16,9 @@ export default function TagsPage() {
   }
 
   return (
-    <TagSection
-      tags={container.tag ?? []}
-      triggers={container.trigger ?? []}
-      updateTags={(newTags) =>
-        setContainer({ ...container, tag: newTags })
-      }
+    <ItemList
+      items={container.tag ?? []}
+      type="tag"
     />
   );
 }
