@@ -40,11 +40,13 @@ export default function ItemList({
   return (
     <div className="flex flex-col md:flex-row gap-6">
       {/* Sidebar filtri */}
-      <div className="md:w-64 shrink-0 bg-white rounded-lg shadow p-4">
-        <h2 className="text-sm font-semibold mb-2">Filtra per tipo</h2>
+      <div className="md:w-64 shrink-0 bg-white dark:bg-gray-800 rounded-lg shadow p-4">
+        <h2 className="text-sm font-semibold mb-2 text-gray-900 dark:text-gray-100">
+          Filtra per tipo
+        </h2>
         <div className="space-y-1 mb-4">
           {typesFound.map((t) => (
-            <label key={t} className="flex items-center gap-2 text-sm cursor-pointer">
+            <label key={t} className="flex items-center gap-2 text-sm cursor-pointer text-gray-700 dark:text-gray-200">
               <input
                 type="checkbox"
                 checked={selectedTypes.includes(t)}
@@ -58,9 +60,11 @@ export default function ItemList({
 
         {type === "tag" && (
           <>
-            <h2 className="text-sm font-semibold mt-4 mb-2">Potenzialmente eliminabili</h2>
+            <h2 className="text-sm font-semibold mt-4 mb-2 text-gray-900 dark:text-gray-100">
+              Potenzialmente eliminabili
+            </h2>
             <div className="space-y-1">
-              <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <label className="flex items-center gap-2 text-sm cursor-pointer text-gray-700 dark:text-gray-200">
                 <input
                   type="checkbox"
                   checked={showUA}
@@ -68,7 +72,7 @@ export default function ItemList({
                 />
                 <span>🛑 UA (obsoleti)</span>
               </label>
-              <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <label className="flex items-center gap-2 text-sm cursor-pointer text-gray-700 dark:text-gray-200">
                 <input
                   type="checkbox"
                   checked={showPaused}
@@ -88,35 +92,37 @@ export default function ItemList({
           placeholder="🔍 Cerca per nome, tipo o ID..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="border rounded px-4 py-2 w-full"
+          className="border rounded px-4 py-2 w-full dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100"
         />
 
         {filtered.length === 0 ? (
-          <p className="text-gray-500 text-sm">Nessun elemento trovato.</p>
+          <p className="text-gray-500 dark:text-gray-400 text-sm">
+            Nessun elemento trovato.
+          </p>
         ) : (
           <div className="space-y-2">
             {filtered.map((i) => (
               <div
                 key={i[type + "Id"]}
-                className="bg-white rounded shadow p-4 flex justify-between items-center hover:bg-gray-50 transition"
+                className="bg-white dark:bg-gray-800 rounded shadow p-4 flex justify-between items-center hover:bg-gray-50 dark:hover:bg-gray-700 transition"
               >
                 <div className="flex items-center gap-2">
                   {typeIcons[i.type] ?? <span>🏷️</span>}
                   <div>
-                    <h3 className="font-semibold flex items-center gap-2">
+                    <h3 className="font-semibold flex items-center gap-2 text-gray-900 dark:text-gray-100">
                       {i.name || "(senza nome)"}
                       {type === "tag" && i.type === "ua" && (
-                        <span className="bg-blue-100 text-blue-800 text-xs px-2 py-0.5 rounded-full">
+                        <span className="bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 text-xs px-2 py-0.5 rounded-full">
                           UA
                         </span>
                       )}
                       {type === "tag" && i.paused && (
-                        <span className="bg-yellow-100 text-yellow-800 text-xs px-2 py-0.5 rounded-full">
+                        <span className="bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-200 text-xs px-2 py-0.5 rounded-full">
                           Pausa
                         </span>
                       )}
                     </h3>
-                    <p className="text-xs text-gray-500">
+                    <p className="text-xs text-gray-500 dark:text-gray-300">
                       ID: {i[type + "Id"]} | Tipo: {i.type}
                     </p>
                   </div>

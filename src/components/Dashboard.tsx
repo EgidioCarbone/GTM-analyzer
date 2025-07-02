@@ -57,7 +57,7 @@ export default function Dashboard({ data, onReplace }) {
     <div className="space-y-10">
       {/* Header */}
       <div className="flex flex-wrap justify-between items-center gap-4">
-        <h1 className="text-2xl md:text-3xl font-bold text-[#1a365d] flex items-center gap-2">
+        <h1 className="text-2xl md:text-3xl font-bold text-[#1a365d] dark:text-orange-300 flex items-center gap-2">
           📊 Dashboard del contenitore
         </h1>
         <button
@@ -77,8 +77,10 @@ export default function Dashboard({ data, onReplace }) {
 
       {/* Charts */}
       <div className="grid gap-6 lg:grid-cols-2">
-        <div className="bg-white p-6 rounded-xl shadow hover:shadow-lg transition min-h-[320px]">
-          <h2 className="text-lg font-semibold mb-3">📈 Distribuzione tipi di tag</h2>
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow hover:shadow-lg transition min-h-[320px]">
+          <h2 className="text-lg font-semibold mb-3 text-gray-900 dark:text-gray-100">
+            📈 Distribuzione tipi di tag
+          </h2>
           {pieData.length ? (
             <ResponsiveContainer width="100%" height={250}>
               <PieChart>
@@ -95,13 +97,15 @@ export default function Dashboard({ data, onReplace }) {
           )}
         </div>
 
-        <div className="bg-white p-6 rounded-xl shadow hover:shadow-lg transition min-h-[320px]">
-          <h2 className="text-lg font-semibold mb-3">🏆 Classifica tipi di tag (Top 5)</h2>
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow hover:shadow-lg transition min-h-[320px]">
+          <h2 className="text-lg font-semibold mb-3 text-gray-900 dark:text-gray-100">
+            🏆 Classifica tipi di tag (Top 5)
+          </h2>
           <ResponsiveContainer width="100%" height={250}>
             <BarChart data={topBarData} layout="vertical">
               <CartesianGrid strokeDasharray="3 3" />
-              <XAxis type="number" />
-              <YAxis dataKey="name" type="category" width={160} />
+              <XAxis type="number" stroke="#888" />
+              <YAxis dataKey="name" type="category" width={160} stroke="#888" />
               <Tooltip />
               <Legend />
               <Bar dataKey="value" fill="#1a365d" radius={[0, 6, 6, 0]} isAnimationActive />
@@ -111,9 +115,11 @@ export default function Dashboard({ data, onReplace }) {
       </div>
 
       {/* Container Quality */}
-      <div className="bg-white p-6 rounded-xl shadow hover:shadow-lg transition">
-        <h2 className="text-lg font-semibold mb-2">🩺 Qualità del container</h2>
-        <ul className="list-disc pl-5 text-sm text-gray-700 space-y-1">
+      <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow hover:shadow-lg transition">
+        <h2 className="text-lg font-semibold mb-2 text-gray-900 dark:text-gray-100">
+          🩺 Qualità del container
+        </h2>
+        <ul className="list-disc pl-5 text-sm text-gray-700 dark:text-gray-300 space-y-1">
           <li>{pausedTags} tag in pausa</li>
           <li>{unusedVariables} variabili non usate</li>
           <li>{uaTags} tag Universal Analytics (obsoleti)</li>
@@ -122,10 +128,10 @@ export default function Dashboard({ data, onReplace }) {
             <span
               className={
                 quality === "Ottimo"
-                  ? "text-green-600 font-semibold"
+                  ? "text-green-600 dark:text-green-400 font-semibold"
                   : quality === "Buono"
-                  ? "text-yellow-600 font-semibold"
-                  : "text-red-600 font-semibold"
+                  ? "text-yellow-600 dark:text-yellow-400 font-semibold"
+                  : "text-red-600 dark:text-red-400 font-semibold"
               }
             >
               {quality}
@@ -139,9 +145,9 @@ export default function Dashboard({ data, onReplace }) {
 
 function Card({ title, value }) {
   return (
-    <div className="bg-white rounded-xl shadow p-6 text-center transform hover:-translate-y-1 hover:shadow-lg transition">
-      <div className="text-4xl font-bold text-[#1a365d]">{value}</div>
-      <div className="mt-1 text-sm text-gray-600">{title}</div>
+    <div className="bg-white dark:bg-gray-800 rounded-xl shadow p-6 text-center transform hover:-translate-y-1 hover:shadow-lg transition">
+      <div className="text-4xl font-bold text-[#1a365d] dark:text-orange-300">{value}</div>
+      <div className="mt-1 text-sm text-gray-600 dark:text-gray-300">{title}</div>
     </div>
   );
 }

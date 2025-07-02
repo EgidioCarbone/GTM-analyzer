@@ -1,12 +1,7 @@
+// tailwind.config.js
 export default {
-  content: ["./index.html", "./src/**/*.{ts,tsx}"],
-  theme: {
-    extend: {
-      colors: {
-        primary: "#1a365d",
-        accent: "#FF6B35"
-      }
-    }
-  },
-  plugins: []
+  darkMode: "class",                // <-- ESSENZIALE!
+  content: ["./index.html", "./src/**/*.{js,ts,jsx,tsx}"],
+  theme: { extend: {} },
+  plugins: [],
 };

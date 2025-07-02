@@ -1,3 +1,5 @@
+// src/components/TagSection.tsx
+
 import React, { useState } from "react";
 import { Info, Sparkles, Trash2, ChevronDown, ChevronUp } from "lucide-react";
 import DetailsModal from "./DetailsModal";
@@ -54,7 +56,7 @@ export default function TagSection({
           placeholder="🔍 Cerca tag..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
-          className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring focus:border-[#FF6B35]"
+          className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring focus:border-[#FF6B35] dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100"
         />
       </div>
 
@@ -67,9 +69,12 @@ export default function TagSection({
         if (filteredData.length === 0) return null;
 
         return (
-          <div key={id} className="mb-4 border rounded-xl bg-white shadow">
+          <div
+            key={id}
+            className="mb-4 border rounded-xl bg-white dark:bg-gray-800 shadow"
+          >
             <button
-              className="w-full px-4 py-3 flex justify-between items-center font-semibold text-[#1a365d]"
+              className="w-full px-4 py-3 flex justify-between items-center font-semibold text-[#1a365d] dark:text-gray-100"
               onClick={() => setOpen(open === label ? null : label)}
             >
               <span>{emoji} {label}</span>
@@ -85,28 +90,32 @@ export default function TagSection({
                 {filteredData.map((t: any, i: number) => (
                   <div
                     key={i}
-                    className="flex justify-between items-center p-4 hover:bg-gray-50 transition"
+                    className="flex justify-between items-center p-4 hover:bg-gray-50 dark:hover:bg-gray-700 transition"
                   >
                     <div>
-                      <h3 className="font-semibold">{t.name || "(senza nome)"}</h3>
-                      <p className="text-xs text-gray-500">ID: {t.tagId}</p>
+                      <h3 className="font-semibold text-gray-900 dark:text-gray-100">
+                        {t.name || "(senza nome)"}
+                      </h3>
+                      <p className="text-xs text-gray-500 dark:text-gray-300">
+                        ID: {t.tagId}
+                      </p>
                     </div>
                     <div className="flex gap-2">
                       <button
                         onClick={() => setDetail(t)}
-                        className="px-3 py-1.5 rounded bg-[#1a365d] text-white text-sm flex items-center gap-1"
+                        className="px-3 py-1.5 rounded bg-[#1a365d] text-white text-sm flex items-center gap-1 hover:brightness-110"
                       >
                         <Info className="w-4 h-4" /> Dettagli
                       </button>
                       <button
                         onClick={() => alert(explain(t))}
-                        className="px-3 py-1.5 rounded bg-[#FF6B35] text-white text-sm flex items-center gap-1"
+                        className="px-3 py-1.5 rounded bg-[#FF6B35] text-white text-sm flex items-center gap-1 hover:brightness-110"
                       >
                         <Sparkles className="w-4 h-4" /> AI
                       </button>
                       <button
                         onClick={() => handleDelete(t)}
-                        className="px-3 py-1.5 rounded bg-red-600 text-white text-sm flex items-center gap-1"
+                        className="px-3 py-1.5 rounded bg-red-600 text-white text-sm flex items-center gap-1 hover:brightness-110"
                       >
                         <Trash2 className="w-4 h-4" /> Elimina
                       </button>
