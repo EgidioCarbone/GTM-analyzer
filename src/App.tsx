@@ -9,6 +9,7 @@ import PlanPage from "./pages/PlanPage";
 import TestingPage from "./pages/TestingPage";
 import { useContainer } from "./context/ContainerContext";
 import { Toaster, toast } from "react-hot-toast";
+import MigrationPage from "./pages/MigrationPage";
 
 export default function App() {
   const { container } = useContainer();
@@ -41,6 +42,7 @@ export default function App() {
           <Route path="/variables" element={<VariablesPage />} />
           <Route path="/plan" element={<PlanPage />} />
           <Route path="/testing" element={<TestingPage />} />
+          <Route path="/migration" element={<MigrationPage />} />
           <Route path="*" element={<Navigate to="/dashboard" />} />
         </Routes>
       </main>
