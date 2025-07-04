@@ -1,31 +1,32 @@
 import {
-  Braces,
-  Code,
   Tag,
+  Braces,
+  Hash,
+  Cookie,
+  Settings,
+  Code,
+  Layers,
   Zap,
-  Boxes,
   ActivitySquare,
 } from "lucide-react";
 
 /**
  * Mappa tipo → icona JSX
- * Per i tipi speciali delle variabili (c, k, gas, jsm, v)
- * uso una semplice lettera monospace racchiusa in uno span.
  */
 export const typeIcons: Record<string, JSX.Element> = {
-  // TAG
+  /* Tag */
   ua: <Tag className="w-4 h-4" />,
-  googtag: <Tag className="w-4 h-4" />,
+  googtag: <ActivitySquare className="w-4 h-4" />,
   html: <Braces className="w-4 h-4" />,
   ga4: <ActivitySquare className="w-4 h-4" />,
 
-  // VARIABILI
-  c: <span className="font-mono text-xs">C</span>, // Constant
-  k: <span className="font-mono text-xs">K</span>, // Cookie
-  gas: <Zap className="w-4 h-4" />,               // GA Settings
-  jsm: <Code className="w-4 h-4" />,              // JS Macro
-  v: <Boxes className="w-4 h-4" />,               // DL Variable
+  /* Variabili */
+  c: <Hash className="w-4 h-4" />,
+  k: <Cookie className="w-4 h-4" />,
+  gas: <Settings className="w-4 h-4" />,
+  jsm: <Code className="w-4 h-4" />,
+  v: <Layers className="w-4 h-4" />,
 
-  // fallback
+  /* Fallback */
   default: <Tag className="w-4 h-4" />,
 };

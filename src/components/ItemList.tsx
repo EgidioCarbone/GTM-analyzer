@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { typeIcons } from "../utils/iconMap";
+import { typeLabels } from "../utils/typeLabels";
 import DetailsModal from "./DetailsModal";
 import ConfirmModal from "./ConfirmModal";
 import { getUsedVariableNames } from "../utils/getUsedVariableNames";
@@ -115,7 +116,7 @@ export default function ItemList({
               {typesFound.map((t) => (
                 <label
                   key={t}
-                  className="flex items-center gap-2 text-sm capitalize"
+                  className="flex items-center gap-2 text-sm"
                 >
                   <input
                     type="checkbox"
@@ -129,7 +130,7 @@ export default function ItemList({
                     }
                   />
                   {typeIcons[t] ?? typeIcons.default}
-                  <span>{t}</span>
+                  <span>{typeLabels[t] ?? t}</span>
                 </label>
               ))}
             </div>
@@ -223,7 +224,6 @@ export default function ItemList({
                   >
                     {/* checkbox + info */}
                     <div className="flex items-center gap-3">
-                      {/* checkbox */}
                       <input
                         type="checkbox"
                         checked={isChecked}
@@ -231,7 +231,6 @@ export default function ItemList({
                         className="w-4 h-4"
                       />
 
-                      {/* icona + testo */}
                       {typeIcons[i.type] ?? typeIcons.default}
 
                       <div>
@@ -255,7 +254,7 @@ export default function ItemList({
                             )}
                         </h3>
                         <p className="text-xs text-gray-500">
-                          ID: {i[idKey]} | Tipo: {i.type}
+                          ID: {i[idKey]} | Tipo: {typeLabels[i.type] ?? i.type}
                         </p>
                       </div>
                     </div>
@@ -291,10 +290,9 @@ export default function ItemList({
         </div>
       </div>
 
-      {/* modale dettaglio */}
+      {/* modali */}
       {detail && <DetailsModal item={detail} onClose={() => setDetail(null)} />}
 
-      {/* modale singola eliminazione */}
       {itemToDelete && (
         <ConfirmModal
           title="Elimina elemento"
@@ -307,7 +305,6 @@ export default function ItemList({
         />
       )}
 
-      {/* modale bulk eliminazione */}
       {bulkModal && (
         <ConfirmModal
           title="Elimina elementi"
