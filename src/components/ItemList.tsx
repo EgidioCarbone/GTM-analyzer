@@ -13,10 +13,8 @@ export default function ItemList({
   items: any[];
   type: "tag" | "trigger" | "variable";
 }) {
-  /* ───────── State globale ───────── */
   const { container, setContainer } = useContainer();
 
-  /* ───────── State locale UI ───────── */
   const [search, setSearch] = useState("");
   const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
   const [showUA, setShowUA] = useState(false);
@@ -26,45 +24,33 @@ export default function ItemList({
   const [detail, setDetail] = useState<any | null>(null);
   const [itemToDelete, setItemToDelete] = useState<any | null>(null);
 
-  /* multi-selezione */
-  const [selectedRows, setSelectedRows] = useState<Set<string | number>>(
-    new Set()
-  );
+  const [selectedRows, setSelectedRows] = useState<Set<string | number>>(new Set());
   const [bulkModal, setBulkModal] = useState(false);
 
-  /* ───────── Derivazioni ───────── */
   const idKey = type + "Id" as const;
 
-  const typesFound = Array.from(
-    new Set(items.map((i) => i.type).filter(Boolean))
-  ).sort();
+  const typesFound = Array.from(new Set(items.map((i) => i.type).filter(Boolean))).sort();
 
-  /* variabili usate */
   const usedVarNames = useMemo(() => {
     if (!container || type !== "variable") return new Set<string>();
     return getUsedVariableNames(container);
   }, [container, type]);
 
-  /* filtro completo */
   const filtered = items.filter((i) => {
     const searchMatch =
       (i.name ?? "").toLowerCase().includes(search.toLowerCase()) ||
       (i.type ?? "").toLowerCase().includes(search.toLowerCase()) ||
       String(i[idKey] ?? "").includes(search);
 
-    const typeMatch =
-      selectedTypes.length === 0 || selectedTypes.includes(i.type);
-
+    const typeMatch = selectedTypes.length === 0 || selectedTypes.includes(i.type);
     const uaMatch = !showUA || i.type === "ua";
     const pausedMatch = !showPaused || i.paused === true;
-
     const isUnused = type === "variable" && !usedVarNames.has(i.name ?? "");
     const unusedMatch = !showUnused || isUnused;
 
     return searchMatch && typeMatch && uaMatch && pausedMatch && unusedMatch;
   });
 
-  /* ───────── Helper ───────── */
   const toggleRow = (id: string | number) =>
     setSelectedRows((prev) => {
       const next = new Set(prev);
@@ -74,58 +60,49 @@ export default function ItemList({
 
   const confirmSingleDelete = () => {
     if (!container || !itemToDelete) return;
-
     const updated = {
       ...container,
-      [type]: (container as any)[type].filter(
-        (el: any) => el[idKey] !== itemToDelete[idKey]
-      ),
+      [type]: (container as any)[type].filter((el: any) => el[idKey] !== itemToDelete[idKey]),
     };
-
     setContainer(updated);
     setItemToDelete(null);
   };
 
   const confirmBulkDelete = () => {
     if (!container || selectedRows.size === 0) return;
-
     const updated = {
       ...container,
-      [type]: (container as any)[type].filter(
-        (el: any) => !selectedRows.has(el[idKey])
-      ),
+      [type]: (container as any)[type].filter((el: any) => !selectedRows.has(el[idKey])),
     };
-
     setContainer(updated);
     setSelectedRows(new Set());
     setBulkModal(false);
   };
 
-  /* ───────── UI ───────── */
+  const handleSelectAllToggle = () => {
+    if (selectedRows.size === filtered.length) {
+      setSelectedRows(new Set());
+    } else {
+      setSelectedRows(new Set(filtered.map((i) => i[idKey])));
+    }
+  };
 
   return (
     <>
       <div className="flex flex-col md:flex-row gap-6">
-        {/* ───────── Sidebar filtri ───────── */}
+        {/* Sidebar */}
         <div className="md:w-64 shrink-0 bg-white rounded shadow p-4 space-y-6">
-          {/* TIPI */}
           {typesFound.length > 0 && (
             <div className="space-y-2">
               <h3 className="text-sm font-semibold text-gray-700">Tipi</h3>
-
               {typesFound.map((t) => (
-                <label
-                  key={t}
-                  className="flex items-center gap-2 text-sm"
-                >
+                <label key={t} className="flex items-center gap-2 text-sm">
                   <input
                     type="checkbox"
                     checked={selectedTypes.includes(t)}
                     onChange={() =>
                       setSelectedTypes((prev) =>
-                        prev.includes(t)
-                          ? prev.filter((p) => p !== t)
-                          : [...prev, t]
+                        prev.includes(t) ? prev.filter((p) => p !== t) : [...prev, t]
                       )
                     }
                   />
@@ -136,22 +113,13 @@ export default function ItemList({
             </div>
           )}
 
-          {/* TAG specifici */}
           {type === "tag" && (
             <div className="space-y-2">
-              <h3 className="text-sm font-semibold text-gray-700">
-                Potenzialmente eliminabili
-              </h3>
-
+              <h3 className="text-sm font-semibold text-gray-700">Potenzialmente eliminabili</h3>
               <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={showUA}
-                  onChange={() => setShowUA(!showUA)}
-                />
+                <input type="checkbox" checked={showUA} onChange={() => setShowUA(!showUA)} />
                 <span>UA (obsoleti)</span>
               </label>
-
               <label className="flex items-center gap-2 text-sm">
                 <input
                   type="checkbox"
@@ -163,12 +131,9 @@ export default function ItemList({
             </div>
           )}
 
-          {/* VARIABILI non usate */}
           {type === "variable" && (
             <div className="space-y-2">
-              <h3 className="text-sm font-semibold text-gray-700">
-                Extra filtri
-              </h3>
+              <h3 className="text-sm font-semibold text-gray-700">Extra filtri</h3>
               <label className="flex items-center gap-2 text-sm">
                 <input
                   type="checkbox"
@@ -181,7 +146,7 @@ export default function ItemList({
           )}
         </div>
 
-        {/* ───────── Area lista ───────── */}
+        {/* Main */}
         <div className="flex-1 space-y-4">
           <input
             type="text"
@@ -191,15 +156,21 @@ export default function ItemList({
             className="border rounded px-4 py-2 w-full"
           />
 
-          {/* barra eliminazione multipla */}
+          {filtered.length > 0 && (
+            <button
+              onClick={handleSelectAllToggle}
+              className="px-3 py-1 text-sm rounded border border-gray-300 hover:bg-gray-100"
+            >
+              {selectedRows.size === filtered.length ? "Deseleziona tutto" : "Seleziona tutto"}
+            </button>
+          )}
+
           {selectedRows.size > 0 && (
             <div className="flex items-center justify-between bg-red-50 border border-red-200 p-3 rounded">
               <span className="text-sm">
-                {selectedRows.size} elemento
-                {selectedRows.size > 1 && "i"} selezionato
+                {selectedRows.size} elemento{selectedRows.size > 1 && "i"} selezionato
                 {selectedRows.size > 1 && "i"}
               </span>
-
               <button
                 onClick={() => setBulkModal(true)}
                 className="px-3 py-1 text-sm bg-red-600 text-white rounded hover:brightness-110"
@@ -222,7 +193,6 @@ export default function ItemList({
                       isChecked ? "ring-1 ring-offset-2 ring-red-400" : ""
                     }`}
                   >
-                    {/* checkbox + info */}
                     <div className="flex items-center gap-3">
                       <input
                         type="checkbox"
@@ -230,9 +200,7 @@ export default function ItemList({
                         onChange={() => toggleRow(i[idKey])}
                         className="w-4 h-4"
                       />
-
                       {typeIcons[i.type] ?? typeIcons.default}
-
                       <div>
                         <h3 className="font-semibold flex items-center gap-2">
                           {i.name || "(senza nome)"}
@@ -259,7 +227,6 @@ export default function ItemList({
                       </div>
                     </div>
 
-                    {/* CTA singole */}
                     <div className="flex gap-2">
                       <button
                         onClick={() => setDetail(i)}
@@ -267,14 +234,12 @@ export default function ItemList({
                       >
                         Dettagli
                       </button>
-
                       <button
                         onClick={() => alert(`Analisi AI per ${i.name}`)}
                         className="px-3 py-1 text-sm bg-[#FF6B35] text-white rounded hover:brightness-110"
                       >
                         AI
                       </button>
-
                       <button
                         onClick={() => setItemToDelete(i)}
                         className="px-3 py-1 text-sm bg-red-600 text-white rounded hover:brightness-110"
@@ -290,9 +255,7 @@ export default function ItemList({
         </div>
       </div>
 
-      {/* modali */}
       {detail && <DetailsModal item={detail} onClose={() => setDetail(null)} />}
-
       {itemToDelete && (
         <ConfirmModal
           title="Elimina elemento"
@@ -304,7 +267,6 @@ export default function ItemList({
           onCancel={() => setItemToDelete(null)}
         />
       )}
-
       {bulkModal && (
         <ConfirmModal
           title="Elimina elementi"
