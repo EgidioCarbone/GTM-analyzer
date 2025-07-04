@@ -60,12 +60,6 @@ export default function Dashboard({ data, onReplace }) {
         <h1 className="text-2xl md:text-3xl font-bold text-[#1a365d] dark:text-orange-300 flex items-center gap-2">
           📊 Dashboard del contenitore
         </h1>
-        <button
-          onClick={onReplace}
-          className="px-4 py-2 bg-[#FF6B35] text-white rounded-md text-sm shadow hover:brightness-110 transition"
-        >
-          Sostituisci file JSON
-        </button>
       </div>
 
       {/* Counters */}
