@@ -68,7 +68,7 @@ export default function Sidebar() {
           </>
         ) : (
           <p className="text-center text-sm text-gray-300 px-4 mt-10">
-            Carica un JSON per abilitare le sezioni
+            
           </p>
         )}
       </div>

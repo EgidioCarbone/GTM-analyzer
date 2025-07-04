@@ -19,7 +19,6 @@ export default function ConfirmModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
       <div className="bg-white rounded-lg shadow-lg max-w-sm w-full p-6 relative animate-[fadeIn_0.15s_ease-out]">
-        {/* Close */}
         <button
           onClick={onCancel}
           className="absolute top-3 right-3 p-1 rounded hover:bg-black/5"

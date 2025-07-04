@@ -1,20 +1,31 @@
-// src/utils/iconMap.tsx
+import {
+  Braces,
+  Code,
+  Tag,
+  Zap,
+  Boxes,
+  ActivitySquare,
+} from "lucide-react";
 
-import { Zap, Eye, Layers, AlertTriangle, Tag } from "lucide-react";
-import React from "react";
-
+/**
+ * Mappa tipo → icona JSX
+ * Per i tipi speciali delle variabili (c, k, gas, jsm, v)
+ * uso una semplice lettera monospace racchiusa in uno span.
+ */
 export const typeIcons: Record<string, JSX.Element> = {
-  CUSTOM_EVENT: <Zap className="w-5 h-5 text-blue-500" />,
-  PAGEVIEW: <Eye className="w-5 h-5 text-green-500" />,
-  TRIGGER_GROUP: <Layers className="w-5 h-5 text-purple-500" />,
-  JS_ERROR: <AlertTriangle className="w-5 h-5 text-red-500" />,
-  WINDOW_LOADED: <Eye className="w-5 h-5 text-yellow-500" />,
-  html: <Tag className="w-5 h-5 text-gray-500" />,
-  ua: <Tag className="w-5 h-5 text-blue-400" />,
-  googtag: <Tag className="w-5 h-5 text-green-400" />,
-  gaawe: <Tag className="w-5 h-5 text-indigo-400" />,
-};
+  // TAG
+  ua: <Tag className="w-4 h-4" />,
+  googtag: <Tag className="w-4 h-4" />,
+  html: <Braces className="w-4 h-4" />,
+  ga4: <ActivitySquare className="w-4 h-4" />,
 
-export function getTypeIcon(type: string): JSX.Element {
-  return typeIcons[type] ?? <Tag className="w-5 h-5 text-gray-400" />;
-}
+  // VARIABILI
+  c: <span className="font-mono text-xs">C</span>, // Constant
+  k: <span className="font-mono text-xs">K</span>, // Cookie
+  gas: <Zap className="w-4 h-4" />,               // GA Settings
+  jsm: <Code className="w-4 h-4" />,              // JS Macro
+  v: <Boxes className="w-4 h-4" />,               // DL Variable
+
+  // fallback
+  default: <Tag className="w-4 h-4" />,
+};
