@@ -1,13 +1,24 @@
 // src/context/ContainerContext.tsx
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  ReactNode,
+} from "react";
+import { GtmContainer } from "../types/gtm"; // ✅ importa i tipi
 
-import React, { createContext, useContext, useState, useEffect } from "react";
+type ContainerContextType = {
+  container: GtmContainer | null;
+  setContainer: (data: GtmContainer | null) => void;
+};
 
-const ContainerContext = createContext(null);
+const ContainerContext = createContext<ContainerContextType | undefined>(undefined);
 
-export function ContainerProvider({ children }) {
-  const [container, setContainer] = useState(null);
+export function ContainerProvider({ children }: { children: ReactNode }) {
+  const [container, setContainer] = useState<GtmContainer | null>(null);
 
-  // 🔹 Ripristino automatico all'avvio
+  // Ripristino automatico
   useEffect(() => {
     const saved = localStorage.getItem("gtmContainer");
     if (saved) {
@@ -20,7 +31,7 @@ export function ContainerProvider({ children }) {
     }
   }, []);
 
-  // 🔹 Salvataggio automatico
+  // Salvataggio automatico
   useEffect(() => {
     if (container) {
       localStorage.setItem("gtmContainer", JSON.stringify(container));
@@ -36,6 +47,10 @@ export function ContainerProvider({ children }) {
   );
 }
 
-export function useContainer() {
-  return useContext(ContainerContext);
+export function useContainer(): ContainerContextType {
+  const context = useContext(ContainerContext);
+  if (!context) {
+    throw new Error("useContainer must be used within a ContainerProvider");
+  }
+  return context;
 }
