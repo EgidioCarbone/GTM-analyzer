@@ -6,21 +6,21 @@ import React, {
   useEffect,
   ReactNode,
 } from "react";
-import { GtmContainer } from "../types/gtm"; // ✅ importa i tipi
+import { GenerateDocInput } from "../types/gtm"; // ✅ importa i tipi
 
 type ContainerContextType = {
-  container: GtmContainer | null;
-  setContainer: (data: GtmContainer | null) => void;
+  container: GenerateDocInput | null;
+  setContainer: (data: GenerateDocInput | null) => void;
 };
 
 const ContainerContext = createContext<ContainerContextType | undefined>(undefined);
 
 export function ContainerProvider({ children }: { children: ReactNode }) {
-  const [container, setContainer] = useState<GtmContainer | null>(null);
+  const [container, setContainer] = useState<GenerateDocInput | null>(null);
 
   // Ripristino automatico
   useEffect(() => {
-    const saved = localStorage.getItem("gtmContainer");
+    const saved = localStorage.getItem("GenerateDocInput");
     if (saved) {
       try {
         setContainer(JSON.parse(saved));
