@@ -9,7 +9,7 @@ import { useContainer } from "../context/ContainerContext";
 import { analyzeGtmSection } from "../services/generateMeasurementDoc";
 import { renderMeasurementDoc } from "../services/renderMeasurementDoc";
 
-/* componenti UI locali (no alias) */
+/* componenti UI locali */
 import { Card, CardContent } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { ScrollArea } from "../components/ui/scroll-area";
@@ -31,7 +31,6 @@ export default function PlanPage() {
 
   const [loading, setLoading] = useState(false);
 
-  /* restore da localStorage */
   useEffect(() => {
     const saved = localStorage.getItem("gtmAnalyzerPreview");
     if (saved) {
@@ -40,7 +39,6 @@ export default function PlanPage() {
     }
   }, []);
 
-  /* pulizia markdown (rimuove intestazioni duplicate) */
   const cleanMarkdown = (md: string) =>
     md
       .split("\n")
@@ -56,7 +54,6 @@ export default function PlanPage() {
     <Loader2 className="h-4 w-4 animate-spin inline-block ml-1" />
   );
 
-  /* rigenera piano */
   const handleExport = async () => {
     if (!container) {
       toast.error("Carica prima un container GTM!");
@@ -126,7 +123,6 @@ ${cleaned.variables}
     }
   };
 
-  /* reset anteprima */
   const clearPreview = () => {
     localStorage.removeItem("gtmAnalyzerPreview");
     setPreview({});
@@ -134,7 +130,6 @@ ${cleaned.variables}
     toast("Anteprima resettata.", { icon: "✅" });
   };
 
-  /* ----------------------------------------------------- */
   return (
     <div className="p-6 flex flex-col gap-6 max-w-4xl mx-auto">
       <h1 className="text-2xl font-bold flex items-center gap-2">
@@ -143,8 +138,8 @@ ${cleaned.variables}
       </h1>
 
       <p className="text-gray-600">
-        Analizza il container GTM con l'intelligenza artificiale, identifica
-        criticità e genera un documento professionale da consegnare.
+        Analizza automaticamente il container GTM con l'intelligenza artificiale,
+        identifica criticità e genera un documento pronto da consegnare.
       </p>
 
       <div className="flex gap-4">
@@ -161,9 +156,9 @@ ${cleaned.variables}
             </>
           )}
         </Button>
-
         <Button onClick={clearPreview} variant="outline">
-          <RefreshCcw className="mr-2 h-4 w-4" /> Resetta anteprima
+          <RefreshCcw className="mr-2 h-4 w-4" />
+          Resetta anteprima
         </Button>
       </div>
 
@@ -191,24 +186,47 @@ ${cleaned.variables}
               </Tab>
             ))}
           </Tab.List>
-
-          <Tab.Panels className="animate-fade-in">
+          <Tab.Panels>
             {(["tags", "triggers", "variables"] as const).map((type) => (
               <Tab.Panel key={type}>
                 {preview[type] ? (
-                  <ScrollArea>
-                    <Card>
-                      <CardContent className="prose max-w-none">
-                        <Markdown remarkPlugins={[remarkGfm]}>
+                  <ScrollArea className="rounded-lg border bg-white shadow p-4 max-h-[70vh]">
+                    <Card className="bg-gray-50 border border-gray-200 shadow-sm">
+                      <CardContent className="p-4">
+                        <div className="prose prose-sm md:prose-base max-w-none">
+                        <Markdown
+                          remarkPlugins={[remarkGfm]}
+                          components={{
+                            table: ({ children }) => (
+                              <table className="min-w-full divide-y divide-gray-200 text-sm">
+                                {children}
+                              </table>
+                            ),
+                            th: ({ children }) => (
+                              <th className="px-4 py-2 text-left font-semibold bg-gray-100 text-gray-700">
+                                {children}
+                              </th>
+                            ),
+                            td: ({ children }) => (
+                              <td className="px-4 py-2 border-t border-gray-200">
+                                {children}
+                              </td>
+                            ),
+                            tr: ({ children }) => (
+                              <tr className="hover:bg-gray-50 transition">
+                                {children}
+                              </tr>
+                            ),
+                          }}
+                        >
                           {preview[type] ?? ""}
                         </Markdown>
+                        </div>
                       </CardContent>
                     </Card>
                   </ScrollArea>
                 ) : (
-                  <p className="text-gray-500">
-                    Nessuna anteprima disponibile.
-                  </p>
+                  <p className="text-gray-500">Nessuna anteprima disponibile.</p>
                 )}
               </Tab.Panel>
             ))}
