@@ -1,3 +1,4 @@
+// src/pages/PlanPage.tsx
 import {
   Document,
   Paragraph,
@@ -13,13 +14,12 @@ import { GenerateDocInput } from "../types/gtm";
 
 export default function PlanPage() {
   const { container } = useContainer();
-
   const [clientName, setClientName] = useState("");
   const [language, setLanguage] = useState<"it" | "en">("it");
   const [loadingWord, setLoadingWord] = useState(false);
   const [previewText, setPreviewText] = useState<string>("");
 
-  const containerId = container?.container.containerId || "000000";
+  const containerId = container?.containerId || "0000000";
   const publicId = `GTM-${containerId.slice(-7)}`;
   const now = format(new Date(), "d MMMM yyyy 'alle' HH:mm");
 
@@ -27,25 +27,28 @@ export default function PlanPage() {
 
   const exportToWord = async () => {
     if (!container) return;
+    console.log("🔍 Container caricato in PlanPage:", container);
 
     setLoadingWord(true);
-    setPreviewText("");
+    setPreviewText("🧠 Generazione in corso...");
 
     try {
       const input: GenerateDocInput = {
-        container: {
-          containerId: container.container.containerId ?? "",
-          tag: container.container.tag ?? [],
-          trigger: container.container.trigger ?? [],
-          variable: container.container.variable ?? [],
-        },
+        containerId: container.containerId ?? "",
+        tag: container.tag ?? [],
+        trigger: container.trigger ?? [],
+        variable: container.variable ?? [],
         clientName,
         publicId,
         now,
         language,
-      };
+    };
+
+      console.log("📤 Chiamata generateMeasurementDoc con:", input);
 
       const docText = await generateMeasurementDoc(input);
+
+      setPreviewText(docText); // mostra anche in anteprima
 
       const paragraphs = docText.split("\n").map((line) =>
         new Paragraph({
@@ -54,13 +57,11 @@ export default function PlanPage() {
         })
       );
 
-      const doc = new Document({
-        sections: [{ children: paragraphs }],
-      });
-
+      const doc = new Document({ sections: [{ children: paragraphs }] });
       const blob = await Packer.toBlob(doc);
       saveAs(blob, `Piano_Misurazione_${publicId}.docx`);
     } catch (err) {
+      console.error("❌ Errore:", err);
       setPreviewText(
         translate(
           "❌ Errore nella generazione del documento. Riprova più tardi.",
@@ -125,8 +126,8 @@ export default function PlanPage() {
         </h2>
         <p className="text-gray-600 mb-2">
           {translate(
-            "Una volta cliccato sul pulsante Word, verrà generato automaticamente un documento con introduzione, contesto, e descrizione dettagliata dei Tag, Trigger e Variabili usando l’intelligenza artificiale.",
-            "After clicking the Word button, a document will be generated with introduction, context, and detailed description of Tags, Triggers, and Variables using AI."
+            "Il documento sarà generato automaticamente con descrizione dettagliata dei Tag, Trigger e Variabili tramite IA.",
+            "Document will be generated with detailed description of Tags, Triggers and Variables using AI."
           )}
         </p>
         {previewText && (

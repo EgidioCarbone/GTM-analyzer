@@ -18,25 +18,38 @@ const ContainerContext = createContext<ContainerContextType | undefined>(undefin
 export function ContainerProvider({ children }: { children: ReactNode }) {
   const [container, setContainer] = useState<GenerateDocInput | null>(null);
 
-  // Ripristino automatico
+  // ✅ Ripristino automatico dal localStorage
   useEffect(() => {
-    const saved = localStorage.getItem("GenerateDocInput");
+    const saved = localStorage.getItem("gtmContainer"); // ✅ chiave corretta
     if (saved) {
       try {
-        setContainer(JSON.parse(saved));
-        console.log("✅ Container ripristinato da LocalStorage");
-      } catch {
-        console.error("❌ Errore nel ripristino del container salvato.");
+        const parsed = JSON.parse(saved);
+        console.log("✅ Container ripristinato da LocalStorage:", parsed);
+        setContainer(parsed);
+      } catch (err) {
+        console.error("❌ Errore nel parsing del container salvato:", err);
       }
+    } else {
+      console.warn("ℹ️ Nessun container trovato in localStorage.");
     }
   }, []);
 
-  // Salvataggio automatico
+  // ✅ Salvataggio automatico
   useEffect(() => {
     if (container) {
       localStorage.setItem("gtmContainer", JSON.stringify(container));
+      console.log("💾 Container salvato su localStorage:", container);
+
+      if (
+        container.tag?.length === 0 ||
+        container.trigger?.length === 0 ||
+        container.variable?.length === 0
+      ) {
+        console.warn("⚠️ Container ha proprietà vuote: ", container);
+      }
     } else {
       localStorage.removeItem("gtmContainer");
+      console.log("🧹 Container rimosso da localStorage");
     }
   }, [container]);
 
