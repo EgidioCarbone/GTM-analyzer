@@ -1,80 +1,67 @@
 // src/services/generateMeasurementDoc.ts
-
 import { GenerateDocInput } from "../types/gtm";
-
 const OPENAI_API_KEY = import.meta.env.VITE_OPENAI_API_KEY;
 
-
 export async function generateMeasurementDoc({
-  container,
+  containerId,
+  tag,
+  trigger,
+  variable,
   clientName,
   publicId,
   now,
   language,
 }: GenerateDocInput): Promise<string> {
-  if (!container) throw new Error("Container mancante");
-
-  const tags = container.tag ?? [];
-  const triggers = container.trigger ?? [];
-  const variables = container.variable ?? [];
-
-  // Intro dinamico
+  
   const intro =
     language === "it"
-      ? `Sei un esperto di Web Analytics. Crea un documento di Piano di Misurazione per il contenitore ${publicId} creato il ${now}.`
-      : `You are a Web Analytics expert. Create a Measurement Plan document for container ${publicId}, generated on ${now}.`;
+      ? `Crea un documento di Piano di Misurazione per il cliente ${clientName}. Il contenitore GTM ha ID ${publicId} ed è stato generato il ${now}.`
+      : `Create a Measurement Plan document for client ${clientName}. The GTM container ID is ${publicId} and was generated on ${now}.`;
 
   const systemPrompt =
     language === "it"
-      ? `Sei un assistente esperto di Google Tag Manager e Web Analytics. Scrivi documenti formali in stile tecnico per piani di misurazione.`
-      : `You are an expert assistant in Google Tag Manager and Web Analytics. Write technical-style documents for measurement plans.`;
+      ? `Sei un esperto di Google Tag Manager. Scrivi un documento tecnico che includa introduzione, contesto, elenco dei tag, attivatori e variabili con descrizione e parametri.`
+      : `You are a Google Tag Manager expert. Write a technical document with introduction, context, list of tags, triggers and variables with description and parameters.`;
 
-  const userPrompt = `
-${intro}
+  const userPrompt =
+    `${intro}\n\nTAG:\n${JSON.stringify(tag, null, 2)}\n\n` +
+    `TRIGGER:\n${JSON.stringify(trigger, null, 2)}\n\n` +
+    `VARIABILI:\n${JSON.stringify(variable, null, 2)}`;
 
-## Dettagli
-Cliente: ${clientName}
-ID Contenitore: ${publicId}
-Data generazione: ${now}
+  console.log("📦 Prompt inviato a OpenAI:", userPrompt);
 
-## Tags
-${tags.map((t) => `- ${t.name} (${t.type})`).join("\n")}
+  const body = {
+    model: "gpt-4",
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt },
+    ],
+    temperature: 0.5,
+  };
 
-## Triggers
-${triggers.map((t) => `- ${t.name} (${t.type})`).join("\n")}
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${OPENAI_API_KEY}`,
+    },
+    body: JSON.stringify(body),
+  });
 
-## Variabili
-${variables.map((v) => `- ${v.name} (${v.type})`).join("\n")}
-`;
-
-  try {
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "gpt-4",
-        temperature: 0.6,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
-      }),
-    });
-
-    if (!res.ok) {
-      const errorText = await res.text();
-      throw new Error(`Errore OpenAI: ${res.status} - ${errorText}`);
-    }
-
-    const data = await res.json();
-    return data.choices?.[0]?.message?.content?.trim() ?? "";
-  } catch (err: any) {
-    console.error("Errore generazione documento:", err);
-    return language === "it"
-      ? "⚠️ Errore durante la generazione del documento. Prova più tardi."
-      : "⚠️ Error generating document. Please try again later.";
+  if (!response.ok) {
+    const error = await response.text();
+    console.error("❌ Errore OpenAI:", error);
+    throw new Error(`Errore generazione documento: ${response.status}`);
   }
+
+  const json = await response.json();
+  const content = json.choices?.[0]?.message?.content;
+
+  if (!content) {
+    throw new Error("Risposta vuota da OpenAI");
+  }
+
+  console.log("✅ Risposta da OpenAI:", content);
+
+  return content;
 }

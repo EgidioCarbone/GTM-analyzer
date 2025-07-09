@@ -17,19 +17,20 @@ export interface GTMVariable {
   type: string;
 }
 
-// Contenitore completo
-export interface ContainerData {
+
+// Input della funzione generateMeasurementDoc
+export interface GenerateDocInput {
   containerId: string;
   tag: GTMTag[];
   trigger: GTMTrigger[];
   variable: GTMVariable[];
-}
-
-// Input della funzione generateMeasurementDoc
-export interface GenerateDocInput {
-  container: ContainerData;
   clientName: string;
   publicId: string;
   now: string;
   language: "it" | "en";
+}
+
+export interface AIContent {
+  intro: string;
+  tagDescriptions: Record<string, string>;
 }
