@@ -1,67 +1,96 @@
-// src/services/generateMeasurementDoc.ts
-import { GenerateDocInput } from "../types/gtm";
-const OPENAI_API_KEY = import.meta.env.VITE_OPENAI_API_KEY;
+import OpenAI from "openai";
+import { buildPrompt } from "./buildChatPrompt";
 
+const openai = new OpenAI({
+  apiKey: import.meta.env.VITE_OPENAI_API_KEY,
+  dangerouslyAllowBrowser: true, // ✅ consenti uso in ambiente browser
+});
+
+type Section = "tags" | "triggers" | "variables";
+
+/* -------------------------------------------------------------------------- */
+/*  Util ▸ divide l’array in chunk sicuri per evitare il context-length error  */
+/* -------------------------------------------------------------------------- */
+function chunkItems<T>(items: T[], maxChars = 15000): T[][] {
+  const chunks: T[][] = [];
+  let buffer: T[] = [];
+  let size = 0;
+
+  for (const item of items) {
+    const itemSize = JSON.stringify(item).length;
+    if (size + itemSize > maxChars && buffer.length) {
+      chunks.push(buffer);
+      buffer = [];
+      size = 0;
+    }
+    buffer.push(item);
+    size += itemSize;
+  }
+  if (buffer.length) chunks.push(buffer);
+  return chunks;
+}
+
+/* -------------------------------------------------------------------------- */
+/*  API ▸ Analizza una singola macro-categoria (Tags / Triggers / Variables)   */
+/* -------------------------------------------------------------------------- */
+export async function analyzeGtmSection(
+  category: Section,
+  items: unknown[],
+  projectName?: string
+): Promise<string> {
+  const batches = chunkItems(items);
+  const out: string[] = [];
+
+  for (const batch of batches) {
+    const userPrompt = buildPrompt(category, batch, projectName);
+
+    const res = await openai.chat.completions.create({
+      model: "gpt-4o-mini",           // utilizzo modello coerente con il tuo piano
+      temperature: 0.2,
+      messages: [
+        {
+          role: "system",
+          content:
+            "Sei un consulente senior di digital analytics specializzato in Google Tag Manager. Rispondi solo in italiano e in Markdown.",
+        },
+        { role: "user", content: userPrompt },
+      ],
+    });
+
+    out.push(res.choices[0].message.content ?? "");
+  }
+
+  return out.join("\n\n");
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Retro-compatibilità ▸ genera l’intero documento completo se serve         */
+/* -------------------------------------------------------------------------- */
 export async function generateMeasurementDoc({
-  containerId,
-  tag,
-  trigger,
-  variable,
-  clientName,
-  publicId,
-  now,
-  language,
-}: GenerateDocInput): Promise<string> {
-  
-  const intro =
-    language === "it"
-      ? `Crea un documento di Piano di Misurazione per il cliente ${clientName}. Il contenitore GTM ha ID ${publicId} ed è stato generato il ${now}.`
-      : `Create a Measurement Plan document for client ${clientName}. The GTM container ID is ${publicId} and was generated on ${now}.`;
+  tags,
+  triggers,
+  variables,
+  projectName,
+}: {
+  tags: unknown[];
+  triggers: unknown[];
+  variables: unknown[];
+  projectName?: string;
+}): Promise<string> {
+  const [tagsMd, triggersMd, variablesMd] = await Promise.all([
+    analyzeGtmSection("tags", tags, projectName),
+    analyzeGtmSection("triggers", triggers, projectName),
+    analyzeGtmSection("variables", variables, projectName),
+  ]);
 
-  const systemPrompt =
-    language === "it"
-      ? `Sei un esperto di Google Tag Manager. Scrivi un documento tecnico che includa introduzione, contesto, elenco dei tag, attivatori e variabili con descrizione e parametri.`
-      : `You are a Google Tag Manager expert. Write a technical document with introduction, context, list of tags, triggers and variables with description and parameters.`;
+  const summary = `
+# Executive Summary
 
-  const userPrompt =
-    `${intro}\n\nTAG:\n${JSON.stringify(tag, null, 2)}\n\n` +
-    `TRIGGER:\n${JSON.stringify(trigger, null, 2)}\n\n` +
-    `VARIABILI:\n${JSON.stringify(variable, null, 2)}`;
+Di seguito trovi l’analisi dettagliata del container GTM relativo al progetto “${
+    projectName ?? "Senza nome"
+  }”.
+L’esame evidenzia criticità operative, di governance e di compliance, con relative azioni di miglioramento.
+`;
 
-  console.log("📦 Prompt inviato a OpenAI:", userPrompt);
-
-  const body = {
-    model: "gpt-4",
-    messages: [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userPrompt },
-    ],
-    temperature: 0.5,
-  };
-
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${OPENAI_API_KEY}`,
-    },
-    body: JSON.stringify(body),
-  });
-
-  if (!response.ok) {
-    const error = await response.text();
-    console.error("❌ Errore OpenAI:", error);
-    throw new Error(`Errore generazione documento: ${response.status}`);
-  }
-
-  const json = await response.json();
-  const content = json.choices?.[0]?.message?.content;
-
-  if (!content) {
-    throw new Error("Risposta vuota da OpenAI");
-  }
-
-  console.log("✅ Risposta da OpenAI:", content);
-
-  return content;
+  return [summary, tagsMd, triggersMd, variablesMd].join("\n\n");
 }

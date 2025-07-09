@@ -1,141 +1,145 @@
-// src/pages/PlanPage.tsx
-import {
-  Document,
-  Paragraph,
-  TextRun,
-  Packer,
-} from "docx";
-import { saveAs } from "file-saver";
-import { format } from "date-fns";
 import { useState } from "react";
+import toast from "react-hot-toast";
+import Markdown from "react-markdown";
+import { Tab } from "@headlessui/react";
+import remarkGfm from "remark-gfm";
+import { Loader2, Sparkles } from "lucide-react";
 import { useContainer } from "../context/ContainerContext";
-import { generateMeasurementDoc } from "../services/generateMeasurementDoc";
-import { GenerateDocInput } from "../types/gtm";
+import { analyzeGtmSection } from "../services/generateMeasurementDoc";
+import { renderMeasurementDoc } from "../services/renderMeasurementDoc";
 
 export default function PlanPage() {
   const { container } = useContainer();
-  const [clientName, setClientName] = useState("");
-  const [language, setLanguage] = useState<"it" | "en">("it");
-  const [loadingWord, setLoadingWord] = useState(false);
-  const [previewText, setPreviewText] = useState<string>("");
+  const [preview, setPreview] = useState<{ tags?: string; triggers?: string; variables?: string }>({});
+  const [status, setStatus] = useState<{ tags: boolean; triggers: boolean; variables: boolean }>({
+    tags: false,
+    triggers: false,
+    variables: false,
+  });
+  const [loading, setLoading] = useState(false);
 
-  const containerId = container?.containerId || "0000000";
-  const publicId = `GTM-${containerId.slice(-7)}`;
-  const now = format(new Date(), "d MMMM yyyy 'alle' HH:mm");
-
-  const translate = (it: string, en: string) => (language === "it" ? it : en);
-
-  const exportToWord = async () => {
-    if (!container) return;
-    console.log("🔍 Container caricato in PlanPage:", container);
-
-    setLoadingWord(true);
-    setPreviewText("🧠 Generazione in corso...");
+  const handleExport = async () => {
+    if (!container) {
+      toast.error("Carica prima un container GTM!");
+      return;
+    }
+    setLoading(true);
+    setStatus({ tags: false, triggers: false, variables: false });
+    toast.loading("Analisi in corso con l'AI…", { id: "plan" });
 
     try {
-      const input: GenerateDocInput = {
-        containerId: container.containerId ?? "",
-        tag: container.tag ?? [],
-        trigger: container.trigger ?? [],
-        variable: container.variable ?? [],
-        clientName,
-        publicId,
-        now,
-        language,
-    };
+      const [tagsMd, triggersMd, variablesMd] = await Promise.all([
+        analyzeGtmSection("tags", container.tag ?? [], container.publicId).then((md) => {
+          setPreview((p) => ({ ...p, tags: md }));
+          setStatus((s) => ({ ...s, tags: true }));
+          return md;
+        }),
+        analyzeGtmSection("triggers", container.trigger ?? [], container.publicId).then((md) => {
+          setPreview((p) => ({ ...p, triggers: md }));
+          setStatus((s) => ({ ...s, triggers: true }));
+          return md;
+        }),
+        analyzeGtmSection("variables", container.variable ?? [], container.publicId).then((md) => {
+          setPreview((p) => ({ ...p, variables: md }));
+          setStatus((s) => ({ ...s, variables: true }));
+          return md;
+        }),
+      ]);
 
-      console.log("📤 Chiamata generateMeasurementDoc con:", input);
+      const fullDoc = `
+# AI-powered GTM Audit
 
-      const docText = await generateMeasurementDoc(input);
+**Progetto:** ${container.publicId ?? "Senza nome"}
 
-      setPreviewText(docText); // mostra anche in anteprima
+${tagsMd}
 
-      const paragraphs = docText.split("\n").map((line) =>
-        new Paragraph({
-          children: [new TextRun({ text: line, size: 24 })],
-          spacing: { after: 200 },
-        })
-      );
+${triggersMd}
 
-      const doc = new Document({ sections: [{ children: paragraphs }] });
-      const blob = await Packer.toBlob(doc);
-      saveAs(blob, `Piano_Misurazione_${publicId}.docx`);
-    } catch (err) {
-      console.error("❌ Errore:", err);
-      setPreviewText(
-        translate(
-          "❌ Errore nella generazione del documento. Riprova più tardi.",
-          "❌ Error generating the document. Please try again later."
-        )
-      );
+${variablesMd}
+      `;
+      await renderMeasurementDoc(fullDoc, `PianoMisurazione_${container.publicId ?? "SenzaNome"}.docx`);
+      toast.success("Documento Word generato con successo!", { id: "plan" });
+    } catch (error) {
+      console.error(error);
+      toast.error("Errore durante la generazione del documento.", { id: "plan" });
     } finally {
-      setLoadingWord(false);
+      setLoading(false);
     }
   };
 
+  const Spinner = () => <Loader2 className="h-4 w-4 animate-spin inline-block ml-1" />;
+
   return (
-    <div className="max-w-4xl mx-auto px-4 py-6">
-      <h1 className="text-2xl font-bold mb-2">
-        📊 {translate("Piano di Misurazione", "Measurement Plan")}
+    <div className="p-6 flex flex-col gap-6 max-w-5xl mx-auto">
+      <h1 className="text-2xl font-bold flex items-center gap-2">
+        <Sparkles className="text-blue-500" />
+        Generazione Piano di Misurazione AI
       </h1>
-      <p className="text-gray-600 mb-4">
-        {translate("Documento completo del contenitore", "Full container document")}{" "}
-        <strong>{publicId}</strong>
-      </p>
+      <p className="text-gray-600">Analizza automaticamente il container GTM con il supporto dell'AI e genera un documento professionale da consegnare al cliente.</p>
 
-      <div className="flex gap-2 mb-4">
-        <input
-          type="text"
-          placeholder={translate("Nome Cliente", "Client Name")}
-          value={clientName}
-          onChange={(e) => setClientName(e.target.value)}
-          className="border rounded px-2 py-1 flex-1"
-        />
-        <select
-          value={language}
-          onChange={(e) => setLanguage(e.target.value as "it" | "en")}
-          className="border rounded px-2 py-1"
-        >
-          <option value="it">🇮🇹 Italiano</option>
-          <option value="en">🇺🇸 English</option>
-        </select>
-        <button
-          onClick={exportToWord}
-          disabled={loadingWord}
-          className={`bg-blue-600 text-white px-4 py-1 rounded ${
-            loadingWord ? "opacity-50 cursor-not-allowed" : ""
+      <button
+        onClick={handleExport}
+        disabled={loading}
+        className={`px-4 py-2 rounded-md font-semibold text-white transition ${loading ? "bg-gray-400 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700"
           }`}
-        >
-          {loadingWord ? translate("Generazione...", "Generating...") : "Word"}
-        </button>
-      </div>
+      >
+        {loading ? "Analisi in corso…" : "Genera Documento Word con AI"}
+      </button>
 
-      <div className="bg-white border rounded p-4 mb-4">
-        <h2 className="font-semibold mb-2">
-          {translate("Informazioni Contenitore", "Container Info")}
-        </h2>
-        <p><strong>ID:</strong> {containerId}</p>
-        <p><strong>Public ID:</strong> {publicId}</p>
-        <p><strong>{translate("Generato il", "Generated on")}:</strong> {now}</p>
-        <p><strong>{translate("Cliente", "Client")}:</strong> {clientName || "-"}</p>
-      </div>
-
-      <div className="bg-white border rounded p-4 mb-6">
-        <h2 className="font-semibold mb-2">
-          {translate("Anteprima del documento", "Document Preview")}
-        </h2>
-        <p className="text-gray-600 mb-2">
-          {translate(
-            "Il documento sarà generato automaticamente con descrizione dettagliata dei Tag, Trigger e Variabili tramite IA.",
-            "Document will be generated with detailed description of Tags, Triggers and Variables using AI."
-          )}
-        </p>
-        {previewText && (
-          <pre className="whitespace-pre-wrap bg-gray-100 p-3 rounded text-sm overflow-auto max-h-[400px]">
-            {previewText}
-          </pre>
-        )}
-      </div>
+      {(preview.tags || preview.triggers || preview.variables) && (
+        <Tab.Group>
+          <Tab.List className="flex space-x-2 border-b">
+            {["Tags", "Triggers", "Variables"].map((tab) => (
+              <Tab
+                key={tab}
+                className={({ selected }) =>
+                  `px-4 py-2 text-sm font-medium rounded-t-md ${selected ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-800 hover:bg-gray-300"
+                  } transition`
+                }
+              >
+                {tab}
+                {loading && !status[tab.toLowerCase() as "tags" | "triggers" | "variables"] && <Spinner />}
+                {status[tab.toLowerCase() as "tags" | "triggers" | "variables"] && " ✅"}
+              </Tab>
+            ))}
+          </Tab.List>
+          <Tab.Panels className="bg-white rounded-b-md p-4 shadow-md animate-fade-in">
+            <Tab.Panel>
+              {preview.tags ? (
+                <div className="prose max-w-none">
+                  <Markdown remarkPlugins={[remarkGfm]}>
+                    {preview.tags}
+                  </Markdown>
+                </div>
+              ) : (
+                <p className="text-gray-500">Nessuna anteprima disponibile.</p>
+              )}
+            </Tab.Panel>
+            <Tab.Panel>
+              {preview.triggers ? (
+                <div className="prose max-w-none">
+                  <Markdown remarkPlugins={[remarkGfm]}>
+                    {preview.triggers}
+                  </Markdown>
+                </div>
+              ) : (
+                <p className="text-gray-500">Nessuna anteprima disponibile.</p>
+              )}
+            </Tab.Panel>
+            <Tab.Panel>
+              {preview.variables ? (
+                <div className="prose max-w-none">
+                  <Markdown remarkPlugins={[remarkGfm]}>
+                    {preview.variables}
+                  </Markdown>
+                </div>
+              ) : (
+                <p className="text-gray-500">Nessuna anteprima disponibile.</p>
+              )}
+            </Tab.Panel>
+          </Tab.Panels>
+        </Tab.Group>
+      )}
     </div>
   );
 }
