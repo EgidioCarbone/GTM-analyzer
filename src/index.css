@@ -8,3 +8,14 @@
 .prose th               { @apply px-4 py-2 font-semibold text-left whitespace-nowrap; }
 .prose td               { @apply px-4 py-2 align-top; }
 .prose tbody tr:nth-child(odd) { @apply bg-gray-50; }
+
+
+/* Premium gradient for headings */
+.gradient-text {
+  @apply bg-gradient-to-r from-pink-500 to-purple-500 bg-clip-text text-transparent;
+}
+
+/* Button premium styles */
+.button-premium {
+  @apply bg-gradient-to-r from-pink-500 to-purple-500 text-white font-semibold rounded-full shadow hover:shadow-lg transition;
+}
