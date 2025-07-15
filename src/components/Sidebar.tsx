@@ -42,7 +42,7 @@ export default function Sidebar() {
     <aside className="fixed top-0 left-0 h-screen w-64 bg-[#1a365d] text-white flex flex-col justify-between py-6">
       {/* Links */}
       <div className="space-y-6">
-        <h1 className="text-center font-bold text-xl">GTM Analyzer</h1>
+        <h1 className="text-center font-bold text-xl">LikeSense - GTM AIntelligence</h1>
 
         <nav className="flex flex-col space-y-1 px-3">
           {links.map(({ to, label }) => (

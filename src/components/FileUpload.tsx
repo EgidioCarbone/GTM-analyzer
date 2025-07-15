@@ -8,7 +8,7 @@ export default function FileUpload({ onFile }: { onFile: (f: File) => void }) {
     <div className="flex flex-col items-center justify-center h-full space-y-8">
       <div className="text-center space-y-2">
         <h1 className="text-3xl font-bold text-[#1a365d] dark:text-orange-300">
-          🚀 GTM Analyzer
+          🚀 LikeSense - GTM AIntelligence 🚀 
         </h1>
         <p className="text-sm text-gray-600 dark:text-gray-300 max-w-md">
           Carica un file JSON esportato da Google Tag Manager per analizzare tag,
