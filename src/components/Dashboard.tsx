@@ -88,9 +88,14 @@ const Dashboard = () => {
 
   return (
     <main className="p-6 space-y-6">
-      <h1 className="text-3xl font-bold text-gray-800 dark:text-white">
-        📊 Dashboard del contenitore
-      </h1>
+<div className="bg-gradient-to-r from-pink-500 via-red-500 to-yellow-500 p-6 rounded-xl shadow-lg text-white">
+  <h1 className="text-4xl font-extrabold flex items-center gap-3 drop-shadow">
+    🧠 LikeSense GTM AIntelligence
+  </h1>
+  <p className="text-sm mt-1 italic opacity-90">
+    Domina il tuo contenitore con stile e intelligenza ✨
+  </p>
+</div>
 
       <div className="grid grid-cols-3 gap-4">
         {[
