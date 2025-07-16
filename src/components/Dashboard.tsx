@@ -1,147 +1,205 @@
-// src/components/Dashboard.tsx
-
-import React from "react";
+import { useContainer } from "../context/ContainerContext";
+import { Bar, Doughnut } from "react-chartjs-2";
 import {
-  PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend
-} from "recharts";
+  Chart as ChartJS,
+  BarElement,
+  CategoryScale,
+  LinearScale,
+  ArcElement,
+  Tooltip,
+  Legend,
+} from "chart.js";
 
-export default function Dashboard({ data, onReplace }) {
-  const tagCount = data.tag?.length ?? 0;
-  const triggerCount = data.trigger?.length ?? 0;
-  const varCount = data.variable?.length ?? 0;
+ChartJS.register(
+  BarElement,
+  CategoryScale,
+  LinearScale,
+  ArcElement,
+  Tooltip,
+  Legend
+);
 
-  const typeLabels = {
-    awct: "Google Ads Conversion",
-    gclidw: "GCLID Linker",
-    sp: "Google Ads Remarketing",
-    img: "Pixel Image",
-    html: "Custom HTML",
-    ua: "Universal Analytics",
-    gaawc: "GA4 Event",
-    ldp: "LinkedIn Insight",
+const Dashboard = () => {
+  const { container } = useContainer();
+
+  const tags = container?.tag ?? [];
+  const triggers = container?.trigger ?? [];
+  const variables = container?.variable ?? [];
+
+  const tagTypeCounts = tags.reduce((acc: Record<string, number>, tag) => {
+    const type = tag.type || "altro";
+    acc[type] = (acc[type] || 0) + 1;
+    return acc;
+  }, {});
+
+  const sortedTypes = Object.entries(tagTypeCounts)
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, 5);
+
+  const barData = {
+    labels: sortedTypes.map(([type]) => type),
+    datasets: [
+      {
+        label: "# di tag",
+        data: sortedTypes.map(([, count]) => count),
+        backgroundColor: "#6366f1",
+        borderRadius: 4,
+      },
+    ],
   };
 
-  const tagsByType = {};
-  data.tag?.forEach((t) => {
-    const raw = t.type || "(sconosciuto)";
-    tagsByType[raw] = (tagsByType[raw] || 0) + 1;
-  });
+  const donutData = {
+    labels: Object.keys(tagTypeCounts),
+    datasets: [
+      {
+        data: Object.values(tagTypeCounts),
+        backgroundColor: [
+          "#6366f1",
+          "#10b981",
+          "#f59e0b",
+          "#ef4444",
+          "#3b82f6",
+          "#ec4899",
+          "#8b5cf6",
+          "#14b8a6",
+        ],
+        borderWidth: 2,
+        cutout: "50%",
+      },
+    ],
+  };
 
-  const pieData = Object.entries(tagsByType).map(([k, v]) => ({
-    name: typeLabels[k] || k,
-    value: v,
-  }));
+  const variableNames = variables.map((v) => v.name).filter(Boolean);
+  const allItems = [...tags, ...triggers, ...variables];
 
-  const topBarData = [...pieData].sort((a, b) => b.value - a.value).slice(0, 5);
+  function isVariableUsed(name: string): boolean {
+    const pattern = new RegExp(`{{\\s*${name}\\s*}}`, "g");
+    return allItems.some((item) => JSON.stringify(item).match(pattern));
+  }
 
-  const colors = ["#FF6B35", "#1a365d", "#4caf50", "#ffc107", "#2196f3"];
+  const unusedVariableCount = variableNames.filter((name) => !isVariableUsed(name)).length;
 
-  const pausedTags = data.tag?.filter((t) => t.paused)?.length ?? 0;
-
-  const unusedTriggers = (data.trigger ?? []).filter(
-    (tr) => !(data.tag ?? []).some((tag) => (tag.triggerId ?? []).includes(tr.triggerId))
-  ).length ?? 0;
-
-  const usedVarIds = new Set<number>();
-  data.tag?.forEach((tag) => (tag.variableId ?? []).forEach((v) => usedVarIds.add(v)));
-  const unusedVariables = (data.variable ?? []).filter(
-    (v) => !usedVarIds.has(v.variableId as number)
-  ).length ?? 0;
-
-  const uaTags = data.tag?.filter((t) => t.type === "ua")?.length ?? 0;
-  const issues = pausedTags + unusedTriggers + unusedVariables + uaTags;
-  const quality = issues === 0 ? "Ottimo" : issues < 10 ? "Buono" : "Da migliorare";
+  const qualitySummary = {
+    pausedTags: tags.filter((t) => t.paused === true || t.paused === "true").length,
+    unusedVariables: unusedVariableCount,
+    uaTags: tags.filter((t) => t.type === "ua").length,
+    status: "Da migliorare",
+  };
 
   return (
-    <div className="space-y-10">
-      {/* Header */}
-      <div className="flex flex-wrap justify-between items-center gap-4">
-        <h1 className="text-2xl md:text-3xl font-bold text-[#1a365d] dark:text-orange-300 flex items-center gap-2">
-          📊 Dashboard del contenitore
-        </h1>
+    <main className="p-6 space-y-6">
+      <h1 className="text-3xl font-bold text-gray-800 dark:text-white">
+        📊 Dashboard del contenitore
+      </h1>
+
+      <div className="grid grid-cols-3 gap-4">
+        {[
+          { label: "Tag", value: tags.length },
+          { label: "Trigger", value: triggers.length },
+          { label: "Variabili", value: variables.length },
+        ].map((card, i) => (
+          <div
+            key={i}
+            className="bg-white dark:bg-gray-800 p-6 shadow-md rounded-xl text-center hover:shadow-lg transition"
+          >
+            <p className="text-2xl font-bold text-indigo-600">{card.value}</p>
+            <p className="text-sm text-gray-500 dark:text-gray-300">{card.label}</p>
+          </div>
+        ))}
       </div>
 
-      {/* Counters */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <Card title="Tag" value={tagCount} />
-        <Card title="Trigger" value={triggerCount} />
-        <Card title="Variabili" value={varCount} />
-      </div>
+<div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+  <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow">
+    <h2 className="text-md font-semibold text-gray-800 dark:text-white mb-4">
+      🥧 Distribuzione tipi di tag
+    </h2>
+    <Doughnut data={donutData} />
+  </div>
 
-      {/* Charts */}
-      <div className="grid gap-6 lg:grid-cols-2">
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow hover:shadow-lg transition min-h-[320px]">
-          <h2 className="text-lg font-semibold mb-3 text-gray-900 dark:text-gray-100">
-            📈 Distribuzione tipi di tag
-          </h2>
-          {pieData.length ? (
-            <ResponsiveContainer width="100%" height={250}>
-              <PieChart>
-                <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80}>
-                  {pieData.map((_, i) => (
-                    <Cell key={i} fill={colors[i % colors.length]} />
-                  ))}
-                </Pie>
-                <Tooltip />
-              </PieChart>
-            </ResponsiveContainer>
-          ) : (
-            <p className="text-sm text-gray-500 italic mt-4">Nessun dato disponibile.</p>
-          )}
-        </div>
+  <div className="bg-white dark:bg-gray-800 shadow-md p-6 rounded-xl flex flex-col gap-4">
+    <h2 className="text-md font-semibold text-gray-800 dark:text-white mb-2">
+      🏆 Tag più utilizzati
+    </h2>
 
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow hover:shadow-lg transition min-h-[320px]">
-          <h2 className="text-lg font-semibold mb-3 text-gray-900 dark:text-gray-100">
-            🏆 Classifica tipi di tag (Top 5)
-          </h2>
-          <ResponsiveContainer width="100%" height={250}>
-            <BarChart data={topBarData} layout="vertical">
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis type="number" stroke="#888" />
-              <YAxis dataKey="name" type="category" width={160} stroke="#888" />
-              <Tooltip />
-              <Legend />
-              <Bar dataKey="value" fill="#1a365d" radius={[0, 6, 6, 0]} isAnimationActive />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      {/* Container Quality */}
-      <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow hover:shadow-lg transition">
-        <h2 className="text-lg font-semibold mb-2 text-gray-900 dark:text-gray-100">
-          🩺 Qualità del container
-        </h2>
-        <ul className="list-disc pl-5 text-sm text-gray-700 dark:text-gray-300 space-y-1">
-          <li>{pausedTags} tag in pausa</li>
-          <li>{unusedVariables} variabili non usate</li>
-          <li>{uaTags} tag Universal Analytics (obsoleti)</li>
-          <li>
-            Stato generale:{" "}
-            <span
-              className={
-                quality === "Ottimo"
-                  ? "text-green-600 dark:text-green-400 font-semibold"
-                  : quality === "Buono"
-                  ? "text-yellow-600 dark:text-yellow-400 font-semibold"
-                  : "text-red-600 dark:text-red-400 font-semibold"
-              }
-            >
-              {quality}
+    <div className="grid grid-cols-1 gap-4">
+      {barData?.labels?.slice(0, 5).map((label, index) => (
+        <div
+          key={label}
+          className="flex items-center justify-between p-4 rounded-xl shadow bg-gradient-to-r from-indigo-500 to-purple-500 text-white transition-transform hover:scale-[1.02]"
+        >
+          <div className="flex items-center gap-2">
+            <span className="text-2xl">
+              {index === 0 ? "🥇" : index === 1 ? "🥈" : index === 2 ? "🥉" : "🏅"}
             </span>
-          </li>
-        </ul>
-      </div>
+            <span className="font-semibold text-sm">{label}</span>
+          </div>
+          <span className="text-sm font-bold">
+            {barData.datasets?.[0]?.data?.[index] ?? 0} tag
+          </span>
+        </div>
+      ))}
     </div>
-  );
-}
+  </div>
 
-function Card({ title, value }) {
-  return (
-    <div className="bg-white dark:bg-gray-800 rounded-xl shadow p-6 text-center transform hover:-translate-y-1 hover:shadow-lg transition">
-      <div className="text-4xl font-bold text-[#1a365d] dark:text-orange-300">{value}</div>
-      <div className="mt-1 text-sm text-gray-600 dark:text-gray-300">{title}</div>
+  <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md flex flex-col justify-between">
+    <h2 className="text-lg font-semibold text-gray-800 dark:text-white flex items-center gap-2 mb-4">
+      🧪 Qualità del container
+    </h2>
+
+    <div className="grid grid-cols-1 gap-4 text-sm">
+      {[
+        {
+          label: "Tag in pausa",
+          icon: "⏸️",
+          value: qualitySummary.pausedTags,
+          color: "bg-blue-50 text-blue-700 dark:bg-blue-900/20",
+        },
+        {
+          label: "Variabili non usate",
+          icon: "🧩",
+          value: qualitySummary.unusedVariables,
+          color: "bg-green-50 text-green-700 dark:bg-green-900/20",
+        },
+        {
+          label: "UA obsoleti",
+          icon: "📉",
+          value: qualitySummary.uaTags,
+          color: "bg-slate-50 text-slate-700 dark:bg-slate-900/20",
+        },
+      ].map((item, index) => (
+        <div
+          key={index}
+          className={`flex items-center gap-3 rounded-lg p-4 ${item.color}`}
+        >
+          <div className="text-2xl">{item.icon}</div>
+          <div>
+            <p className="font-medium">{item.label}</p>
+            <p className="font-bold text-lg">{item.value}</p>
+          </div>
+        </div>
+      ))}
     </div>
+
+    <div className="mt-4 text-sm">
+      <span
+        className={`inline-flex items-center gap-2 px-3 py-1 font-medium rounded-full ${
+          qualitySummary.status === "Ottimo"
+            ? "bg-green-100 text-green-800"
+            : qualitySummary.status === "Accettabile"
+            ? "bg-yellow-100 text-yellow-800"
+            : "bg-red-100 text-red-700"
+        }`}
+      >
+        ⚠️ Stato generale: {qualitySummary.status}
+      </span>
+    </div>
+  </div>
+</div>
+
+
+
+    </main>
   );
-}
+};
+
+export default Dashboard;
