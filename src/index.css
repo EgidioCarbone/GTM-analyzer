@@ -2,20 +2,18 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ------------------ MIGLIORAMENTO TABELLE MARKDOWN PLANPAGE ------------------ */
-.prose table            { @apply w-full table-auto text-sm; }
-.prose thead            { @apply bg-gray-100; }
-.prose th               { @apply px-4 py-2 font-semibold text-left whitespace-nowrap; }
-.prose td               { @apply px-4 py-2 align-top; }
-.prose tbody tr:nth-child(odd) { @apply bg-gray-50; }
-
-
-/* Premium gradient for headings */
-.gradient-text {
-  @apply bg-gradient-to-r from-pink-500 to-purple-500 bg-clip-text text-transparent;
+@keyframes bounce-slow {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+.animate-bounce-slow {
+  animation: bounce-slow 2.2s infinite;
 }
 
-/* Button premium styles */
-.button-premium {
-  @apply bg-gradient-to-r from-pink-500 to-purple-500 text-white font-semibold rounded-full shadow hover:shadow-lg transition;
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fadeIn {
+  animation: fadeIn 0.6s ease-out both;
 }
