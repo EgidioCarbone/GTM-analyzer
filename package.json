@@ -17,6 +17,7 @@
     "framer-motion": "^12.23.0",
     "html2canvas": "^1.4.1",
     "jspdf": "^3.0.1",
+    "lottie-react": "^2.4.1",
     "lucide-react": "^0.373.0",
     "marked": "^16.0.0",
     "openai": "^5.8.3",
