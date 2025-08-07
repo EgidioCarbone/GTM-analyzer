@@ -10,10 +10,10 @@ export default function Sidebar() {
     { to: "/tags", label: "Tag" },
     { to: "/triggers", label: "Trigger" },
     { to: "/variables", label: "Variabili" },
-    { to: "/plan", label: "Piano" },
-    { to: "/testing", label: "Testing" },
-    { to: "/migration", label: "UA → GA4" },
-    { to: "/checklist", label: "Checklist" },
+    { to: "/plan", label: "AI Plan" },
+    // { to: "/testing", label: "Testing" },
+    // { to: "/migration", label: "UA → GA4" },
+    { to: "/checklist", label: "AI Sentinel" },
   ];
 
   const [isDark, setIsDark] = useDarkMode();
