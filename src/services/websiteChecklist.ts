@@ -1,7 +1,7 @@
 // src/services/websiteChecklist.ts
 // ---------------------------------------------------------------------------
-// Servizio front-end: chiama il backend Express per ottenere l’HTML grezzo,
-// esegue i check regex, poi chiede a GPT una diagnosi.
+// Servizio front-end: chiama il backend Puppeteer per ottenere l’HTML,
+// il dataLayer e lo stato del consent mode, poi chiama GPT.
 // ---------------------------------------------------------------------------
 
 import OpenAI from 'openai';
@@ -16,36 +16,50 @@ const openai = new OpenAI({
   dangerouslyAllowBrowser: true,
 });
 
-// 2. Recupera l’HTML originale tramite il backend (porta 4000)
-async function fetchHtmlFromServer(url: string): Promise<string> {
+// 2. Recupera HTML + dati JS dal backend Puppeteer
+async function fetchWebsiteData(url: string): Promise<{
+  html: string;
+  dataLayer: any[];
+  consentModePresent: boolean;
+}> {
   const res = await fetch(
-    `http://localhost:4000/api/fetchHtml?url=${encodeURIComponent(url)}`
+    `http://localhost:4001/api/fetchHtmlPuppeteer?url=${encodeURIComponent(url)}`
   );
 
   if (!res.ok) {
-    throw new Error(`Errore proxy HTML: ${res.status}`);
+    throw new Error(`Errore da Puppeteer: ${res.status}`);
   }
 
-  return await res.text();
+  const contentType = res.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    throw new Error("Risposta non valida dal backend: atteso JSON.");
+  }
+
+  const json = await res.json();
+  return {
+    html: json.html || '',
+    dataLayer: json.dataLayer || [],
+    consentModePresent: json.consentModePresent || false,
+  };
 }
 
 // 3. Funzione principale richiamata dalla ChecklistPage
 export async function runWebsiteChecklist(
   url: string
 ): Promise<WebsiteChecklistResult> {
-  // 3.1 Ottieni HTML
-  const html = await fetchHtmlFromServer(url);
+  // 3.1 Ottieni HTML e variabili JS
+  const { html, dataLayer, consentModePresent } = await fetchWebsiteData(url);
 
-  // 3.2 Check statici (regex)
+  // 3.2 Check combinati (regex + JS context)
   const checks: WebsiteChecklistChecks = {
     'script gtm presente':
       /(googletagmanager\.com\/(gtm|gtag)\.js|GTM-[\w-]{6,10}|ns\.html\?id=GTM)/i.test(html),
 
     'id gtm valido': /GTM-[\w-]{6,10}/.test(html),
 
-    'dataLayer inizializzato': /\bdataLayer\s*=\s*\[/i.test(html),
+    'dataLayer inizializzato': Array.isArray(dataLayer) && dataLayer.length > 0,
 
-    'consent mode': /gtag\(['"]consent/i.test(html),
+    'consent mode': consentModePresent === true,
 
     'csp blocca gtm':
       /content-security-policy/i.test(html) &&
