@@ -13,6 +13,7 @@ export default function Sidebar() {
     { to: "/plan", label: "Piano" },
     { to: "/testing", label: "Testing" },
     { to: "/migration", label: "UA → GA4" },
+    { to: "/checklist", label: "Checklist" },
   ];
 
   const [isDark, setIsDark] = useDarkMode();

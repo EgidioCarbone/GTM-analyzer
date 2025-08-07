@@ -12,6 +12,7 @@ import TestingPage from "./pages/TestingPage";
 import MigrationPage from "./pages/MigrationPage";
 import { useContainer } from "./context/ContainerContext";
 import { Toaster, toast } from "react-hot-toast";
+import ChecklistPage from "./pages/ChecklistPage";
 
 export default function App() {
   const { container } = useContainer();
@@ -50,6 +51,7 @@ export default function App() {
           <Route path="/plan" element={<PlanPage />} />
           <Route path="/testing" element={<TestingPage />} />
           <Route path="/migration" element={<MigrationPage />} />
+          <Route path="/checklist" element={<ChecklistPage />} />
           <Route path="*" element={<Navigate to="/dashboard" />} />
         </Routes>
       </main>
