@@ -1,31 +1,83 @@
 // src/pages/ChecklistPage.tsx
-// Variante "look-&-feel PlanPage" – riusa la logica esistente ma
-// applica layout, overlay-loader, hero e animazioni in stile PlanPage.
-
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Loader2,
   CheckCircle2,
   XCircle,
   NotebookPen,
   RotateCcw,
+  Search,
+  Gauge,
+  Accessibility,
+  Sparkles,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import Lottie from "lottie-react";
 import toast from "react-hot-toast";
 
 import {
   runWebsiteChecklist,
   WebsiteChecklistResult,
 } from "../services/websiteChecklist";
+import animationData from "../assets/background-ai-loader.json";
 
-/*─────────────────────────── componente ───────────────────────────*/
+/*────────────────────────── type-writer hook ──────────────────────────*/
+function useCyclingTypewriter(
+  texts: string[],
+  speed = 70,
+  hold = 3000
+): { text: string; step: number } {
+  const [step, setStep] = useState(0); // frase corrente
+  const [sub, setSub] = useState(0); // indice carattere
+  const [text, setText] = useState("");
+
+  useEffect(() => {
+    let t: NodeJS.Timeout;
+
+    // fase di typing
+    if (sub < texts[step].length) {
+      setText(texts[step].slice(0, sub + 1));
+      t = setTimeout(() => setSub(sub + 1), speed);
+      return () => clearTimeout(t);
+    }
+
+    // pausa
+    t = setTimeout(() => {
+      setSub(0);
+      setStep((s) => (s + 1) % texts.length);
+    }, hold);
+    return () => clearTimeout(t);
+  }, [sub, step, texts, speed, hold]);
+
+  return { text, step };
+}
+
+/*────────────────────────── componente ──────────────────────────*/
 export default function ChecklistPage() {
   const [url, setUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<WebsiteChecklistResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  /* esegue l'analisi */
+const steps = [
+  { label: "Analisi delle ottimizzazioni SEO on-page…", icon: Search },
+  { label: "Valutazione delle performance di caricamento…", icon: Gauge },
+  { label: "Verifica dei criteri di accessibilità WCAG…", icon: Accessibility },
+  { label: "Elaborazione del report diagnostico tramite AI…", icon: Sparkles },
+];
+
+  const { text: typing, step } = useCyclingTypewriter(
+    steps.map((s) => s.label),
+    70,
+    3000
+  );
+
+  const CurrentIcon =
+    steps[step] && typeof steps[step].icon === "function"
+      ? steps[step].icon
+      : Loader2;
+
+  // esegue l'analisi
   const handleRun = async () => {
     if (!url) return;
 
@@ -47,14 +99,12 @@ export default function ChecklistPage() {
     }
   };
 
-  /* reset */
   const reset = () => {
     setResult(null);
     setError(null);
     setUrl("");
   };
 
-  /*────────────────────────── JSX ──────────────────────────*/
   return (
     <div className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden px-4 py-12 sm:px-8">
       {/* background blobs */}
@@ -73,17 +123,23 @@ export default function ChecklistPage() {
 
       {/* overlay loader */}
       {loading && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-white/60 backdrop-blur-lg dark:bg-black/60"
-        >
-          <Loader2 className="mb-4 h-10 w-10 animate-spin text-fuchsia-600" />
-          <p className="text-lg font-semibold text-gray-700 dark:text-gray-100">
-            Analisi in corso…
-          </p>
-        </motion.div>
+        <div className="fixed inset-0 z-50 bg-gradient-to-br from-fuchsia-50 via-pink-50 to-white dark:from-gray-900 dark:via-gray-950 dark:to-black flex items-center justify-center overflow-hidden">
+          <div className="absolute -top-48 -left-48 w-[600px] h-[600px] bg-fuchsia-400 opacity-30 blur-3xl rounded-full" />
+          <div className="absolute -bottom-48 -right-48 w-[600px] h-[600px] bg-pink-400 opacity-30 blur-3xl rounded-full" />
+
+          <div className="relative flex flex-col items-center">
+            <div className="w-[500px] max-w-[90%]">
+              <Lottie animationData={animationData} loop autoplay />
+              <div className="mt-4 flex items-center justify-center gap-2">
+                <CurrentIcon className="h-5 w-5 text-fuchsia-600 shrink-0" />
+                <p className="min-h-[1.5rem] text-lg font-semibold text-gray-800 dark:text-white">
+                  {typing || "Stiamo analizzando il tuo sito…"}
+                </p>
+                <Loader2 className="h-5 w-5 animate-spin text-fuchsia-600" />
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* hero */}
@@ -102,7 +158,6 @@ export default function ChecklistPage() {
           e best-practice SEO, restituendo una diagnosi generata dall'AI.
         </p>
 
-        {/* input & actions */}
         <div className="flex flex-col items-center gap-3 sm:flex-row sm:gap-2">
           <input
             className="w-full flex-1 rounded-lg border border-gray-300/60 bg-white/70 px-4 py-2 text-sm shadow-sm backdrop-blur placeholder:text-gray-400 focus:border-fuchsia-500 focus:ring-2 focus:ring-fuchsia-400/40 focus:outline-none dark:border-gray-600/60 dark:bg-gray-900/40 dark:text-gray-100"
@@ -129,7 +184,6 @@ export default function ChecklistPage() {
           )}
         </div>
 
-        {/* error */}
         {error && (
           <p className="mx-auto w-full max-w-md rounded-md border border-rose-300 bg-rose-50 px-4 py-3 text-rose-700 shadow dark:border-rose-700/60 dark:bg-rose-900/40 dark:text-rose-200">
             {error}
@@ -151,7 +205,7 @@ export default function ChecklistPage() {
             <div className="space-y-1 text-center">
               <h2 className="text-2xl font-semibold">Risultati Checklist</h2>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Analisi completata per&nbsp;
+                Analisi completata per{" "}
                 <a
                   href={url}
                   target="_blank"
@@ -163,7 +217,6 @@ export default function ChecklistPage() {
               </p>
             </div>
 
-            {/* grid */}
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {Object.entries(result.checks).map(([key, ok]) => (
                 <motion.div
@@ -172,9 +225,11 @@ export default function ChecklistPage() {
                   animate={{ opacity: 1, scale: 1 }}
                   transition={{ duration: 0.25, delay: 0.05 }}
                   className={`flex items-center gap-3 rounded-xl px-5 py-4 shadow-sm ring-1 backdrop-blur-lg
-                    ${ok
-                      ? "bg-emerald-50/60 text-emerald-800 ring-emerald-200/70 dark:bg-emerald-400/20 dark:text-emerald-200 dark:ring-emerald-400/40"
-                      : "bg-rose-50/60 text-rose-800 ring-rose-200/70 dark:bg-rose-400/20 dark:text-rose-200 dark:ring-rose-400/40"}`}
+                    ${
+                      ok
+                        ? "bg-emerald-50/60 text-emerald-800 ring-emerald-200/70 dark:bg-emerald-400/20 dark:text-emerald-200 dark:ring-emerald-400/40"
+                        : "bg-rose-50/60 text-rose-800 ring-rose-200/70 dark:bg-rose-400/20 dark:text-rose-200 dark:ring-rose-400/40"
+                    }`}
                 >
                   {ok ? (
                     <CheckCircle2 className="size-5 shrink-0 text-emerald-600 dark:text-emerald-300" />
@@ -188,7 +243,6 @@ export default function ChecklistPage() {
               ))}
             </div>
 
-            {/* AI summary */}
             <div className="rounded-xl bg-white/60 p-6 shadow-inner backdrop-blur-md dark:bg-gray-900/40">
               <h3 className="mb-3 text-lg font-medium">Diagnosi IA</h3>
               <pre className="whitespace-pre-wrap text-sm leading-relaxed text-gray-800 dark:text-gray-200">
