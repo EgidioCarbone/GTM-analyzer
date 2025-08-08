@@ -10,6 +10,8 @@ import {
   Gauge,
   Accessibility,
   Sparkles,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import Lottie from "lottie-react";
@@ -27,21 +29,19 @@ function useCyclingTypewriter(
   speed = 70,
   hold = 3000
 ): { text: string; step: number } {
-  const [step, setStep] = useState(0); // frase corrente
-  const [sub, setSub] = useState(0); // indice carattere
+  const [step, setStep] = useState(0);
+  const [sub, setSub] = useState(0);
   const [text, setText] = useState("");
 
   useEffect(() => {
     let t: NodeJS.Timeout;
 
-    // fase di typing
     if (sub < texts[step].length) {
       setText(texts[step].slice(0, sub + 1));
       t = setTimeout(() => setSub(sub + 1), speed);
       return () => clearTimeout(t);
     }
 
-    // pausa
     t = setTimeout(() => {
       setSub(0);
       setStep((s) => (s + 1) % texts.length);
@@ -58,13 +58,14 @@ export default function ChecklistPage() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<WebsiteChecklistResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showRawData, setShowRawData] = useState(false);
 
-const steps = [
-  { label: "Analisi delle ottimizzazioni SEO on-page…", icon: Search },
-  { label: "Valutazione delle performance di caricamento…", icon: Gauge },
-  { label: "Verifica dei criteri di accessibilità WCAG…", icon: Accessibility },
-  { label: "Elaborazione del report diagnostico tramite AI…", icon: Sparkles },
-];
+  const steps = [
+    { label: "Analisi delle ottimizzazioni SEO on-page…", icon: Search },
+    { label: "Valutazione delle performance di caricamento…", icon: Gauge },
+    { label: "Verifica dei criteri di accessibilità WCAG…", icon: Accessibility },
+    { label: "Elaborazione del report diagnostico tramite AI…", icon: Sparkles },
+  ];
 
   const { text: typing, step } = useCyclingTypewriter(
     steps.map((s) => s.label),
@@ -77,7 +78,6 @@ const steps = [
       ? steps[step].icon
       : Loader2;
 
-  // esegue l'analisi
   const handleRun = async () => {
     if (!url) return;
 
@@ -103,6 +103,7 @@ const steps = [
     setResult(null);
     setError(null);
     setUrl("");
+    setShowRawData(false);
   };
 
   return (
@@ -243,12 +244,92 @@ const steps = [
               ))}
             </div>
 
+            {/* Diagnosi IA */}
             <div className="rounded-xl bg-white/60 p-6 shadow-inner backdrop-blur-md dark:bg-gray-900/40">
               <h3 className="mb-3 text-lg font-medium">Diagnosi IA</h3>
               <pre className="whitespace-pre-wrap text-sm leading-relaxed text-gray-800 dark:text-gray-200">
                 {result.aiSummary}
               </pre>
             </div>
+
+            {/* Toggle dati grezzi */}
+            {result.extra && (
+              <div className="mt-4">
+                <button
+                  onClick={() => setShowRawData((prev) => !prev)}
+                  className="flex items-center gap-2 text-sm font-medium text-fuchsia-600 hover:text-fuchsia-700"
+                >
+                  {showRawData ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                  {showRawData ? "Nascondi dati grezzi" : "Mostra dati grezzi"}
+                </button>
+
+                <AnimatePresence>
+                  {showRawData && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: "auto" }}
+                      exit={{ opacity: 0, height: 0 }}
+                      transition={{ duration: 0.3 }}
+                      className="overflow-hidden"
+                    >
+                      <div className="mt-3 rounded-xl bg-gray-50/80 p-4 shadow-inner backdrop-blur-md dark:bg-gray-900/50">
+                        <h4 className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-300">
+                          📊 Dati grezzi rilevati
+                        </h4>
+                        <ul className="space-y-2 text-xs text-gray-600 dark:text-gray-300">
+                          {result.extra.gtmIds && (
+                            <li>
+                              <strong>GTM IDs:</strong>{" "}
+                              {result.extra.gtmIds.length > 0
+                                ? result.extra.gtmIds.join(", ")
+                                : "Nessuno"}
+                            </li>
+                          )}
+                          {result.extra.cookieBannerLibs && (
+                            <li>
+                              <strong>Cookie Banner:</strong>{" "}
+                              {result.extra.cookieBannerLibs.length > 0
+                                ? result.extra.cookieBannerLibs.join(", ")
+                                : "Nessuno"}
+                            </li>
+                          )}
+                          {result.extra.consentModeCalls && (
+                            <li>
+                              <strong>Chiamate consentMode:</strong>{" "}
+                              {result.extra.consentModeCalls.length}
+                            </li>
+                          )}
+                          {result.extra.consentCallsFoundInHtml && (
+                            <li>
+                              <strong>Chiamate gtag('consent') rilevate nell’HTML:</strong>
+                              <pre className="mt-1 whitespace-pre-wrap bg-gray-100/60 p-2 rounded dark:bg-gray-800/40">
+                                {JSON.stringify(result.extra.consentCallsFoundInHtml, null, 2)}
+                              </pre>
+                            </li>
+                          )}
+                          {result.extra.dataLayerSummary && (
+                            <li>
+                              <strong>DataLayer:</strong>{" "}
+                              {result.extra.dataLayerSummary.count} eventi totali,{" "}
+                              {result.extra.dataLayerSummary.uniqueEvents.length} tipi unici
+                              <br />
+                              <strong>Eventi unici:</strong>{" "}
+                              {result.extra.dataLayerSummary.uniqueEvents.join(", ") || "Nessuno"}
+                              <br />
+                              <strong>Segnali CMP:</strong>{" "}
+                              {result.extra.dataLayerSummary.cmpSignals.join(", ") || "Nessuno"}
+                              <br />
+                              <strong>Consent nel DL:</strong>{" "}
+                              {result.extra.dataLayerSummary.consentEntriesCount}
+                            </li>
+                          )}
+                        </ul>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            )}
           </motion.section>
         )}
       </AnimatePresence>
