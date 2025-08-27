@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useLocation } from "react-router-dom";
 import { 
   Tag, 
   Zap, 
@@ -165,6 +166,7 @@ function DeleteModal({ isOpen, onClose, onConfirm, item, itemType, dependencies 
 
 export default function ContainerManagerPage({}: ContainerManagerPageProps) {
   const { container, setContainer } = useContainer();
+  const location = useLocation();
   const [activeTab, setActiveTab] = useState<TabType>('tags');
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState<string>('all');
@@ -194,6 +196,41 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
     itemType: '',
     dependencies: []
   });
+
+  // Gestisci i parametri di navigazione dalla Dashboard
+  useEffect(() => {
+    if (location.state) {
+      const { activeTab: navTab, filter: navFilter } = location.state;
+      
+      if (navTab && ['tags', 'triggers', 'variables'].includes(navTab)) {
+        setActiveTab(navTab as TabType);
+      }
+      
+      if (navFilter) {
+        // Applica i filtri appropriati in base al tipo
+        switch (navFilter) {
+          case 'ua':
+            setShowUA(true);
+            setFilterType('ua');
+            break;
+          case 'paused':
+            setShowPaused(true);
+            setFilterType('paused');
+            break;
+          case 'unused':
+            setShowUnused(true);
+            setFilterType('unused');
+            break;
+          case 'naming':
+            setFilterType('naming');
+            break;
+          case 'no-trigger':
+            setFilterType('no-trigger');
+            break;
+        }
+      }
+    }
+  }, [location.state]);
 
   // Calcola la qualità del container quando cambia
   useEffect(() => {
@@ -364,6 +401,22 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
         case 'unused':
           if (activeTab === 'variables') {
             items = items.filter(item => !usedVarNames.has(item.name));
+          } else if (activeTab === 'triggers') {
+            // Filtra trigger non utilizzati
+            const usedTriggers = new Set();
+            container.tag?.forEach(tag => {
+              if (Array.isArray(tag.firingTriggerId)) {
+                tag.firingTriggerId.forEach(id => usedTriggers.add(id));
+              } else if (tag.firingTriggerId) {
+                usedTriggers.add(tag.firingTriggerId);
+              }
+            });
+            items = items.filter(item => {
+              if (activeTab === 'triggers' && 'triggerId' in item) {
+                return !usedTriggers.has(item.triggerId);
+              }
+              return true;
+            });
           }
           break;
         case 'ua':
@@ -374,7 +427,31 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
           );
           break;
         case 'naming':
-          items = items.filter(item => !item.namingConvention);
+          // Filtra elementi con naming issues
+          const namingRules = {
+            tag: /^(UA|GA4_EVENT|GTAG|HTML)_[A-Z0-9_]+$/,
+            trigger: /^TRG_[A-Z0-9_]+$/,
+            variable: /^(DLV|JS|CONST|URL|CSS|RANDOM)_[A-Z0-9_]+$/
+          };
+          
+          const rule = namingRules[activeTab.slice(0, -1) as keyof typeof namingRules];
+          if (rule) {
+            items = items.filter(item => !rule.test(String(item.name || '')));
+          }
+          break;
+        case 'no-trigger':
+          // Solo per tab tags: mostra tag senza trigger
+          if (activeTab === 'tags') {
+            items = items.filter(item => {
+              if ('firingTriggerId' in item) {
+                if (Array.isArray(item.firingTriggerId)) {
+                  return item.firingTriggerId.length === 0;
+                }
+                return !item.firingTriggerId;
+              }
+              return true;
+            });
+          }
           break;
       }
     }
@@ -860,6 +937,7 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
                   <option value="unused">Non Utilizzati</option>
                   <option value="ua">UA Obsoleti</option>
                   <option value="naming">Naming Issues</option>
+                  {activeTab === 'tags' && <option value="no-trigger">Senza Trigger</option>}
                 </select>
               </div>
 

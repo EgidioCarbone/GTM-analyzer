@@ -7,7 +7,17 @@
  */
 
 // ============================================================================
-// 0. ASSUNZIONI DI INPUT
+// 0. CONFIGURAZIONE CENTRALIZZATA
+// ============================================================================
+
+export const SCORE_WEIGHTS = {
+  tags: 0.35,
+  triggers: 0.35, 
+  variables: 0.30,
+};
+
+// ============================================================================
+// 1. ASSUNZIONI DI INPUT
 // ============================================================================
 
 import { GenerateDocInput, GTMTag, GTMTrigger, GTMVariable } from "../types/gtm";
@@ -287,6 +297,7 @@ function generateActionPlan(kpi: any) {
     count: number;
     action: string;
     description: string;
+    impact: number;
   }> = [];
   
   if (kpi.uaObsolete > 0) {
@@ -295,7 +306,8 @@ function generateActionPlan(kpi: any) {
       priority: 1,
       count: kpi.uaObsolete,
       action: 'Migra a GA4',
-      description: 'UA è obsoleto, serve migrare a GA4'
+      description: 'UA è obsoleto, serve migrare a GA4',
+      impact: 5 // +5% per migrazione UA
     });
   }
   
@@ -305,7 +317,8 @@ function generateActionPlan(kpi: any) {
       priority: 2,
       count: kpi.paused,
       action: 'Valuta rimozione',
-      description: 'Tag in pausa appesantiscono il container'
+      description: 'Tag in pausa appesantiscono il container',
+      impact: 2 // +2% per rimozione paused
     });
   }
   
@@ -315,7 +328,8 @@ function generateActionPlan(kpi: any) {
       priority: 3,
       count: kpi.unused.total,
       action: 'Elimina elementi',
-      description: 'Elementi non utilizzati creano rumore'
+      description: 'Elementi non utilizzati creano rumore',
+      impact: 3 // +3% per rimozione unused
     });
   }
   
@@ -325,7 +339,8 @@ function generateActionPlan(kpi: any) {
       priority: 4,
       count: kpi.namingIssues.total,
       action: 'Standardizza nomi',
-      description: 'Nomi incoerenti complicano la manutenzione'
+      description: 'Nomi incoerenti complicano la manutenzione',
+      impact: 1 // +1% per standardizzazione naming
     });
   }
   
@@ -390,12 +405,22 @@ export type GtmMetrics = {
     chartData: Array<{ family: string; count: number }>;
   };
   quality: { tags: number; triggers: number; variables: number }; // 0–100
+  score: {
+    total: number;
+    breakdown: Array<{
+      label: string;
+      value: number;
+      weight: number;
+      percentage: number;
+    }>;
+  };
   actionPlan: Array<{
-    type: 'ua' | 'paused' | 'unused' | 'namingIssues';
+    type: 'uaObsolete' | 'paused' | 'unused' | 'namingIssues';
     priority: number;
     count: number;
     action: string;
     description: string;
+    impact: number; // Stima incremento score
   }>;
   lists: {
     pausedTags: any[];
@@ -446,6 +471,13 @@ export function calculateGtmMetrics(cv: GTMContainerVersion): GtmMetrics {
       namingIssues: counts.tags > 0 ? Math.round((namingIssues.total / counts.tags) * 100) : 0
     };
     
+    // Calcola score trasparente
+    const score = calculateTransparentScore({
+      tags: tagQuality.score,
+      triggers: triggerQuality.score,
+      variables: variableQuality.score
+    });
+
     const metrics: GtmMetrics = {
       kpi: {
         paused: paused.count,
@@ -473,6 +505,7 @@ export function calculateGtmMetrics(cv: GTMContainerVersion): GtmMetrics {
         triggers: triggerQuality.score,
         variables: variableQuality.score
       },
+      score,
       actionPlan,
       lists: {
         pausedTags: paused.tags,
@@ -498,6 +531,77 @@ export function calculateGtmMetrics(cv: GTMContainerVersion): GtmMetrics {
     console.error('❌ GTM Metrics calculation failed:', error);
     throw error;
   }
+}
+
+// ============================================================================
+// 10. CALCOLO SCORE TRASPARENTE E STIMA IMPATTO
+// ============================================================================
+
+function calculateTransparentScore(quality: { tags: number; triggers: number; variables: number }) {
+  const breakdown = [
+    {
+      label: 'Pulizia tag',
+      value: quality.tags,
+      weight: SCORE_WEIGHTS.tags,
+      percentage: Math.round(quality.tags * SCORE_WEIGHTS.tags)
+    },
+    {
+      label: 'Qualità trigger',
+      value: quality.triggers,
+      weight: SCORE_WEIGHTS.triggers,
+      percentage: Math.round(quality.triggers * SCORE_WEIGHTS.triggers)
+    },
+    {
+      label: 'Qualità variabili',
+      value: quality.variables,
+      weight: SCORE_WEIGHTS.variables,
+      percentage: Math.round(quality.variables * SCORE_WEIGHTS.variables)
+    }
+  ];
+  
+  const total = Math.round(
+    quality.tags * SCORE_WEIGHTS.tags +
+    quality.triggers * SCORE_WEIGHTS.triggers +
+    quality.variables * SCORE_WEIGHTS.variables
+  );
+  
+  return { total, breakdown };
+}
+
+// Funzione per simulare la chiusura di un task e calcolare l'impatto
+function simulateFix(current: GtmMetrics, taskType: string): { delta: number; newScore: number } {
+  const next = structuredClone(current);
+  
+  switch (taskType) {
+    case 'uaObsolete':
+      // Migra UA → aumenta quality.tags
+      next.quality.tags = Math.min(100, next.quality.tags + 5);
+      break;
+    case 'unused':
+      // Rimuovi unused → aumenta quality.variables e quality.triggers
+      if (next.kpi.unused.variables > 0) {
+        next.quality.variables = Math.min(100, next.quality.variables + 3);
+      }
+      if (next.kpi.unused.triggers > 0) {
+        next.quality.triggers = Math.min(100, next.quality.triggers + 3);
+      }
+      break;
+    case 'paused':
+      // Rimuovi paused → aumenta quality.tags
+      next.quality.tags = Math.min(100, next.quality.tags + 2);
+      break;
+    case 'namingIssues':
+      // Standardizza naming → aumenta tutte le qualità
+      next.quality.tags = Math.min(100, next.quality.tags + 1);
+      next.quality.triggers = Math.min(100, next.quality.triggers + 1);
+      next.quality.variables = Math.min(100, next.quality.variables + 1);
+      break;
+  }
+  
+  const newScore = calculateTransparentScore(next.quality);
+  const delta = newScore.total - current.score.total;
+  
+  return { delta: Math.max(0, delta), newScore: newScore.total };
 }
 
 // ============================================================================
