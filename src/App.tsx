@@ -4,9 +4,7 @@ import React, { useEffect } from "react";
 import { Routes, Route, Navigate, useLocation, useNavigate } from "react-router-dom";
 import Sidebar from "./components/Sidebar";
 import DashboardPage from "./pages/DashboardPage";
-import TagsPage from "./pages/TagsPage";
-import TriggersPage from "./pages/TriggersPage";
-import VariablesPage from "./pages/VariablesPage";
+import ContainerManagerPage from "./pages/ContainerManagerPage";
 import PlanPage from "./pages/PlanPage";
 import TestingPage from "./pages/TestingPage";
 import MigrationPage from "./pages/MigrationPage";
@@ -22,7 +20,7 @@ export default function App() {
   useEffect(() => {
     const saved = localStorage.getItem("gtmContainer");
     if (saved) {
-      toast.success("✅ Container ripristinato dall’ultima sessione.");
+      toast.success("✅ Container ripristinato dall'ultima sessione.");
     }
   }, []);
 
@@ -52,9 +50,7 @@ export default function App() {
           {/* Route protette - accessibili solo quando c'è un container */}
           {container && (
             <>
-              <Route path="/tags" element={<TagsPage />} />
-              <Route path="/triggers" element={<TriggersPage />} />
-              <Route path="/variables" element={<VariablesPage />} />
+              <Route path="/container-manager" element={<ContainerManagerPage />} />
               <Route path="/plan" element={<PlanPage />} />
               <Route path="/testing" element={<TestingPage />} />
               <Route path="/migration" element={<MigrationPage />} />

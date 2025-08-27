@@ -1,15 +1,13 @@
 import React from "react";
 import { NavLink, useNavigate } from "react-router-dom";
-import { Upload, Download, Moon, Sun, Brain } from "lucide-react";
+import { Upload, Download, Moon, Sun, Brain, Settings } from "lucide-react";
 import useDarkMode from "../hooks/useDarkMode";
 import { useContainer } from "../context/ContainerContext";
 
 export default function Sidebar() {
   const links = [
     { to: "/dashboard", label: "Dashboard" },
-    { to: "/tags", label: "Tag" },
-    { to: "/triggers", label: "Trigger" },
-    { to: "/variables", label: "Variabili" },
+    { to: "/container-manager", label: "Container Manager", icon: Settings },
     { to: "/plan", label: "AI Plan" },
     // { to: "/testing", label: "Testing" },
     // { to: "/migration", label: "UA → GA4" },
@@ -53,12 +51,12 @@ export default function Sidebar() {
 
         {/* Nav */}
         <nav className="flex flex-col px-3 space-y-1 mt-4">
-          {links.map(({ to, label }) => (
+          {links.map(({ to, label, icon: Icon }) => (
             <NavLink
               key={to}
               to={to}
               className={({ isActive }) =>
-                `relative block px-4 py-2 rounded-md font-medium transition-all
+                `relative block px-4 py-2 rounded-md font-medium transition-all flex items-center gap-2
                  ${
                    isActive
                      ? "bg-white/20 text-white before:absolute before:left-0 before:top-0 before:bottom-0 before:w-1 before:bg-pink-400 before:rounded-r"
@@ -66,6 +64,7 @@ export default function Sidebar() {
                  }`
               }
             >
+              {Icon && <Icon className="w-4 h-4" />}
               {label}
             </NavLink>
           ))}
