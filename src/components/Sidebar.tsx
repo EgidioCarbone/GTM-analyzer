@@ -34,13 +34,13 @@ export default function Sidebar() {
   };
 
   const handleReplaceJSON = () => {
-    localStorage.removeItem("gtm-analyzer-container");
+    localStorage.removeItem("gtmContainer");
     setContainer(null);
-    navigate("/");
+    navigate("/dashboard");
   };
 
   return (
-    <aside className="fixed top-0 left-0 h-screen w-64 bg-[#1a365d] text-white flex flex-col justify-between py-6 shadow-md">
+    <aside className="fixed top-0 left-0 h-screen w-64 bg-[#1a365d] text-white flex flex-col justify-between py-6 shadow-md animate-slideIn">
       {/* Header */}
       <div className="space-y-6">
         <div className="flex items-center justify-center gap-2 text-2xl font-bold px-4">

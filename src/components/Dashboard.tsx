@@ -73,7 +73,9 @@ const Dashboard = () => {
   const allItems = [...tags, ...triggers, ...variables];
 
   function isVariableUsed(name: string): boolean {
-    const pattern = new RegExp(`{{\\s*${name}\\s*}}`, "g");
+    // Escape dei caratteri speciali delle regex per evitare errori
+    const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const pattern = new RegExp(`{{\\s*${escapedName}\\s*}}`, "g");
     return allItems.some((item) => JSON.stringify(item).match(pattern));
   }
 

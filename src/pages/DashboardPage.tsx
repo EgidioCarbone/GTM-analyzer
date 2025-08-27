@@ -34,9 +34,9 @@ export default function DashboardPage() {
 
 
   return (
-    <main className={`p-6 space-y-6 ${!container ? "flex items-center justify-center h-full" : ""}`}>
+    <main className={`${!container ? "flex items-center justify-center min-h-screen" : "p-6 space-y-6"}`}>
       {!container ? (
-        <div className="max-w-2xl w-full"> {/* aumentata la larghezza */}
+        <div className="max-w-4xl w-full px-6"> {/* aumentata la larghezza e centrato */}
           <FileUpload onFile={handleFile} />
         </div>
       ) : (
