@@ -8,7 +8,7 @@ export default function VariablesPage() {
 
   if (!container) {
     return (
-      <p className="text-gray-500 text-sm">
+              <p className="text-gray-500 dark:text-gray-400 text-sm">
         Carica prima un JSON nella sezione Dashboard.
       </p>
     );

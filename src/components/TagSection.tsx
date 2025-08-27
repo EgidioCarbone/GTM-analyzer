@@ -103,19 +103,19 @@ export default function TagSection({
                     <div className="flex gap-2">
                       <button
                         onClick={() => setDetail(t)}
-                        className="px-3 py-1.5 rounded bg-[#1a365d] text-white text-sm flex items-center gap-1 hover:brightness-110"
+                        className="px-3 py-1.5 rounded bg-[#1a365d] dark:bg-blue-600 text-white text-sm flex items-center gap-1 hover:brightness-110 transition"
                       >
                         <Info className="w-4 h-4" /> Dettagli
                       </button>
                       <button
                         onClick={() => alert(explain(t))}
-                        className="px-3 py-1.5 rounded bg-[#FF6B35] text-white text-sm flex items-center gap-1 hover:brightness-110"
+                        className="px-3 py-1.5 rounded bg-[#FF6B35] dark:bg-orange-600 text-white text-sm flex items-center gap-1 hover:brightness-110 transition"
                       >
                         <Sparkles className="w-4 h-4" /> AI
                       </button>
                       <button
                         onClick={() => handleDelete(t)}
-                        className="px-3 py-1.5 rounded bg-red-600 text-white text-sm flex items-center gap-1 hover:brightness-110"
+                        className="px-3 py-1.5 rounded bg-red-600 text-white text-sm flex items-center gap-1 hover:brightness-110 transition"
                       >
                         <Trash2 className="w-4 h-4" /> Elimina
                       </button>

@@ -1,17 +1,19 @@
-import React from "react";
+import React, { useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
-import { Upload, Download, Moon, Sun, Brain, Settings } from "lucide-react";
+import { Upload, Download, Moon, Sun, Brain, Settings, LayoutDashboard, Target, Shield, ChevronDown, ChevronUp } from "lucide-react";
 import useDarkMode from "../hooks/useDarkMode";
 import { useContainer } from "../context/ContainerContext";
 
 export default function Sidebar() {
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  
   const links = [
-    { to: "/dashboard", label: "Dashboard" },
+    { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
     { to: "/container-manager", label: "Container Manager", icon: Settings },
-    { to: "/plan", label: "AI Plan" },
+    { to: "/plan", label: "AI Plan", icon: Target },
     // { to: "/testing", label: "Testing" },
     // { to: "/migration", label: "UA → GA4" },
-    { to: "/checklist", label: "AI Sentinel" },
+    { to: "/checklist", label: "AI Sentinel", icon: Shield },
   ];
 
   const [isDark, setIsDark] = useDarkMode();
@@ -71,43 +73,67 @@ export default function Sidebar() {
         </nav>
       </div>
 
-      {/* Footer actions */}
-      <div className="flex flex-col space-y-3 px-4">
+      {/* Footer - Sezione Impostazioni */}
+      <div className="px-4">
+        {/* Toggle Impostazioni */}
         <button
-          onClick={handleReplaceJSON}
-          className="flex items-center justify-center gap-2 bg-orange-500 text-white text-sm rounded-lg px-3 py-2 hover:brightness-110 transition"
+          onClick={() => setIsSettingsOpen(!isSettingsOpen)}
+          className="w-full flex items-center justify-between px-3 py-2 text-white/80 hover:bg-white/10 rounded-md transition-all"
         >
-          <Upload className="w-4 h-4" />
-          Sostituisci JSON
+          <div className="flex items-center gap-2">
+            <Settings className="w-4 h-4" />
+            <span className="text-sm font-medium">Impostazioni</span>
+          </div>
+          {isSettingsOpen ? (
+            <ChevronUp className="w-4 h-4" />
+          ) : (
+            <ChevronDown className="w-4 h-4" />
+          )}
         </button>
 
-        <button
-          onClick={handleDownload}
-          className={`flex items-center justify-center gap-2 text-sm rounded-lg px-3 py-2 transition ${
-            container
-              ? "bg-orange-500 text-white hover:brightness-110"
-              : "bg-gray-400 text-white/80 cursor-not-allowed"
-          }`}
-          disabled={!container}
-        >
-          <Download className="w-4 h-4" />
-          Scarica JSON
-        </button>
+        {/* Contenuto Impostazioni */}
+        {isSettingsOpen && (
+          <div className="mt-2 space-y-2 animate-slideDown">
+            {/* Azioni JSON */}
+            <div className="space-y-2">
+              <button
+                onClick={handleReplaceJSON}
+                className="w-full flex items-center justify-center gap-2 bg-orange-500 text-white text-sm rounded-lg px-3 py-2 hover:brightness-110 transition"
+              >
+                <Upload className="w-4 h-4" />
+                Sostituisci JSON
+              </button>
 
-        {/* Dark Mode toggle */}
-        <div className="flex items-center justify-between text-xs text-white/70 mt-2">
-          <span>Dark Mode</span>
-          <button
-            onClick={() => setIsDark(!isDark)}
-            className="p-2 bg-white/10 rounded hover:bg-white/20"
-          >
-            {isDark ? (
-              <Sun className="w-4 h-4 text-yellow-300" />
-            ) : (
-              <Moon className="w-4 h-4 text-white" />
-            )}
-          </button>
-        </div>
+              <button
+                onClick={handleDownload}
+                className={`w-full flex items-center justify-center gap-2 text-sm rounded-lg px-3 py-2 transition ${
+                  container
+                    ? "bg-orange-500 text-white hover:brightness-110"
+                    : "bg-gray-400 text-white/80 cursor-not-allowed"
+                }`}
+                disabled={!container}
+              >
+                <Download className="w-4 h-4" />
+                Scarica JSON
+              </button>
+            </div>
+
+            {/* Dark Mode Toggle */}
+            <div className="flex items-center justify-between text-xs text-white/70 bg-white/5 rounded-lg px-3 py-2">
+              <span>Dark Mode</span>
+              <button
+                onClick={() => setIsDark(!isDark)}
+                className="p-2 bg-white/10 rounded hover:bg-white/20 transition"
+              >
+                {isDark ? (
+                  <Sun className="w-4 h-4 text-yellow-300" />
+                ) : (
+                  <Moon className="w-4 h-4 text-white" />
+                )}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </aside>
   );
