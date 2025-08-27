@@ -9,6 +9,8 @@ export interface GTMTag {
   namingConvention?: boolean;
   lastModified?: string;
   createdBy?: string;
+  tagId?: string; // ID univoco del tag
+  firingTriggerId?: string | string[]; // ID dei trigger che attivano questo tag
 }
 
 // Tipo per i TRIGGER
@@ -21,6 +23,8 @@ export interface GTMTrigger {
   namingConvention?: boolean;
   lastModified?: string;
   createdBy?: string;
+  triggerId?: string; // ID univoco del trigger
+  firingTriggerId?: string | string[]; // ID dei tag che questo trigger può attivare
 }
 
 // Tipo per le VARIABILI

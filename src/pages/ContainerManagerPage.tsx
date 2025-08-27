@@ -16,7 +16,9 @@ import {
   BarChart3,
   ArrowUpRight,
   ArrowDownRight,
-  Minus
+  Minus,
+  AlertCircle,
+  X
 } from "lucide-react";
 import { useContainer } from "../context/ContainerContext";
 import { GTMTag, GTMTrigger, GTMVariable } from "../types/gtm";
@@ -43,6 +45,124 @@ interface QualityHistory {
   itemName?: string;
 }
 
+// Interfaccia per la modale di conferma
+interface DeleteModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+  item: any;
+  itemType: string;
+  dependencies?: string[];
+}
+
+// Modale di conferma eliminazione
+function DeleteModal({ isOpen, onClose, onConfirm, item, itemType, dependencies }: DeleteModalProps) {
+  if (!isOpen) return null;
+
+  const hasDependencies = dependencies && dependencies.length > 0;
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.95 }}
+        className="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-md w-full mx-4 shadow-xl"
+      >
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+            Conferma Eliminazione
+          </h3>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {hasDependencies ? (
+          // Caso: non si può eliminare per dipendenze
+          <div className="space-y-4">
+            <div className="flex items-center gap-3 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+              <AlertCircle className="w-6 h-6 text-red-600 dark:text-red-400" />
+              <div>
+                <p className="font-medium text-red-800 dark:text-red-200">
+                  Impossibile eliminare questo {itemType}
+                </p>
+                <p className="text-sm text-red-600 dark:text-red-400">
+                  È collegato ad altri elementi
+                </p>
+              </div>
+            </div>
+            
+            <div>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+                <strong>{item.name}</strong> non può essere eliminato perché è collegato ai seguenti trigger:
+              </p>
+              <div className="space-y-2">
+                {dependencies.map((triggerName, index) => (
+                  <div key={index} className="flex items-center gap-2 p-2 bg-gray-50 dark:bg-gray-700 rounded">
+                    <Zap className="w-4 h-4 text-blue-500" />
+                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                      {triggerName}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="text-sm text-gray-500 dark:text-gray-400">
+              💡 <strong>Suggerimento:</strong> Prima di eliminare il tag, rimuovi o modifica i trigger collegati.
+            </div>
+          </div>
+        ) : (
+          // Caso: si può eliminare
+          <div className="space-y-4">
+            <div className="flex items-center gap-3 p-3 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg">
+              <AlertTriangle className="w-6 h-6 text-orange-600 dark:text-orange-400" />
+              <div>
+                <p className="font-medium text-orange-800 dark:text-orange-200">
+                  Conferma eliminazione
+                </p>
+                <p className="text-sm text-orange-600 dark:text-orange-400">
+                  Questa azione non è reversibile
+                </p>
+              </div>
+            </div>
+            
+            <p className="text-gray-700 dark:text-gray-300">
+              Sei sicuro di voler eliminare <strong>"{item.name}"</strong>?
+            </p>
+            
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              Tipo: <span className="font-medium">{item.type}</span>
+            </p>
+          </div>
+        )}
+
+        <div className="flex gap-3 mt-6">
+          <button
+            onClick={onClose}
+            className="flex-1 px-4 py-2 text-gray-700 dark:text-gray-300 bg-gray-200 dark:bg-gray-700 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
+          >
+            Annulla
+          </button>
+          
+          {!hasDependencies && (
+            <button
+              onClick={onConfirm}
+              className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+            >
+              Elimina
+            </button>
+          )}
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
 export default function ContainerManagerPage({}: ContainerManagerPageProps) {
   const { container, setContainer } = useContainer();
   const [activeTab, setActiveTab] = useState<TabType>('tags');
@@ -61,6 +181,19 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
   const [showUA, setShowUA] = useState(false);
   const [showPaused, setShowPaused] = useState(false);
   const [showUnused, setShowUnused] = useState(false);
+
+  // Stato per la modale di eliminazione
+  const [deleteModal, setDeleteModal] = useState<{
+    isOpen: boolean;
+    item: any;
+    itemType: string;
+    dependencies?: string[];
+  }>({
+    isOpen: false,
+    item: null,
+    itemType: '',
+    dependencies: []
+  });
 
   // Calcola la qualità del container quando cambia
   useEffect(() => {
@@ -144,6 +277,52 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
     return getUsedVariableNames(container);
   }, [container, activeTab]);
 
+  // Controlla le dipendenze di un tag
+  const checkTagDependencies = (tagName: string): string[] => {
+    if (activeTab !== 'tags') return [];
+    
+    console.log('🔍 Controllo dipendenze per tag:', tagName);
+    
+    // 1. Trova il tag che si vuole eliminare
+    const tagToDelete = container.tag?.find(t => t.name === tagName);
+    if (!tagToDelete) {
+      console.log('❌ Tag non trovato');
+      return [];
+    }
+    
+    console.log('📋 Tag trovato:', tagToDelete);
+    
+    // 2. Controlla se ha firingTriggerId
+    if (!tagToDelete.firingTriggerId) {
+      console.log('✅ Tag non ha trigger collegati');
+      return [];
+    }
+    
+    // 3. Ottieni gli ID dei trigger collegati
+    const triggerIds = Array.isArray(tagToDelete.firingTriggerId) 
+      ? tagToDelete.firingTriggerId 
+      : [tagToDelete.firingTriggerId];
+    
+    console.log('🎯 Trigger ID collegati:', triggerIds);
+    
+    // 4. Trova i trigger corrispondenti
+    const dependencies: string[] = [];
+    const triggers = container.trigger || [];
+    
+    triggerIds.forEach(triggerId => {
+      const trigger = triggers.find(t => t.triggerId === triggerId);
+      if (trigger) {
+        console.log('✅ Trigger collegato trovato:', trigger.name, 'ID:', trigger.triggerId);
+        dependencies.push(trigger.name);
+      } else {
+        console.log('⚠️ Trigger ID non trovato:', triggerId);
+      }
+    });
+    
+    console.log('📊 Dipendenze finali:', dependencies);
+    return dependencies;
+  };
+
   const getFilteredItems = () => {
     let items = currentItems;
 
@@ -203,20 +382,37 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
     return items;
   };
 
-  const handleDeleteItem = (itemId: string) => {
-    if (!container) return;
+  const handleDeleteClick = (item: any) => {
+    let dependencies: string[] = [];
+    
+    // Controlla le dipendenze solo per i tag
+    if (activeTab === 'tags') {
+      dependencies = checkTagDependencies(item.name);
+    }
+    
+    setDeleteModal({
+      isOpen: true,
+      item,
+      itemType: activeTab.slice(0, -1), // Rimuovi la 's' finale
+      dependencies
+    });
+  };
 
+  const handleDeleteConfirm = () => {
+    if (!container || !deleteModal.item) return;
+
+    const itemName = deleteModal.item.name;
     const newContainer = { ...container };
     let itemType: 'tag' | 'trigger' | 'variable' = 'tag';
     
     // Trova il tipo di elemento
-    if (container.tag?.find(t => t.name === itemId)) itemType = 'tag';
-    else if (container.trigger?.find(t => t.name === itemId)) itemType = 'trigger';
-    else if (container.variable?.find(t => t.name === itemId)) itemType = 'variable';
+    if (container.tag?.find(t => t.name === itemName)) itemType = 'tag';
+    else if (container.trigger?.find(t => t.name === itemName)) itemType = 'trigger';
+    else if (container.variable?.find(t => t.name === itemName)) itemType = 'variable';
 
     // Rimuovi l'elemento
     if (newContainer[itemType]) {
-      newContainer[itemType] = newContainer[itemType]!.filter(item => item.name !== itemId);
+      newContainer[itemType] = newContainer[itemType]!.filter(item => item.name !== itemName);
       setContainer(newContainer);
       
       // Registra la modifica nella cronologia
@@ -231,9 +427,12 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
           namingIssues: newQuality.namingIssues
         },
         action: 'Elemento eliminato',
-        itemName: itemId
+        itemName: itemName
       }]);
     }
+    
+    // Chiudi la modale
+    setDeleteModal({ isOpen: false, item: null, itemType: '', dependencies: [] });
   };
 
   const handleTogglePause = (itemId: string) => {
@@ -705,7 +904,7 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
                               </span>
                             )}
                             {activeTab === 'tags' && (item.type === 'ua' || item.type.includes('UA')) && (
-                              <span className="px-2 py-1 bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-200 text-xs rounded-full">
+                              <span className="text-xs px-2 py-1 bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-200 rounded-full">
                                 UA Obsoleto
                               </span>
                             )}
@@ -729,7 +928,7 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
                             {item.paused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
                           </button>
                           <button
-                            onClick={() => handleDeleteItem(item.name)}
+                            onClick={() => handleDeleteClick(item)}
                             className="p-2 bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300 rounded-lg hover:bg-red-200 dark:hover:bg-red-800 transition-colors"
                             title="Elimina"
                           >
@@ -745,6 +944,16 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
           </div>
         </div>
       </div>
+
+      {/* Modale di conferma eliminazione */}
+      <DeleteModal
+        isOpen={deleteModal.isOpen}
+        onClose={() => setDeleteModal({ isOpen: false, item: null, itemType: '', dependencies: [] })}
+        onConfirm={handleDeleteConfirm}
+        item={deleteModal.item}
+        itemType={deleteModal.itemType}
+        dependencies={deleteModal.dependencies}
+      />
     </div>
   );
 }
