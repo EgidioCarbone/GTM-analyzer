@@ -198,13 +198,13 @@ ${cleaned.variables}`;
                 Effettua analisi IA <Sparkles className="w-4 h-4" />
               </>
             )}
-            <span className="absolute inset-0 bg-white opacity-10 blur-sm animate-pulse" />
+            <span className="absolute inset-0 bg-white dark:bg-gray-200 opacity-10 blur-sm animate-pulse" />
           </Button>
 
           <Button
             onClick={clearPreview}
             variant="outline"
-            className="border-gray-300 hover:border-gray-400 text-gray-700 hover:bg-gray-100 px-5 py-2 rounded-full transition-colors duration-200"
+            className="border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 px-5 py-2 rounded-full transition-colors duration-200"
           >
             <RefreshCcw className="mr-2 h-4 w-4" />
             Resetta anteprima
@@ -225,7 +225,7 @@ ${cleaned.variables}`;
                       `px-4 py-2 text-sm font-medium rounded-full flex items-center gap-1 transition-all ${
                         selected
                           ? "bg-purple-600 text-white shadow-md"
-                          : "bg-gray-200 text-gray-800 hover:bg-gray-300"
+                          : "bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-600"
                       }`
                     }
                   >
@@ -248,24 +248,24 @@ ${cleaned.variables}`;
                             remarkPlugins={[remarkGfm]}
                             components={{
                               table: ({ children }) => (
-                                <div className="overflow-x-auto rounded-lg border border-gray-300 shadow-sm my-4">
-                                  <table className="min-w-full divide-y divide-gray-300 text-sm text-left">
+                                <div className="overflow-x-auto rounded-lg border border-gray-300 dark:border-gray-600 shadow-sm my-4">
+                                  <table className="min-w-full divide-y divide-gray-300 dark:divide-gray-600 text-sm text-left">
                                     {children}
                                   </table>
                                 </div>
                               ),
                               th: ({ children }) => (
-                                <th className="px-4 py-2 bg-gray-100 font-semibold text-gray-700 border-b">
+                                <th className="px-4 py-2 bg-gray-100 dark:bg-gray-700 font-semibold text-gray-700 dark:text-gray-300 border-b dark:border-gray-600">
                                   {children}
                                 </th>
                               ),
                               td: ({ children }) => (
-                                <td className="px-4 py-2 border-t border-gray-200 whitespace-pre-wrap">
+                                <td className="px-4 py-2 border-t border-gray-200 dark:border-gray-600 whitespace-pre-wrap">
                                   {children}
                                 </td>
                               ),
                               tr: ({ children }) => (
-                                <tr className="hover:bg-gray-50 transition-colors">{children}</tr>
+                                <tr className="hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">{children}</tr>
                               ),
                             }}
                           >
