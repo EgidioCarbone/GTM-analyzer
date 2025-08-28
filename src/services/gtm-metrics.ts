@@ -11,12 +11,13 @@
 // ============================================================================
 
 export const SCORE_WEIGHTS = {
-  tags: 0.20,
-  triggers: 0.20, 
-  variables: 0.15,
-  consent: 0.15, // 15% per consent mode
-  triggerQuality: 0.15, // 15% per trigger quality
-  variableQuality: 0.15, // 15% per variable quality
+  tags: 0.18,
+  triggers: 0.18, 
+  variables: 0.14,
+  consent: 0.14, // 14% per consent mode
+  triggerQuality: 0.14, // 14% per trigger quality
+  variableQuality: 0.14, // 14% per variable quality
+  htmlSecurity: 0.08, // 8% per HTML security
 };
 
 // ============================================================================
@@ -27,6 +28,7 @@ import { GenerateDocInput, GTMTag, GTMTrigger, GTMVariable } from "../types/gtm"
 import { analyzeConsentMode, ConsentModeResult } from "./consentModeService";
 import { analyzeTriggerQuality, TriggerQualityResult } from "./triggerQualityService";
 import { analyzeVariableQuality, VariableQualityResult } from "./variableQualityService";
+import { analyzeHtmlSecurity, HtmlSecurityResult } from "./htmlSecurityService";
 
 export interface GTMContainerVersion extends GenerateDocInput {
   // Estende GenerateDocInput per compatibilità
@@ -422,7 +424,7 @@ function calculateVariableQuality(cv: GTMContainerVersion) {
 
 function generateActionPlan(kpi: any) {
   const actions: Array<{
-    type: 'uaObsolete' | 'paused' | 'unused' | 'namingIssues' | 'doublePageView' | 'consentMode' | 'triggerQuality' | 'variableQuality';
+    type: 'uaObsolete' | 'paused' | 'unused' | 'namingIssues' | 'doublePageView' | 'consentMode' | 'triggerQuality' | 'variableQuality' | 'htmlSecurity';
     priority: number;
     count: number;
     action: string;
@@ -471,6 +473,17 @@ function generateActionPlan(kpi: any) {
       action: 'Ottimizza Variabili',
       description: 'Variabili con problemi di configurazione - impatto affidabilità',
       impact: 5 // +5% per ottimizzazione variabili
+    });
+  }
+  
+  if (kpi.htmlSecurity > 0) {
+    actions.push({
+      type: 'htmlSecurity',
+      priority: 1.5, // Priorità alta per sicurezza
+      count: kpi.htmlSecurity,
+      action: 'Rivedi Sicurezza HTML',
+      description: 'Tag HTML con problemi di sicurezza - rischio critico',
+      impact: 8 // +8% per risoluzione sicurezza
     });
   }
   
@@ -579,6 +592,7 @@ export type GtmMetrics = {
     consentMode: ConsentModeResult;
     triggerQuality: TriggerQualityResult;
     variableQuality: VariableQualityResult;
+    htmlSecurity: HtmlSecurityResult;
   };
   counts: { tags: number; triggers: number; variables: number };
   distribution: { 
@@ -589,7 +603,7 @@ export type GtmMetrics = {
     other: number;
     chartData: Array<{ family: string; count: number }>;
   };
-  quality: { tags: number; triggers: number; variables: number; consent: number; triggerQuality: number; variableQuality: number }; // 0–100
+  quality: { tags: number; triggers: number; variables: number; consent: number; triggerQuality: number; variableQuality: number; htmlSecurity: number }; // 0–100
   score: {
     total: number;
     breakdown: Array<{
@@ -600,7 +614,7 @@ export type GtmMetrics = {
     }>;
   };
   actionPlan: Array<{
-    type: 'uaObsolete' | 'paused' | 'unused' | 'namingIssues' | 'doublePageView' | 'consentMode' | 'triggerQuality' | 'variableQuality';
+    type: 'uaObsolete' | 'paused' | 'unused' | 'namingIssues' | 'doublePageView' | 'consentMode' | 'triggerQuality' | 'variableQuality' | 'htmlSecurity';
     priority: number;
     count: number;
     action: string;
@@ -638,6 +652,7 @@ export function calculateGtmMetrics(cv: GTMContainerVersion): GtmMetrics {
     const consentMode = analyzeConsentMode(cv);
     const triggerQualityAnalysis = analyzeTriggerQuality(cv);
     const variableQualityAnalysis = analyzeVariableQuality(cv);
+    const htmlSecurityAnalysis = analyzeHtmlSecurity(cv);
     const counts = calculateCounts(cv);
     const distribution = calculateDistribution(cv);
     const tagQuality = calculateTagQuality(cv);
@@ -646,6 +661,7 @@ export function calculateGtmMetrics(cv: GTMContainerVersion): GtmMetrics {
     const consentQuality = Math.round(consentMode.consent_coverage.score * 100);
     const triggerQualityScore = Math.round(triggerQualityAnalysis.trigger_quality.score * 100);
     const variableQualityScore = Math.round(variableQualityAnalysis.variable_quality.score * 100);
+    const htmlSecurityScore = Math.round(htmlSecurityAnalysis.html_security.score * 100);
     
     // Genera piano d'azione
     const actionPlan = generateActionPlan({
@@ -656,7 +672,8 @@ export function calculateGtmMetrics(cv: GTMContainerVersion): GtmMetrics {
       doublePageView: doublePageView.isDoublePageView,
       consentMode: consentMode.consent_coverage.missing + consentMode.consent_coverage.not_configured,
       triggerQuality: triggerQualityAnalysis.trigger_quality.issues.filter(issue => issue.severity === 'major' || issue.severity === 'critical').length,
-      variableQuality: variableQualityAnalysis.variable_quality.issues.filter(issue => issue.severity === 'major' || issue.severity === 'critical').length
+      variableQuality: variableQualityAnalysis.variable_quality.issues.filter(issue => issue.severity === 'major' || issue.severity === 'critical').length,
+      htmlSecurity: htmlSecurityAnalysis.html_security.critical + htmlSecurityAnalysis.html_security.major
     });
     
     // Calcola percentuali per UX
@@ -674,7 +691,8 @@ export function calculateGtmMetrics(cv: GTMContainerVersion): GtmMetrics {
       variables: variableQuality.score,
       consent: consentQuality,
       triggerQuality: triggerQualityScore,
-      variableQuality: variableQualityScore
+      variableQuality: variableQualityScore,
+      htmlSecurity: htmlSecurityScore
     });
 
     const metrics: GtmMetrics = {
@@ -696,7 +714,8 @@ export function calculateGtmMetrics(cv: GTMContainerVersion): GtmMetrics {
         doublePageView,
         consentMode,
         triggerQuality: triggerQualityAnalysis,
-        variableQuality: variableQualityAnalysis
+        variableQuality: variableQualityAnalysis,
+        htmlSecurity: htmlSecurityAnalysis
       },
       counts,
       distribution: {
@@ -709,7 +728,8 @@ export function calculateGtmMetrics(cv: GTMContainerVersion): GtmMetrics {
         variables: variableQuality.score,
         consent: consentQuality,
         triggerQuality: triggerQualityScore,
-        variableQuality: variableQualityScore
+        variableQuality: variableQualityScore,
+        htmlSecurity: htmlSecurityScore
       },
       score,
       actionPlan,
@@ -743,7 +763,7 @@ export function calculateGtmMetrics(cv: GTMContainerVersion): GtmMetrics {
 // 10. CALCOLO SCORE TRASPARENTE E STIMA IMPATTO
 // ============================================================================
 
-function calculateTransparentScore(quality: { tags: number; triggers: number; variables: number; consent: number; triggerQuality: number; variableQuality: number }) {
+function calculateTransparentScore(quality: { tags: number; triggers: number; variables: number; consent: number; triggerQuality: number; variableQuality: number; htmlSecurity: number }) {
   const breakdown = [
     {
       label: 'Pulizia tag',
@@ -780,6 +800,12 @@ function calculateTransparentScore(quality: { tags: number; triggers: number; va
       value: quality.variableQuality,
       weight: SCORE_WEIGHTS.variableQuality,
       percentage: Math.round(quality.variableQuality * SCORE_WEIGHTS.variableQuality)
+    },
+    {
+      label: 'Sicurezza HTML',
+      value: quality.htmlSecurity,
+      weight: SCORE_WEIGHTS.htmlSecurity,
+      percentage: Math.round(quality.htmlSecurity * SCORE_WEIGHTS.htmlSecurity)
     }
   ];
   
@@ -789,7 +815,8 @@ function calculateTransparentScore(quality: { tags: number; triggers: number; va
     quality.variables * SCORE_WEIGHTS.variables +
     quality.consent * SCORE_WEIGHTS.consent +
     quality.triggerQuality * SCORE_WEIGHTS.triggerQuality +
-    quality.variableQuality * SCORE_WEIGHTS.variableQuality
+    quality.variableQuality * SCORE_WEIGHTS.variableQuality +
+    quality.htmlSecurity * SCORE_WEIGHTS.htmlSecurity
   );
   
   return { total, breakdown };
@@ -924,6 +951,17 @@ export function getMetricInfo(type: string) {
       priorityColor: "bg-orange-100 text-orange-800",
       color: "bg-orange-50 dark:bg-orange-900/20",
       textColor: "text-orange-600 dark:text-orange-400"
+    },
+    htmlSecurity: {
+      icon: "🔒",
+      title: "Sicurezza Custom HTML",
+      subtitle: "Tag HTML con problemi di sicurezza",
+      impact: "Tag HTML con vulnerabilità che possono compromettere la sicurezza del sito.",
+      risk: "Rischio: code injection, XSS, dati sensibili esposti.",
+      priority: "Critica",
+      priorityColor: "bg-red-100 text-red-800",
+      color: "bg-red-50 dark:bg-red-900/20",
+      textColor: "text-red-600 dark:text-red-400"
     }
   };
   
@@ -972,6 +1010,10 @@ export function getQualityInfo(type: string) {
     variableQuality: {
       description: "% di variabili configurate in modo ottimale (DLV, regex, selettori, JS, lookup).",
       icon: "🧩"
+    },
+    htmlSecurity: {
+      description: "% di tag HTML custom configurati in modo sicuro (no eval, HTTPS, try/catch).",
+      icon: "🔒"
     }
   };
   return qualityInfo[type as keyof typeof qualityInfo];
