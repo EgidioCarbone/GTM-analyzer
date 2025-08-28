@@ -11,9 +11,10 @@
 // ============================================================================
 
 export const SCORE_WEIGHTS = {
-  tags: 0.35,
-  triggers: 0.35, 
-  variables: 0.30,
+  tags: 0.30,
+  triggers: 0.30, 
+  variables: 0.25,
+  consent: 0.15, // 15% per consent mode
 };
 
 // ============================================================================
@@ -21,6 +22,7 @@ export const SCORE_WEIGHTS = {
 // ============================================================================
 
 import { GenerateDocInput, GTMTag, GTMTrigger, GTMVariable } from "../types/gtm";
+import { analyzeConsentMode, ConsentModeResult } from "./consentModeService";
 
 export interface GTMContainerVersion extends GenerateDocInput {
   // Estende GenerateDocInput per compatibilità
@@ -177,6 +179,130 @@ function calculateNamingIssues(cv: GTMContainerVersion) {
   };
 }
 
+// 2.5 Doppio Page View (CRITICA)
+function calculateDoublePageView(cv: GTMContainerVersion) {
+  const tags = cv.tag || [];
+  const triggers = cv.trigger || [];
+
+  // Helper per estrarre parametri
+  const getParam = (tag: any, key: string): any => {
+    return (tag.parameter || []).find((p: any) => p.key === key)?.value;
+  };
+
+  // Helper per ottenere firing triggers
+  const getFiringTriggers = (tag: any): string[] => {
+    if (Array.isArray(tag.firingTriggerId)) {
+      return tag.firingTriggerId;
+    }
+    return tag.firingTriggerId ? [tag.firingTriggerId] : [];
+  };
+
+  // 1. Individua GA4 Configuration tags
+  const ga4ConfigTags = tags.filter(tag => {
+    const type = tag.type?.toLowerCase();
+    
+    // Heuristics per GA4 Config
+    if (['gaawc', 'ga4_config', 'gtag'].includes(type)) {
+      // Se è gtag, controlla se ha comando config
+      if (type === 'gtag' && tag.html) {
+        return tag.html.includes('gtag(\'config\'');
+      }
+      return true;
+    }
+    
+    // Controlla parametri specifici
+    const hasSendPageView = getParam(tag, 'send_page_view') !== undefined;
+    const hasMeasurementId = getParam(tag, 'measurement_id') !== undefined;
+    const hasEventName = getParam(tag, 'eventName') !== undefined;
+    
+    return (hasSendPageView || hasMeasurementId) && !hasEventName;
+  }).map(tag => ({
+    id: tag.tagId,
+    name: tag.name,
+    type: tag.type,
+    send_page_view: getParam(tag, 'send_page_view') !== false, // default true se assente
+    firingTriggers: getFiringTriggers(tag)
+  }));
+
+  // 2. Individua page_view manuali
+  const manualPageViewTags = tags.filter(tag => {
+    const type = tag.type?.toLowerCase();
+    const eventName = getParam(tag, 'eventName');
+    
+    // GA4 Event con page_view
+    if (['gaawe', 'ga4_event'].includes(type) && eventName === 'page_view') {
+      return true;
+    }
+    
+    // Custom HTML/gtag con page_view
+    if (type === 'html' && tag.html) {
+      return tag.html.includes("gtag('event','page_view'") || 
+             tag.html.includes('gtag("event","page_view"');
+    }
+    
+    return false;
+  }).map(tag => ({
+    id: tag.tagId,
+    name: tag.name,
+    type: tag.type,
+    firingTriggers: getFiringTriggers(tag)
+  }));
+
+  // 3. Controlla overlap e HISTORY_CHANGE
+  let hasOverlap = false;
+  let sharedTriggers: string[] = [];
+  let hasHistoryChange = false;
+
+  // Controlla se ci sono HISTORY_CHANGE triggers
+  const historyChangeTriggers = triggers
+    .filter(tr => tr.type === 'HISTORY_CHANGE')
+    .map(tr => tr.triggerId);
+
+  // Controlla overlap tra GA4 Config e page_view manuali
+  for (const configTag of ga4ConfigTags) {
+    if (!configTag.send_page_view) continue; // Se send_page_view è false, nessun problema
+    
+    for (const pvTag of manualPageViewTags) {
+      // Controlla trigger condivisi
+      const commonTriggers = configTag.firingTriggers.filter((triggerId: string) => 
+        pvTag.firingTriggers.includes(triggerId)
+      );
+      
+      if (commonTriggers.length > 0) {
+        hasOverlap = true;
+        sharedTriggers.push(...commonTriggers);
+      }
+      
+      // Controlla HISTORY_CHANGE
+      const hasHistoryChangeTrigger = pvTag.firingTriggers.some((triggerId: string) => 
+        historyChangeTriggers.includes(triggerId)
+      );
+      
+      if (hasHistoryChangeTrigger) {
+        hasHistoryChange = true;
+        hasOverlap = true;
+      }
+    }
+  }
+
+  // 4. Determina se c'è un doppio page_view
+  const isDoublePageView = hasOverlap && ga4ConfigTags.length > 0 && manualPageViewTags.length > 0;
+
+  return {
+    status: isDoublePageView ? 'critical' : 'ok',
+    isDoublePageView,
+    configTags: ga4ConfigTags,
+    manualPageViewTags,
+    overlap: {
+      sharedTriggers: [...new Set(sharedTriggers)], // rimuovi duplicati
+      hasHistoryChange
+    },
+    action: isDoublePageView 
+      ? "Imposta send_page_view:false sul GA4 Config e gestisci i page_view tramite History Change (SPA) o un solo punto di firing."
+      : "Nessun doppio page_view rilevato."
+  };
+}
+
 // ============================================================================
 // 3. BOX CONTEGGI "TAG / TRIGGER / VARIABILI"
 // ============================================================================
@@ -292,7 +418,7 @@ function calculateVariableQuality(cv: GTMContainerVersion) {
 
 function generateActionPlan(kpi: any) {
   const actions: Array<{
-    type: 'uaObsolete' | 'paused' | 'unused' | 'namingIssues';
+    type: 'uaObsolete' | 'paused' | 'unused' | 'namingIssues' | 'doublePageView' | 'consentMode';
     priority: number;
     count: number;
     action: string;
@@ -300,10 +426,32 @@ function generateActionPlan(kpi: any) {
     impact: number;
   }> = [];
   
+  if (kpi.doublePageView) {
+    actions.push({
+      type: 'doublePageView',
+      priority: 0, // Priorità massima
+      count: 1,
+      action: 'Risolvi doppio page_view',
+      description: 'Doppio page_view rilevato - duplicazione dati GA4',
+      impact: 10 // +10% per risoluzione critica
+    });
+  }
+  
+  if (kpi.consentMode > 0) {
+    actions.push({
+      type: 'consentMode',
+      priority: 1, // Priorità alta per compliance
+      count: kpi.consentMode,
+      action: 'Configura Consent Mode',
+      description: 'Tag marketing senza consensi configurati - rischio compliance',
+      impact: 8 // +8% per risoluzione compliance
+    });
+  }
+  
   if (kpi.uaObsolete > 0) {
     actions.push({
       type: 'uaObsolete',
-      priority: 1,
+      priority: 2,
       count: kpi.uaObsolete,
       action: 'Migra a GA4',
       description: 'UA è obsoleto, serve migrare a GA4',
@@ -314,7 +462,7 @@ function generateActionPlan(kpi: any) {
   if (kpi.paused > 0) {
     actions.push({
       type: 'paused',
-      priority: 2,
+      priority: 3,
       count: kpi.paused,
       action: 'Valuta rimozione',
       description: 'Tag in pausa appesantiscono il container',
@@ -325,7 +473,7 @@ function generateActionPlan(kpi: any) {
   if (kpi.unused.total > 0) {
     actions.push({
       type: 'unused',
-      priority: 3,
+      priority: 4,
       count: kpi.unused.total,
       action: 'Elimina elementi',
       description: 'Elementi non utilizzati creano rumore',
@@ -336,7 +484,7 @@ function generateActionPlan(kpi: any) {
   if (kpi.namingIssues.total > 0) {
     actions.push({
       type: 'namingIssues',
-      priority: 4,
+      priority: 5,
       count: kpi.namingIssues.total,
       action: 'Standardizza nomi',
       description: 'Nomi incoerenti complicano la manutenzione',
@@ -394,6 +542,15 @@ export type GtmMetrics = {
     unused: { total: number; triggers: number; variables: number; tagsNoTrigger: number };
     uaObsolete: number;
     namingIssues: { total: number; tags: number; triggers: number; variables: number };
+    doublePageView: { 
+      status: 'critical' | 'ok';
+      isDoublePageView: boolean;
+      configTags: Array<{ id: any; name: string; type: string; send_page_view: boolean; firingTriggers: string[] }>;
+      manualPageViewTags: Array<{ id: any; name: string; type: string; firingTriggers: string[] }>;
+      overlap: { sharedTriggers: string[]; hasHistoryChange: boolean };
+      action: string;
+    };
+    consentMode: ConsentModeResult;
   };
   counts: { tags: number; triggers: number; variables: number };
   distribution: { 
@@ -404,7 +561,7 @@ export type GtmMetrics = {
     other: number;
     chartData: Array<{ family: string; count: number }>;
   };
-  quality: { tags: number; triggers: number; variables: number }; // 0–100
+  quality: { tags: number; triggers: number; variables: number; consent: number }; // 0–100
   score: {
     total: number;
     breakdown: Array<{
@@ -415,7 +572,7 @@ export type GtmMetrics = {
     }>;
   };
   actionPlan: Array<{
-    type: 'uaObsolete' | 'paused' | 'unused' | 'namingIssues';
+    type: 'uaObsolete' | 'paused' | 'unused' | 'namingIssues' | 'doublePageView' | 'consentMode';
     priority: number;
     count: number;
     action: string;
@@ -449,18 +606,23 @@ export function calculateGtmMetrics(cv: GTMContainerVersion): GtmMetrics {
     const unused = calculateUnusedItems(cv);
     const uaObsolete = calculateUAObsolete(cv);
     const namingIssues = calculateNamingIssues(cv);
+    const doublePageView = calculateDoublePageView(cv);
+    const consentMode = analyzeConsentMode(cv);
     const counts = calculateCounts(cv);
     const distribution = calculateDistribution(cv);
     const tagQuality = calculateTagQuality(cv);
     const triggerQuality = calculateTriggerQuality(cv);
     const variableQuality = calculateVariableQuality(cv);
+    const consentQuality = Math.round(consentMode.consent_coverage.score * 100);
     
     // Genera piano d'azione
     const actionPlan = generateActionPlan({
       uaObsolete: uaObsolete.count,
       paused: paused.count,
       unused: unused,
-      namingIssues: namingIssues
+      namingIssues: namingIssues,
+      doublePageView: doublePageView.isDoublePageView,
+      consentMode: consentMode.consent_coverage.missing + consentMode.consent_coverage.not_configured
     });
     
     // Calcola percentuali per UX
@@ -475,7 +637,8 @@ export function calculateGtmMetrics(cv: GTMContainerVersion): GtmMetrics {
     const score = calculateTransparentScore({
       tags: tagQuality.score,
       triggers: triggerQuality.score,
-      variables: variableQuality.score
+      variables: variableQuality.score,
+      consent: consentQuality
     });
 
     const metrics: GtmMetrics = {
@@ -493,7 +656,9 @@ export function calculateGtmMetrics(cv: GTMContainerVersion): GtmMetrics {
           tags: namingIssues.tags,
           triggers: namingIssues.triggers,
           variables: namingIssues.variables
-        }
+        },
+        doublePageView,
+        consentMode
       },
       counts,
       distribution: {
@@ -503,7 +668,8 @@ export function calculateGtmMetrics(cv: GTMContainerVersion): GtmMetrics {
       quality: {
         tags: tagQuality.score,
         triggers: triggerQuality.score,
-        variables: variableQuality.score
+        variables: variableQuality.score,
+        consent: consentQuality
       },
       score,
       actionPlan,
@@ -537,7 +703,7 @@ export function calculateGtmMetrics(cv: GTMContainerVersion): GtmMetrics {
 // 10. CALCOLO SCORE TRASPARENTE E STIMA IMPATTO
 // ============================================================================
 
-function calculateTransparentScore(quality: { tags: number; triggers: number; variables: number }) {
+function calculateTransparentScore(quality: { tags: number; triggers: number; variables: number; consent: number }) {
   const breakdown = [
     {
       label: 'Pulizia tag',
@@ -556,13 +722,20 @@ function calculateTransparentScore(quality: { tags: number; triggers: number; va
       value: quality.variables,
       weight: SCORE_WEIGHTS.variables,
       percentage: Math.round(quality.variables * SCORE_WEIGHTS.variables)
+    },
+    {
+      label: 'Consent Mode',
+      value: quality.consent,
+      weight: SCORE_WEIGHTS.consent,
+      percentage: Math.round(quality.consent * SCORE_WEIGHTS.consent)
     }
   ];
   
   const total = Math.round(
     quality.tags * SCORE_WEIGHTS.tags +
     quality.triggers * SCORE_WEIGHTS.triggers +
-    quality.variables * SCORE_WEIGHTS.variables
+    quality.variables * SCORE_WEIGHTS.variables +
+    quality.consent * SCORE_WEIGHTS.consent
   );
   
   return { total, breakdown };
@@ -653,6 +826,28 @@ export function getMetricInfo(type: string) {
       priorityColor: "bg-blue-100 text-blue-800",
       color: "bg-blue-50 dark:bg-blue-900/20",
       textColor: "text-blue-600 dark:text-blue-400"
+    },
+    doublePageView: {
+      icon: "🔄",
+      title: "Doppio Page View",
+      subtitle: "Duplicazione eventi page_view",
+      impact: "GA4 riceve page_view duplicati, distorcendo le metriche.",
+      risk: "Rischio: dati GA4 non affidabili, metriche gonfiate.",
+      priority: "Critica",
+      priorityColor: "bg-red-100 text-red-800",
+      color: "bg-red-50 dark:bg-red-900/20",
+      textColor: "text-red-600 dark:text-red-400"
+    },
+    consentMode: {
+      icon: "🔒",
+      title: "Consent Mode",
+      subtitle: "Tag marketing senza consensi configurati",
+      impact: "Tag marketing senza consensi configurati violano le normative privacy.",
+      risk: "Rischio: violazione GDPR/CCPA, multe e problemi legali.",
+      priority: "Critica",
+      priorityColor: "bg-red-100 text-red-800",
+      color: "bg-red-50 dark:bg-red-900/20",
+      textColor: "text-red-600 dark:text-red-400"
     }
   };
   
@@ -689,6 +884,10 @@ export function getQualityInfo(type: string) {
     variables: {
       description: "% di variabili usate in almeno un tag o trigger.",
       icon: "🧩"
+    },
+    consent: {
+      description: "% di tag marketing con consensi configurati correttamente.",
+      icon: "🔒"
     }
   };
   return qualityInfo[type as keyof typeof qualityInfo];
@@ -737,6 +936,164 @@ export function runQuickTest() {
     
   } catch (error) {
     console.error('❌ Quick test failed:', error);
+    return false;
+  }
+}
+
+// ============================================================================
+// 13. TEST CASI DI ACCETTAZIONE - DOPPIO PAGE VIEW
+// ============================================================================
+
+export function runDoublePageViewTests() {
+  console.log('🧪 Running Double Page View Tests...');
+  
+  // TC1: Deve segnalare - GA4 Config + GA4 Event page_view con stesso trigger
+  const tc1Container: GTMContainerVersion = {
+    tag: [
+      { 
+        tagId: 1, 
+        name: "GA4 Config", 
+        type: "gaawc", 
+        firingTriggerId: ["all_pages"],
+        parameter: [
+          { key: "measurement_id", value: "G-XXXXXXXXXX" }
+          // send_page_view mancante = true (default)
+        ]
+      },
+      { 
+        tagId: 2, 
+        name: "GA4 Event page_view", 
+        type: "gaawe", 
+        firingTriggerId: ["all_pages"],
+        parameter: [
+          { key: "eventName", value: "page_view" }
+        ]
+      }
+    ],
+    trigger: [
+      { triggerId: "all_pages", name: "All Pages", type: "pageview" }
+    ],
+    variable: []
+  };
+  
+  // TC2: Deve segnalare - SPA con HISTORY_CHANGE
+  const tc2Container: GTMContainerVersion = {
+    tag: [
+      { 
+        tagId: 1, 
+        name: "GA4 Config", 
+        type: "gaawc", 
+        firingTriggerId: ["all_pages"],
+        parameter: [
+          { key: "measurement_id", value: "G-XXXXXXXXXX" },
+          { key: "send_page_view", value: true }
+        ]
+      },
+      { 
+        tagId: 2, 
+        name: "GA4 Event page_view SPA", 
+        type: "gaawe", 
+        firingTriggerId: ["history_change"],
+        parameter: [
+          { key: "eventName", value: "page_view" }
+        ]
+      }
+    ],
+    trigger: [
+      { triggerId: "all_pages", name: "All Pages", type: "pageview" },
+      { triggerId: "history_change", name: "History Change", type: "HISTORY_CHANGE" }
+    ],
+    variable: []
+  };
+  
+  // TC3: Non deve segnalare - GA4 Config con send_page_view:false
+  const tc3Container: GTMContainerVersion = {
+    tag: [
+      { 
+        tagId: 1, 
+        name: "GA4 Config", 
+        type: "gaawc", 
+        firingTriggerId: ["all_pages"],
+        parameter: [
+          { key: "measurement_id", value: "G-XXXXXXXXXX" },
+          { key: "send_page_view", value: false }
+        ]
+      },
+      { 
+        tagId: 2, 
+        name: "GA4 Event page_view", 
+        type: "gaawe", 
+        firingTriggerId: ["all_pages"],
+        parameter: [
+          { key: "eventName", value: "page_view" }
+        ]
+      }
+    ],
+    trigger: [
+      { triggerId: "all_pages", name: "All Pages", type: "pageview" }
+    ],
+    variable: []
+  };
+  
+  // TC4: Non deve segnalare - Trigger diversi senza overlap
+  const tc4Container: GTMContainerVersion = {
+    tag: [
+      { 
+        tagId: 1, 
+        name: "GA4 Config", 
+        type: "gaawc", 
+        firingTriggerId: ["all_pages"],
+        parameter: [
+          { key: "measurement_id", value: "G-XXXXXXXXXX" }
+        ]
+      },
+      { 
+        tagId: 2, 
+        name: "GA4 Event page_view thank you", 
+        type: "gaawe", 
+        firingTriggerId: ["thank_you_page"],
+        parameter: [
+          { key: "eventName", value: "page_view" }
+        ]
+      }
+    ],
+    trigger: [
+      { triggerId: "all_pages", name: "All Pages", type: "pageview" },
+      { triggerId: "thank_you_page", name: "Thank You Page", type: "pageview" }
+    ],
+    variable: []
+  };
+  
+  try {
+    // Test TC1
+    const tc1Result = calculateDoublePageView(tc1Container);
+    assert(tc1Result.isDoublePageView === true, 'TC1: Should detect double page view');
+    assert(tc1Result.configTags.length === 1, 'TC1: Should find 1 config tag');
+    assert(tc1Result.manualPageViewTags.length === 1, 'TC1: Should find 1 manual page view tag');
+    assert(tc1Result.overlap.sharedTriggers.includes('all_pages'), 'TC1: Should find shared trigger');
+    console.log('✅ TC1 passed: Double page view detected correctly');
+    
+    // Test TC2
+    const tc2Result = calculateDoublePageView(tc2Container);
+    assert(tc2Result.isDoublePageView === true, 'TC2: Should detect SPA double page view');
+    assert(tc2Result.overlap.hasHistoryChange === true, 'TC2: Should detect HISTORY_CHANGE');
+    console.log('✅ TC2 passed: SPA double page view detected correctly');
+    
+    // Test TC3
+    const tc3Result = calculateDoublePageView(tc3Container);
+    assert(tc3Result.isDoublePageView === false, 'TC3: Should NOT detect double page view (send_page_view:false)');
+    console.log('✅ TC3 passed: No double page view when send_page_view is false');
+    
+    // Test TC4
+    const tc4Result = calculateDoublePageView(tc4Container);
+    assert(tc4Result.isDoublePageView === false, 'TC4: Should NOT detect double page view (no overlap)');
+    console.log('✅ TC4 passed: No double page view when triggers don\'t overlap');
+    
+    console.log('🎉 All Double Page View tests passed!');
+    return true;
+    
+  } catch (error) {
+    console.error('❌ Double Page View tests failed:', error);
     return false;
   }
 }
