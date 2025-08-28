@@ -7,16 +7,20 @@ import React, {
   ReactNode,
 } from "react";
 import { GenerateDocInput } from "../types/gtm"; // ✅ importa i tipi
+import { GtmMetrics, calculateGtmMetrics } from "../services/gtm-metrics";
 
 type ContainerContextType = {
   container: GenerateDocInput | null;
   setContainer: (data: GenerateDocInput | null) => void;
+  analysis: GtmMetrics | null;
+  setAnalysis: (m: GtmMetrics | null) => void;
 };
 
 const ContainerContext = createContext<ContainerContextType | undefined>(undefined);
 
 export function ContainerProvider({ children }: { children: ReactNode }) {
   const [container, setContainer] = useState<GenerateDocInput | null>(null);
+  const [analysis, setAnalysis] = useState<GtmMetrics | null>(null);
 
   // ✅ Ripristino automatico dal localStorage
   useEffect(() => {
@@ -33,6 +37,15 @@ export function ContainerProvider({ children }: { children: ReactNode }) {
       console.warn("ℹ️ Nessun container trovato in localStorage.");
     }
   }, []);
+
+  // ✅ Calcolo automatico delle analisi quando cambia il container
+  useEffect(() => {
+    if (container) {
+      setAnalysis(calculateGtmMetrics(container));
+    } else {
+      setAnalysis(null);
+    }
+  }, [container]);
 
   // ✅ Salvataggio automatico
   useEffect(() => {
@@ -54,7 +67,7 @@ export function ContainerProvider({ children }: { children: ReactNode }) {
   }, [container]);
 
   return (
-    <ContainerContext.Provider value={{ container, setContainer }}>
+    <ContainerContext.Provider value={{ container, setContainer, analysis, setAnalysis }}>
       {children}
     </ContainerContext.Provider>
   );

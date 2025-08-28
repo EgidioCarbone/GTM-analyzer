@@ -22,11 +22,23 @@ import {
   X
 } from "lucide-react";
 import { useContainer } from "../context/ContainerContext";
-import { GTMTag, GTMTrigger, GTMVariable } from "../types/gtm";
+import { GTMTag, GTMTrigger, GTMVariable, IssueCategory } from "../types/gtm";
 import { calculateContainerQuality, QualityMetrics } from "../services/containerQualityService";
 import { typeIcons } from "../utils/iconMap";
 import { typeLabels } from "../utils/typeLabels";
 import { getUsedVariableNames } from "../utils/getUsedVariableNames";
+import { 
+  getItemsWithIssues, 
+  canApplyBulkFix, 
+  getBulkFixFunction,
+  suggestName,
+  fixNaming,
+  addDLVFallback,
+  addLookupDefault,
+  wrapJsTryCatch,
+  forceHttps,
+  addIdempotencyGuard
+} from "../services/fixers";
 
 type TabType = 'tags' | 'triggers' | 'variables';
 
@@ -165,11 +177,11 @@ function DeleteModal({ isOpen, onClose, onConfirm, item, itemType, dependencies 
 }
 
 export default function ContainerManagerPage({}: ContainerManagerPageProps) {
-  const { container, setContainer } = useContainer();
+  const { container, setContainer, analysis } = useContainer();
   const location = useLocation();
   const [activeTab, setActiveTab] = useState<TabType>('tags');
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterType, setFilterType] = useState<string>('all');
+
   const [qualityMetrics, setQualityMetrics] = useState<QualityMetrics | null>(null);
   const [previousQuality, setPreviousQuality] = useState<number>(0);
   const [showQualityImprovement, setShowQualityImprovement] = useState(false);
@@ -183,6 +195,29 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
   const [showUA, setShowUA] = useState(false);
   const [showPaused, setShowPaused] = useState(false);
   const [showUnused, setShowUnused] = useState(false);
+  
+  // Filtri qualità - Tags
+  const [showNaming, setShowNaming] = useState(false);
+  const [showNoTrigger, setShowNoTrigger] = useState(false);
+  const [showConsent, setShowConsent] = useState(false);
+  const [showHtmlSecurityCritical, setShowHtmlSecurityCritical] = useState(false);
+  const [showHtmlSecurityMajor, setShowHtmlSecurityMajor] = useState(false);
+  const [showHtmlSecurityMinor, setShowHtmlSecurityMinor] = useState(false);
+  
+  // Filtri qualità - Triggers
+  const [showTrgAllPages, setShowTrgAllPages] = useState(false);
+  const [showTrgTiming, setShowTrgTiming] = useState(false);
+  const [showTrgUnused, setShowTrgUnused] = useState(false);
+  const [showTrgDuplicate, setShowTrgDuplicate] = useState(false);
+  
+  // Filtri qualità - Variables
+  const [showVarDlv, setShowVarDlv] = useState(false);
+  const [showVarLookup, setShowVarLookup] = useState(false);
+  const [showVarRegex, setShowVarRegex] = useState(false);
+  const [showVarCss, setShowVarCss] = useState(false);
+  const [showVarJs, setShowVarJs] = useState(false);
+  const [showVarUnused, setShowVarUnused] = useState(false);
+  const [showVarDuplicate, setShowVarDuplicate] = useState(false);
 
   // Stato per la modale di eliminazione
   const [deleteModal, setDeleteModal] = useState<{
@@ -200,7 +235,7 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
   // Gestisci i parametri di navigazione dalla Dashboard
   useEffect(() => {
     if (location.state) {
-      const { activeTab: navTab, filter: navFilter } = location.state;
+      const { activeTab: navTab, autoFilter: navFilter } = location.state;
       
       if (navTab && ['tags', 'triggers', 'variables'].includes(navTab)) {
         setActiveTab(navTab as TabType);
@@ -211,21 +246,64 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
         switch (navFilter) {
           case 'ua':
             setShowUA(true);
-            setFilterType('ua');
             break;
           case 'paused':
             setShowPaused(true);
-            setFilterType('paused');
             break;
           case 'unused':
             setShowUnused(true);
-            setFilterType('unused');
             break;
           case 'naming':
-            setFilterType('naming');
+            setShowNaming(true);
             break;
           case 'no-trigger':
-            setFilterType('no-trigger');
+            setShowNoTrigger(true);
+            break;
+          // Nuovi filtri qualità
+          case 'consent':
+            setShowConsent(true);
+            break;
+          case 'html-security-critical':
+            setShowHtmlSecurityCritical(true);
+            break;
+          case 'html-security-major':
+            setShowHtmlSecurityMajor(true);
+            break;
+          case 'html-security-minor':
+            setShowHtmlSecurityMinor(true);
+            break;
+          case 'trg-allpages':
+            setShowTrgAllPages(true);
+            break;
+          case 'trg-timing':
+            setShowTrgTiming(true);
+            break;
+          case 'trg-unused':
+            setShowTrgUnused(true);
+            break;
+          case 'trg-duplicate':
+            setShowTrgDuplicate(true);
+            break;
+          case 'var-dlv':
+            setShowVarDlv(true);
+            break;
+          case 'var-lookup':
+            setShowVarLookup(true);
+            break;
+          case 'var-regex':
+            setShowVarRegex(true);
+            break;
+          case 'var-css':
+            setShowVarCss(true);
+            break;
+          case 'var-js':
+            setShowVarJs(true);
+            break;
+          case 'var-unused':
+            setShowVarUnused(true);
+            break;
+          case 'var-duplicate':
+            setShowVarDuplicate(true);
             break;
         }
       }
@@ -360,6 +438,83 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
     return dependencies;
   };
 
+  // Funzione per filtrare per issues usando l'issuesIndex
+  const filterByIssues = (items: any[]): any[] => {
+    if (!analysis) return items;
+    const { issuesIndex } = analysis;
+    const map = issuesIndex?.byCategory || {};
+
+    const ids = (cats: IssueCategory[]) =>
+      new Set(cats.flatMap(c => map[c] || []));
+
+    let filteredItems = items;
+
+    // Filtri per Tags
+    if (activeTab === 'tags') {
+      if (showNaming) {
+        filteredItems = filteredItems.filter(i => ids(['naming']).has(i.tagId || i.name));
+      }
+      if (showNoTrigger) {
+        filteredItems = filteredItems.filter(i => ids(['no_trigger']).has(i.tagId || i.name));
+      }
+      if (showConsent) {
+        filteredItems = filteredItems.filter(i => ids(['consent_missing']).has(i.tagId || i.name));
+      }
+      if (showHtmlSecurityCritical) {
+        filteredItems = filteredItems.filter(i => ids(['html_security_critical']).has(i.tagId || i.name));
+      }
+      if (showHtmlSecurityMajor) {
+        filteredItems = filteredItems.filter(i => ids(['html_security_major']).has(i.tagId || i.name));
+      }
+      if (showHtmlSecurityMinor) {
+        filteredItems = filteredItems.filter(i => ids(['html_security_minor']).has(i.tagId || i.name));
+      }
+    }
+
+    // Filtri per Triggers
+    if (activeTab === 'triggers') {
+      if (showTrgAllPages) {
+        filteredItems = filteredItems.filter(i => ids(['trigger_all_pages']).has(i.triggerId || i.name));
+      }
+      if (showTrgTiming) {
+        filteredItems = filteredItems.filter(i => ids(['trigger_timing']).has(i.triggerId || i.name));
+      }
+      if (showTrgUnused) {
+        filteredItems = filteredItems.filter(i => ids(['trigger_unused']).has(i.triggerId || i.name));
+      }
+      if (showTrgDuplicate) {
+        filteredItems = filteredItems.filter(i => ids(['trigger_duplicate']).has(i.triggerId || i.name));
+      }
+    }
+
+    // Filtri per Variables
+    if (activeTab === 'variables') {
+      if (showVarDlv) {
+        filteredItems = filteredItems.filter(i => ids(['variable_dlv_fallback']).has(i.variableId || i.name));
+      }
+      if (showVarLookup) {
+        filteredItems = filteredItems.filter(i => ids(['variable_lookup_default']).has(i.variableId || i.name));
+      }
+      if (showVarRegex) {
+        filteredItems = filteredItems.filter(i => ids(['variable_regex_bad']).has(i.variableId || i.name));
+      }
+      if (showVarCss) {
+        filteredItems = filteredItems.filter(i => ids(['variable_css_fragile']).has(i.variableId || i.name));
+      }
+      if (showVarJs) {
+        filteredItems = filteredItems.filter(i => ids(['variable_js_unsafe']).has(i.variableId || i.name));
+      }
+      if (showVarUnused) {
+        filteredItems = filteredItems.filter(i => ids(['variable_unused']).has(i.variableId || i.name));
+      }
+      if (showVarDuplicate) {
+        filteredItems = filteredItems.filter(i => ids(['variable_duplicate']).has(i.variableId || i.name));
+      }
+    }
+
+    return filteredItems;
+  };
+
   const getFilteredItems = () => {
     let items = currentItems;
 
@@ -392,69 +547,8 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
       items = items.filter(item => !usedVarNames.has(item.name));
     }
 
-    // Applica filtri specifici del dropdown
-    if (filterType !== 'all') {
-      switch (filterType) {
-        case 'paused':
-          items = items.filter(item => item.paused);
-          break;
-        case 'unused':
-          if (activeTab === 'variables') {
-            items = items.filter(item => !usedVarNames.has(item.name));
-          } else if (activeTab === 'triggers') {
-            // Filtra trigger non utilizzati
-            const usedTriggers = new Set();
-            container.tag?.forEach(tag => {
-              if (Array.isArray(tag.firingTriggerId)) {
-                tag.firingTriggerId.forEach(id => usedTriggers.add(id));
-              } else if (tag.firingTriggerId) {
-                usedTriggers.add(tag.firingTriggerId);
-              }
-            });
-            items = items.filter(item => {
-              if (activeTab === 'triggers' && 'triggerId' in item) {
-                return !usedTriggers.has(item.triggerId);
-              }
-              return true;
-            });
-          }
-          break;
-        case 'ua':
-          items = items.filter(item => 
-            item.type.includes('UA') || 
-            item.type.includes('Universal') ||
-            item.type === 'ua'
-          );
-          break;
-        case 'naming':
-          // Filtra elementi con naming issues
-          const namingRules = {
-            tag: /^(UA|GA4_EVENT|GTAG|HTML)_[A-Z0-9_]+$/,
-            trigger: /^TRG_[A-Z0-9_]+$/,
-            variable: /^(DLV|JS|CONST|URL|CSS|RANDOM)_[A-Z0-9_]+$/
-          };
-          
-          const rule = namingRules[activeTab.slice(0, -1) as keyof typeof namingRules];
-          if (rule) {
-            items = items.filter(item => !rule.test(String(item.name || '')));
-          }
-          break;
-        case 'no-trigger':
-          // Solo per tab tags: mostra tag senza trigger
-          if (activeTab === 'tags') {
-            items = items.filter(item => {
-              if ('firingTriggerId' in item) {
-                if (Array.isArray(item.firingTriggerId)) {
-                  return item.firingTriggerId.length === 0;
-                }
-                return !item.firingTriggerId;
-              }
-              return true;
-            });
-          }
-          break;
-      }
-    }
+    // Applica filtri qualità usando il nuovo sistema di checkbox
+    items = filterByIssues(items);
 
     return items;
   };
@@ -857,42 +951,220 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
 
               {/* Filtri specifici per tag */}
               {activeTab === 'tags' && (
-                <div className="space-y-2">
-                  <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Potenzialmente eliminabili</h3>
-                  <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
-                    <input 
-                      type="checkbox" 
-                      checked={showUA} 
-                      onChange={() => setShowUA(!showUA)}
-                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    <span>UA (obsoleti)</span>
-                  </label>
-                  <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
-                    <input
-                      type="checkbox"
-                      checked={showPaused}
-                      onChange={() => setShowPaused(!showPaused)}
-                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    <span>In pausa</span>
-                  </label>
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Potenzialmente eliminabili</h3>
+                    <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                      <input 
+                        type="checkbox" 
+                        checked={showUA} 
+                        onChange={() => setShowUA(!showUA)}
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span>UA (obsoleti)</span>
+                    </label>
+                    <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                      <input
+                        type="checkbox"
+                        checked={showPaused}
+                        onChange={() => setShowPaused(!showPaused)}
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span>In pausa</span>
+                    </label>
+                  </div>
+
+                  <div className="space-y-2">
+                    <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Problemi di Qualità</h3>
+                    <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                      <input
+                        type="checkbox"
+                        checked={showNaming}
+                        onChange={() => setShowNaming(!showNaming)}
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span>Naming Issues</span>
+                    </label>
+                    <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                      <input
+                        type="checkbox"
+                        checked={showNoTrigger}
+                        onChange={() => setShowNoTrigger(!showNoTrigger)}
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span>Senza Trigger</span>
+                    </label>
+                    <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                      <input
+                        type="checkbox"
+                        checked={showConsent}
+                        onChange={() => setShowConsent(!showConsent)}
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span>Consent mancanti</span>
+                    </label>
+                  </div>
+
+                  <div className="space-y-2">
+                    <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Sicurezza HTML</h3>
+                    <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                      <input
+                        type="checkbox"
+                        checked={showHtmlSecurityCritical}
+                        onChange={() => setShowHtmlSecurityCritical(!showHtmlSecurityCritical)}
+                        className="rounded border-gray-300 text-red-600 focus:ring-red-500"
+                      />
+                      <span className="text-red-600">Critici</span>
+                    </label>
+                    <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                      <input
+                        type="checkbox"
+                        checked={showHtmlSecurityMajor}
+                        onChange={() => setShowHtmlSecurityMajor(!showHtmlSecurityMajor)}
+                        className="rounded border-gray-300 text-orange-600 focus:ring-orange-500"
+                      />
+                      <span className="text-orange-600">Maggiori</span>
+                    </label>
+                    <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                      <input
+                        type="checkbox"
+                        checked={showHtmlSecurityMinor}
+                        onChange={() => setShowHtmlSecurityMinor(!showHtmlSecurityMinor)}
+                        className="rounded border-gray-300 text-yellow-600 focus:ring-yellow-500"
+                      />
+                      <span className="text-yellow-600">Minori</span>
+                    </label>
+                  </div>
+                </div>
+              )}
+
+              {/* Filtri specifici per triggers */}
+              {activeTab === 'triggers' && (
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Problemi di Qualità</h3>
+                    <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                      <input
+                        type="checkbox"
+                        checked={showTrgAllPages}
+                        onChange={() => setShowTrgAllPages(!showTrgAllPages)}
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span>All Pages senza filtri</span>
+                    </label>
+                    <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                      <input
+                        type="checkbox"
+                        checked={showTrgTiming}
+                        onChange={() => setShowTrgTiming(!showTrgTiming)}
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span>Timing non ottimale</span>
+                    </label>
+                    <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                      <input
+                        type="checkbox"
+                        checked={showTrgUnused}
+                        onChange={() => setShowTrgUnused(!showTrgUnused)}
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span>Trigger non usati</span>
+                    </label>
+                    <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                      <input
+                        type="checkbox"
+                        checked={showTrgDuplicate}
+                        onChange={() => setShowTrgDuplicate(!showTrgDuplicate)}
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span>Trigger duplicati</span>
+                    </label>
+                  </div>
                 </div>
               )}
 
               {/* Filtri specifici per variabili */}
               {activeTab === 'variables' && (
-                <div className="space-y-2">
-                  <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Extra filtri</h3>
-                  <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
-                    <input
-                      type="checkbox"
-                      checked={showUnused}
-                      onChange={() => setShowUnused(!showUnused)}
-                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    <span>Variabili non usate</span>
-                  </label>
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Extra filtri</h3>
+                    <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                      <input
+                        type="checkbox"
+                        checked={showUnused}
+                        onChange={() => setShowUnused(!showUnused)}
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span>Variabili non usate</span>
+                    </label>
+                  </div>
+
+                  <div className="space-y-2">
+                    <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Problemi di Qualità</h3>
+                    <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                      <input
+                        type="checkbox"
+                        checked={showVarDlv}
+                        onChange={() => setShowVarDlv(!showVarDlv)}
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span>DLV senza fallback</span>
+                    </label>
+                    <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                      <input
+                        type="checkbox"
+                        checked={showVarLookup}
+                        onChange={() => setShowVarLookup(!showVarLookup)}
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span>Lookup senza default</span>
+                    </label>
+                    <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                      <input
+                        type="checkbox"
+                        checked={showVarRegex}
+                        onChange={() => setShowVarRegex(!showVarRegex)}
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span>Regex malformate</span>
+                    </label>
+                    <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                      <input
+                        type="checkbox"
+                        checked={showVarCss}
+                        onChange={() => setShowVarCss(!showVarCss)}
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span>Selettori fragili</span>
+                    </label>
+                    <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                      <input
+                        type="checkbox"
+                        checked={showVarJs}
+                        onChange={() => setShowVarJs(!showVarJs)}
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span>JS non sicuro</span>
+                    </label>
+                    <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                      <input
+                        type="checkbox"
+                        checked={showVarUnused}
+                        onChange={() => setShowVarUnused(!showVarUnused)}
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span>Variabili non usate</span>
+                    </label>
+                    <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                      <input
+                        type="checkbox"
+                        checked={showVarDuplicate}
+                        onChange={() => setShowVarDuplicate(!showVarDuplicate)}
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span>Variabili duplicate</span>
+                    </label>
+                  </div>
                 </div>
               )}
 
@@ -904,7 +1176,29 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
                     setShowUA(false);
                     setShowPaused(false);
                     setShowUnused(false);
-                    setFilterType('all');
+                    
+                    // Reset filtri qualità - Tags
+                    setShowNaming(false);
+                    setShowNoTrigger(false);
+                    setShowConsent(false);
+                    setShowHtmlSecurityCritical(false);
+                    setShowHtmlSecurityMajor(false);
+                    setShowHtmlSecurityMinor(false);
+                    
+                    // Reset filtri qualità - Triggers
+                    setShowTrgAllPages(false);
+                    setShowTrgTiming(false);
+                    setShowTrgUnused(false);
+                    setShowTrgDuplicate(false);
+                    
+                    // Reset filtri qualità - Variables
+                    setShowVarDlv(false);
+                    setShowVarLookup(false);
+                    setShowVarRegex(false);
+                    setShowVarCss(false);
+                    setShowVarJs(false);
+                    setShowVarUnused(false);
+                    setShowVarDuplicate(false);
                   }}
                   className="w-full px-3 py-2 text-sm bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-500 transition-colors"
                 >
@@ -927,18 +1221,7 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
                     className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
                   />
                 </div>
-                <select
-                  value={filterType}
-                  onChange={(e) => setFilterType(e.target.value)}
-                  className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
-                >
-                  <option value="all">Tutti</option>
-                  <option value="paused">In Pausa</option>
-                  <option value="unused">Non Utilizzati</option>
-                  <option value="ua">UA Obsoleti</option>
-                  <option value="naming">Naming Issues</option>
-                  {activeTab === 'tags' && <option value="no-trigger">Senza Trigger</option>}
-                </select>
+
               </div>
 
               {/* Contatore risultati */}
@@ -954,68 +1237,120 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
                     <p>Nessun {activeTab.slice(0, -1)} trovato con i filtri applicati</p>
                   </div>
                 ) : (
-                  filteredItems.map((item) => (
-                    <motion.div
-                      key={item.name}
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 border border-gray-200 dark:border-gray-600"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-3">
-                            <h3 className="font-semibold text-gray-900 dark:text-white">
-                              {item.name}
-                            </h3>
-                            <span className="px-2 py-1 bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 text-xs rounded-full">
-                              {item.type}
-                            </span>
-                            {item.paused && (
-                              <span className="px-2 py-1 bg-orange-100 dark:bg-orange-900 text-orange-800 dark:text-orange-200 text-xs rounded-full flex items-center gap-1">
-                                <Pause className="w-3 h-3" />
-                                Pausato
+                  filteredItems.map((item) => {
+                    // Ottieni le issues per questo item
+                    const itemId = item.tagId || item.triggerId || item.variableId || item.name;
+                    const issues = analysis?.issuesIndex?.byId?.[itemId] || [];
+
+                    return (
+                      <motion.div
+                        key={item.name}
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 border border-gray-200 dark:border-gray-600"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-3 mb-2">
+                              <h3 className="font-semibold text-gray-900 dark:text-white">
+                                {item.name}
+                              </h3>
+                              <span className="px-2 py-1 bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 text-xs rounded-full">
+                                {item.type}
                               </span>
+                              {item.paused && (
+                                <span className="px-2 py-1 bg-orange-100 dark:bg-orange-900 text-orange-800 dark:text-orange-200 text-xs rounded-full flex items-center gap-1">
+                                  <Pause className="w-3 h-3" />
+                                  Pausato
+                                </span>
+                              )}
+                              {activeTab === 'variables' && !usedVarNames.has(item.name) && (
+                                <span className="px-2 py-1 bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200 text-xs rounded-full">
+                                  Non Utilizzata
+                                </span>
+                              )}
+                              {activeTab === 'tags' && (item.type === 'ua' || item.type.includes('UA')) && (
+                                <span className="text-xs px-2 py-1 bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-200 rounded-full">
+                                  UA Obsoleto
+                                </span>
+                              )}
+                            </div>
+                            
+                            {/* Badge per issues */}
+                            {issues.length > 0 && (
+                              <div className="flex flex-wrap gap-1 mb-2">
+                                {issues.slice(0, 3).map((iss, i) => (
+                                  <span
+                                    key={i}
+                                    title={`${iss.reason}${iss.suggestion ? ' – Suggerimento: ' + iss.suggestion : ''}`}
+                                    className={`text-xs px-2 py-0.5 rounded 
+                                       ${iss.severity === 'critical' ? 'bg-red-100 text-red-800' :
+                                         iss.severity === 'major' ? 'bg-orange-100 text-orange-800' :
+                                         'bg-blue-100 text-blue-800'}`}
+                                  >
+                                    {iss.categories[0].replaceAll('_', ' ')}
+                                  </span>
+                                ))}
+                                {issues.length > 3 && (
+                                  <span className="text-xs text-gray-500">+{issues.length - 3}</span>
+                                )}
+                              </div>
                             )}
-                            {activeTab === 'variables' && !usedVarNames.has(item.name) && (
-                              <span className="px-2 py-1 bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200 text-xs rounded-full">
-                                Non Utilizzata
-                              </span>
-                            )}
-                            {activeTab === 'tags' && (item.type === 'ua' || item.type.includes('UA')) && (
-                              <span className="text-xs px-2 py-1 bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-200 rounded-full">
-                                UA Obsoleto
-                              </span>
+
+                            {item.description && (
+                              <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                                {item.description}
+                              </p>
                             )}
                           </div>
-                          {item.description && (
-                            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                              {item.description}
-                            </p>
-                          )}
+                          <div className="flex items-center gap-2">
+                            {/* Azioni rapide per issues */}
+                            {issues.some(i => i.categories.includes('naming')) && (
+                              <button
+                                onClick={() => {
+                                  const it = { ...item };
+                                  const type: 'tag' | 'trigger' | 'variable' = activeTab === 'tags' ? 'tag' : activeTab === 'triggers' ? 'trigger' : 'variable';
+                                  fixNaming(it, type);
+                                  const updated = { ...container };
+                                  const itemType = activeTab.slice(0, -1) as 'tag' | 'trigger' | 'variable';
+                                  if (updated[itemType]) {
+                                    const index = updated[itemType]!.findIndex(i => (i.tagId || i.triggerId || i.variableId || i.name) === itemId);
+                                    if (index !== -1) {
+                                      updated[itemType]![index] = it;
+                                      setContainer(updated);
+                                    }
+                                  }
+                                }}
+                                className="text-xs px-2 py-1 rounded bg-blue-600 text-white hover:bg-blue-700"
+                                title="Rinomina automaticamente"
+                              >
+                                ✏️
+                              </button>
+                            )}
+                            
+                            <button
+                              onClick={() => handleTogglePause(item.name)}
+                              className={`p-2 rounded-lg transition-colors ${
+                                item.paused
+                                  ? 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 hover:bg-green-200 dark:hover:bg-green-800'
+                                  : 'bg-orange-100 dark:bg-orange-900 text-orange-700 dark:text-orange-300 hover:bg-orange-200 dark:hover:bg-orange-800'
+                              }`}
+                              title={item.paused ? 'Riprendi' : 'Metti in pausa'}
+                            >
+                              {item.paused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
+                            </button>
+                            <button
+                              onClick={() => handleDeleteClick(item)}
+                              className="p-2 bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300 rounded-lg hover:bg-red-200 dark:hover:bg-red-800 transition-colors"
+                              title="Elimina"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => handleTogglePause(item.name)}
-                            className={`p-2 rounded-lg transition-colors ${
-                              item.paused
-                                ? 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 hover:bg-green-200 dark:hover:bg-green-800'
-                                : 'bg-orange-100 dark:bg-orange-900 text-orange-700 dark:text-orange-300 hover:bg-orange-200 dark:hover:bg-orange-800'
-                            }`}
-                            title={item.paused ? 'Riprendi' : 'Metti in pausa'}
-                          >
-                            {item.paused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
-                          </button>
-                          <button
-                            onClick={() => handleDeleteClick(item)}
-                            className="p-2 bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300 rounded-lg hover:bg-red-200 dark:hover:bg-red-800 transition-colors"
-                            title="Elimina"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </div>
-                    </motion.div>
-                  ))
+                      </motion.div>
+                    );
+                  })
                 )}
               </div>
             </div>

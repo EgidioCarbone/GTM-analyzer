@@ -166,3 +166,47 @@ export interface HtmlSecurityResult {
     contribution: number;
   };
 }
+
+// ============================================================================
+// ISSUES INDEX TYPES
+// ============================================================================
+
+export type IssueSeverity = 'critical' | 'major' | 'minor';
+export type IssueCategory =
+  | 'naming'
+  | 'consent_missing'
+  | 'trigger_all_pages'
+  | 'trigger_timing'
+  | 'trigger_unused'
+  | 'trigger_duplicate'
+  | 'trigger_blocking'
+  | 'variable_dlv_fallback'
+  | 'variable_lookup_default'
+  | 'variable_regex_bad'
+  | 'variable_css_fragile'
+  | 'variable_js_unsafe'
+  | 'variable_unused'
+  | 'variable_duplicate'
+  | 'html_security_critical'
+  | 'html_security_major'
+  | 'html_security_minor'
+  | 'ua_obsolete'
+  | 'paused'
+  | 'no_trigger';
+
+export interface IssueEntry {
+  id: string;
+  itemType: 'tag' | 'trigger' | 'variable';
+  name: string;
+  categories: IssueCategory[];
+  severity: IssueSeverity;
+  reason: string;
+  suggestion?: string;
+  meta?: Record<string, any>;
+}
+
+export interface IssuesIndex {
+  byId: Record<string, IssueEntry[]>;
+  byCategory: Record<IssueCategory, string[]>; // category -> ids
+  counters: Partial<Record<IssueCategory, number>>;
+}

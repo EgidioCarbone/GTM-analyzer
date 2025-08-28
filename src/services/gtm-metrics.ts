@@ -24,7 +24,7 @@ export const SCORE_WEIGHTS = {
 // 1. ASSUNZIONI DI INPUT
 // ============================================================================
 
-import { GenerateDocInput, GTMTag, GTMTrigger, GTMVariable } from "../types/gtm";
+import { GenerateDocInput, GTMTag, GTMTrigger, GTMVariable, IssuesIndex, IssueEntry, IssueCategory, IssueSeverity } from "../types/gtm";
 import { analyzeConsentMode, ConsentModeResult } from "./consentModeService";
 import { analyzeTriggerQuality, TriggerQualityResult } from "./triggerQualityService";
 import { analyzeVariableQuality, VariableQualityResult } from "./variableQualityService";
@@ -635,10 +635,126 @@ export type GtmMetrics = {
     uaObsolete: number;
     namingIssues: number;
   };
+  issuesIndex: IssuesIndex;
 };
 
 // ============================================================================
-// 10. FUNZIONE PRINCIPALE
+// 10. BUILD ISSUES INDEX
+// ============================================================================
+
+function buildIssuesIndex(cv: GTMContainerVersion, deps: {
+  namingIssues: ReturnType<typeof calculateNamingIssues>;
+  consentMode: ReturnType<typeof analyzeConsentMode>;
+  triggerQA: ReturnType<typeof analyzeTriggerQuality>;
+  variableQA: ReturnType<typeof analyzeVariableQuality>;
+  htmlSec: ReturnType<typeof analyzeHtmlSecurity>;
+  lists: GtmMetrics['lists'];
+}): IssuesIndex {
+  const index: IssuesIndex = { byId: {}, byCategory: {} as any, counters: {} };
+
+  const push = (id: string, entry: IssueEntry) => {
+    if (!index.byId[id]) index.byId[id] = [];
+    index.byId[id].push(entry);
+    for (const c of entry.categories) {
+      (index.byCategory[c] ||= []).push(id);
+      index.counters[c] = (index.counters[c] || 0) + 1;
+    }
+  };
+
+  // Naming (usa oggetti originali per avere gli id reali)
+  for (const t of deps.namingIssues.badTagNames) {
+    push(t.tagId || t.name, {
+      id: t.tagId || t.name, itemType: 'tag', name: t.name,
+      categories: ['naming'], severity: 'minor',
+      reason: 'Violazione naming convention', suggestion: undefined
+    });
+  }
+  for (const tr of deps.namingIssues.badTrigNames) {
+    push(tr.triggerId || tr.name, {
+      id: tr.triggerId || tr.name, itemType: 'trigger', name: tr.name,
+      categories: ['naming'], severity: 'minor',
+      reason: 'Violazione naming convention'
+    });
+  }
+  for (const v of deps.namingIssues.badVarNames) {
+    push(v.variableId || v.name, {
+      id: v.variableId || v.name, itemType: 'variable', name: v.name,
+      categories: ['naming'], severity: 'minor',
+      reason: 'Violazione naming convention'
+    });
+  }
+
+  // Consent
+  for (const d of (deps.consentMode.consent_coverage.details || [])) {
+    if (d.severity === 'ok') continue;
+    push(d.id, {
+      id: d.id, itemType: 'tag', name: d.name,
+      categories: ['consent_missing'],
+      severity: d.severity === 'critical' ? 'critical' : 'major',
+      reason: `Mancano consensi: ${d.missing.join(', ')}`,
+      suggestion: 'Mappa i consensi richiesti o aggiungi blocking trigger'
+    });
+  }
+
+  // Trigger Quality
+  for (const d of (deps.triggerQA.trigger_quality.issues || [])) {
+    const cat: IssueCategory =
+      d.reason.includes('All Pages') ? 'trigger_all_pages'
+      : d.reason.includes('Timing') ? 'trigger_timing'
+      : d.reason.includes('non utilizzato') ? 'trigger_unused'
+      : 'trigger_duplicate';
+    push(d.trigger_id, {
+      id: d.trigger_id, itemType: 'trigger', name: d.name,
+      categories: [cat], severity: d.severity as IssueSeverity,
+      reason: d.reason, suggestion: d.suggestion
+    });
+  }
+
+  // Variable Quality
+  for (const d of (deps.variableQA.variable_quality.issues || [])) {
+    const cat: IssueCategory =
+      d.reason.includes('fallback') ? 'variable_dlv_fallback'
+      : d.reason.includes('Lookup') ? 'variable_lookup_default'
+      : d.reason.includes('regex') || d.reason.includes('malformata') ? 'variable_regex_bad'
+      : d.reason.includes('Selettore') || d.reason.includes('fragile') ? 'variable_css_fragile'
+      : d.reason.includes('JS') || d.reason.includes('try/catch') || d.reason.includes('unsafe') ? 'variable_js_unsafe'
+      : 'variable_unused';
+    push(d.variable_id!, {
+      id: d.variable_id!, itemType: 'variable', name: d.name,
+      categories: [cat], severity: d.severity as IssueSeverity,
+      reason: d.reason, suggestion: d.suggestion
+    });
+  }
+
+  // HTML security
+  for (const d of (deps.htmlSec.details || [])) {
+    const cat: IssueCategory =
+      d.severity === 'critical' ? 'html_security_critical'
+      : d.severity === 'major' ? 'html_security_major'
+      : 'html_security_minor';
+    push(d.id, {
+      id: d.id, itemType: 'tag', name: d.name,
+      categories: [cat], severity: d.severity,
+      reason: d.issues.map(i => i.type).join(', '), suggestion: d.suggestion
+    });
+  }
+
+  // UA / Paused / No trigger
+  for (const t of (deps.lists.uaTags || [])) {
+    push(t.tagId || t.name, { id: t.tagId || t.name, itemType: 'tag', name: t.name, categories: ['ua_obsolete'], severity: 'major', reason: 'UA dismesso' });
+  }
+  for (const t of (deps.lists.pausedTags || [])) {
+    push(t.tagId || t.name, { id: t.tagId || t.name, itemType: 'tag', name: t.name, categories: ['paused'], severity: 'minor', reason: 'Tag in pausa' });
+  }
+  for (const t of (deps.lists.tagsNoTrigger || [])) {
+    push(t.tagId || t.name, { id: t.tagId || t.name, itemType: 'tag', name: t.name, categories: ['no_trigger'], severity: 'major', reason: 'Tag senza trigger' });
+  }
+
+  return index;
+}
+
+// ============================================================================
+// 11. FUNZIONE PRINCIPALE
 // ============================================================================
 
 export function calculateGtmMetrics(cv: GTMContainerVersion): GtmMetrics {
@@ -695,6 +811,24 @@ export function calculateGtmMetrics(cv: GTMContainerVersion): GtmMetrics {
       htmlSecurity: htmlSecurityScore
     });
 
+    // Build issues index
+    const issuesIndex = buildIssuesIndex(cv, {
+      namingIssues, consentMode, triggerQA: triggerQualityAnalysis,
+      variableQA: variableQualityAnalysis, htmlSec: htmlSecurityAnalysis,
+      lists: {
+        pausedTags: paused.tags,
+        uaTags: uaObsolete.tags,
+        unusedTriggers: unused.unusedTriggers,
+        unusedVariables: unused.unusedVariables,
+        tagsNoTrigger: unused.tagsNoTriggerArray,
+        badNames: {
+          tags: namingIssues.badTagNames,
+          triggers: namingIssues.badTrigNames,
+          variables: namingIssues.badVarNames
+        }
+      }
+    });
+
     const metrics: GtmMetrics = {
       kpi: {
         paused: paused.count,
@@ -745,7 +879,8 @@ export function calculateGtmMetrics(cv: GTMContainerVersion): GtmMetrics {
           variables: namingIssues.badVarNames
         }
       },
-      percentages
+      percentages,
+      issuesIndex
     };
     
     // Esegui consistency checks

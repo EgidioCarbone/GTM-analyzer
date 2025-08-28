@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { VariableQualityResult, getVariableMetricInfo } from '../services/variableQualityService';
 import { InfoTooltip } from './ui/InfoTooltip';
 
@@ -14,6 +15,7 @@ export const VariableQualityCard: React.FC<VariableQualityCardProps> = ({
   const { variable_quality, message } = variableResult;
   const metricInfo = getVariableMetricInfo(message.status);
   const [isExpanded, setIsExpanded] = useState(false);
+  const navigate = useNavigate();
   
   // Determina il colore e lo stile in base alla severità
   const getCardStyle = () => {
@@ -243,7 +245,7 @@ export const VariableQualityCard: React.FC<VariableQualityCardProps> = ({
             {variable_quality.issues
               .slice(0, 3) // Mostra solo i primi 3
               .map((issue, index) => (
-                <div key={issue.variable_id || index} className="text-xs text-gray-600 dark:text-gray-400">
+                <div key={`examples-${issue.variable_id || 'unknown'}-${index}`} className="text-xs text-gray-600 dark:text-gray-400">
                   <span className="font-bold text-gray-800 dark:text-gray-200">{issue.name}</span>
                   <span className="ml-2">→ {issue.reason}</span>
                 </div>
@@ -291,7 +293,7 @@ export const VariableQualityCard: React.FC<VariableQualityCardProps> = ({
             {variable_quality.issues
               .slice(0, 3) // Mostra solo i primi 3
               .map((issue, index) => (
-                <div key={issue.variable_id || index} className="text-xs text-gray-600 dark:text-gray-400">
+                <div key={`detailed-${issue.variable_id || 'unknown'}-${index}`} className="text-xs text-gray-600 dark:text-gray-400">
                   <span className="font-bold text-gray-800 dark:text-gray-200">{issue.name}</span>
                   <span className="ml-2">— {issue.reason}</span>
                   <div className="text-xs text-blue-600 dark:text-blue-400 mt-1 ml-4">
@@ -347,6 +349,27 @@ export const VariableQualityCard: React.FC<VariableQualityCardProps> = ({
           className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${cardStyle.buttonColor}`}
           onClick={(e) => {
             e.stopPropagation();
+            // Naviga al Container Manager con filtro appropriato
+            let filter = 'var-dlv'; // default
+            if (variable_quality.stats.lookup_without_default > 0) {
+              filter = 'var-lookup';
+            } else if (variable_quality.stats.dlv_missing_fallback > 0) {
+              filter = 'var-dlv';
+            } else if (variable_quality.stats.js_unsafe_code > 0) {
+              filter = 'var-js';
+            } else if (variable_quality.stats.regex_malformed > 0) {
+              filter = 'var-regex';
+            } else if (variable_quality.stats.duplicates > 0) {
+              filter = 'var-duplicate';
+            } else if (variable_quality.stats.unused > 0) {
+              filter = 'var-unused';
+            }
+            navigate('/container-manager', { 
+              state: { 
+                autoFilter: filter, 
+                tab: 'variables' 
+              } 
+            });
             onAction?.();
           }}
         >

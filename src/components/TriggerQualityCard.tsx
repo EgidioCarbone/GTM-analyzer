@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { TriggerQualityResult, getTriggerMetricInfo } from '../services/triggerQualityService';
 import { InfoTooltip } from './ui/InfoTooltip';
 
@@ -14,6 +15,7 @@ export const TriggerQualityCard: React.FC<TriggerQualityCardProps> = ({
   const { trigger_quality, message } = triggerResult;
   const metricInfo = getTriggerMetricInfo(message.status);
   const [isExpanded, setIsExpanded] = useState(false);
+  const navigate = useNavigate();
   
   // Determina il colore e lo stile in base alla severità
   const getCardStyle = () => {
@@ -230,6 +232,21 @@ export const TriggerQualityCard: React.FC<TriggerQualityCardProps> = ({
           className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${cardStyle.buttonColor}`}
           onClick={(e) => {
             e.stopPropagation();
+            // Naviga al Container Manager con filtro appropriato
+            let filter = 'trg-allpages'; // default
+            if (trigger_quality.stats.all_pages_unfiltered > 0) {
+              filter = 'trg-allpages';
+            } else if (trigger_quality.stats.unused_triggers > 0) {
+              filter = 'trg-unused';
+            } else if (trigger_quality.stats.duplicates.length > 0) {
+              filter = 'trg-duplicate';
+            }
+            navigate('/container-manager', { 
+              state: { 
+                autoFilter: filter, 
+                tab: 'triggers' 
+              } 
+            });
             onAction?.();
           }}
         >
