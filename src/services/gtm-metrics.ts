@@ -135,7 +135,7 @@ function calculateUnusedItems(cv: GTMContainerVersion) {
     tagsNoTrigger: tagsNoTrigger.length,
     unusedTriggers,
     unusedVariables,
-    tagsNoTrigger
+    tagsNoTriggerArray: tagsNoTrigger
   };
 }
 
@@ -512,7 +512,7 @@ export function calculateGtmMetrics(cv: GTMContainerVersion): GtmMetrics {
         uaTags: uaObsolete.tags,
         unusedTriggers: unused.unusedTriggers,
         unusedVariables: unused.unusedVariables,
-        tagsNoTrigger: unused.tagsNoTrigger,
+        tagsNoTrigger: unused.tagsNoTriggerArray,
         badNames: {
           tags: namingIssues.badTagNames,
           triggers: namingIssues.badTrigNames,
