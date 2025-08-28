@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { ConsentModeResult, getConsentMetricInfo } from '../services/consentModeService';
 import { InfoTooltip } from './ui/InfoTooltip';
 
@@ -14,6 +15,7 @@ export const ConsentModeCard: React.FC<ConsentModeCardProps> = ({
   const { consent_coverage, message } = consentResult;
   const metricInfo = getConsentMetricInfo(message.status);
   const [isExpanded, setIsExpanded] = useState(false);
+  const navigate = useNavigate();
   
   // Calcola il numero totale di problemi
   const totalIssues = consent_coverage.missing + consent_coverage.not_configured;
@@ -179,6 +181,13 @@ export const ConsentModeCard: React.FC<ConsentModeCardProps> = ({
           className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${cardStyle.buttonColor}`}
           onClick={(e) => {
             e.stopPropagation();
+            // Naviga al Container Manager con filtro per consent
+            navigate('/container-manager', { 
+              state: { 
+                autoFilter: 'consent', 
+                tab: 'tags' 
+              } 
+            });
             onAction?.();
           }}
         >

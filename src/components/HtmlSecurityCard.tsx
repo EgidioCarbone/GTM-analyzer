@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { HtmlSecurityResult, getHtmlSecurityMetricInfo } from '../services/htmlSecurityService';
 import { InfoTooltip } from './ui/InfoTooltip';
 
@@ -14,6 +15,7 @@ export const HtmlSecurityCard: React.FC<HtmlSecurityCardProps> = ({
   const { html_security, message } = htmlSecurityResult;
   const metricInfo = getHtmlSecurityMetricInfo(message.status);
   const [isExpanded, setIsExpanded] = useState(false);
+  const navigate = useNavigate();
   
   // Determina il colore e lo stile in base alla severità
   const getCardStyle = () => {
@@ -183,7 +185,7 @@ export const HtmlSecurityCard: React.FC<HtmlSecurityCardProps> = ({
             {html_security.details
               .slice(0, 3) // Mostra solo i primi 3
               .map((detail, index) => (
-                <div key={detail.id} className="text-xs text-gray-600 dark:text-gray-400">
+                <div key={`examples-${detail.id}-${index}`} className="text-xs text-gray-600 dark:text-gray-400">
                   <span className="font-bold text-gray-800 dark:text-gray-200">{detail.name}</span>
                   <span className="ml-2">— {detail.issues.slice(0, 2).map(i => i.message).join(', ')}</span>
                 </div>
@@ -199,8 +201,8 @@ export const HtmlSecurityCard: React.FC<HtmlSecurityCardProps> = ({
             Analisi dettagliata:
           </h4>
           <div className="space-y-3">
-            {html_security.details.map((detail) => (
-              <div key={detail.id} className="p-3 bg-white dark:bg-gray-700 rounded-lg border-l-4 border-l-current">
+            {html_security.details.map((detail, index) => (
+              <div key={`detailed-${detail.id}-${index}`} className="p-3 bg-white dark:bg-gray-700 rounded-lg border-l-4 border-l-current">
                 <div className="flex items-center justify-between mb-2">
                   <span className="font-medium text-sm text-gray-800 dark:text-gray-200">
                     {detail.name}
@@ -261,6 +263,15 @@ export const HtmlSecurityCard: React.FC<HtmlSecurityCardProps> = ({
           className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${cardStyle.buttonColor}`}
           onClick={(e) => {
             e.stopPropagation();
+            // Naviga al Container Manager con filtro appropriato
+            const filter = message.status === 'critical' ? 'html-security-critical' : 
+                          message.status === 'major' ? 'html-security-major' : 'html-security-minor';
+            navigate('/container-manager', { 
+              state: { 
+                autoFilter: filter, 
+                tab: 'tags' 
+              } 
+            });
             onAction?.();
           }}
         >

@@ -194,7 +194,7 @@ ${gtmMetrics.actionPlan.map(item => {
     navigate('/container-manager', { 
       state: { 
         activeTab: tab,
-        filter: filter 
+        autoFilter: filter 
       } 
     });
   };
