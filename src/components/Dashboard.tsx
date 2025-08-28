@@ -244,6 +244,14 @@ ${gtmMetrics.actionPlan.map(item => {
         // Naviga al Container Manager con focus sui tag marketing
         navigateToContainerManager('tags', 'marketing');
         break;
+      case 'triggerQuality':
+        // Naviga al Container Manager con focus sui trigger
+        navigateToContainerManager('triggers', 'quality');
+        break;
+      case 'variableQuality':
+        // Naviga al Container Manager con focus sulle variabili
+        navigateToContainerManager('variables', 'quality');
+        break;
       default:
         console.warn('⚠️ Unknown metric type in handleMetricAction:', metricType);
         break;
@@ -623,6 +631,18 @@ ${gtmMetrics.actionPlan.map(item => {
                 type: "consent",
                 value: `${safeRender(gtmMetrics.quality.consent)}%`,
                 color: "bg-orange-50 text-orange-700 dark:bg-orange-900/20",
+              },
+              {
+                label: "Configurazione Trigger",
+                type: "triggerQuality",
+                value: `${safeRender(gtmMetrics.quality.triggerQuality)}%`,
+                color: "bg-purple-50 text-purple-700 dark:bg-purple-900/20",
+              },
+              {
+                label: "Qualità Variabili",
+                type: "variableQuality",
+                value: `${safeRender(gtmMetrics.quality.variableQuality)}%`,
+                color: "bg-indigo-50 text-indigo-700 dark:bg-indigo-900/20",
               },
             ].filter((item): item is { label: string; type: string; value: string; color: string; subtitle?: string } => {
               // Ensure item is valid
