@@ -252,6 +252,10 @@ ${gtmMetrics.actionPlan.map(item => {
         // Naviga al Container Manager con focus sulle variabili
         navigateToContainerManager('variables', 'quality');
         break;
+      case 'htmlSecurity':
+        // Naviga al Container Manager con focus sui tag HTML
+        navigateToContainerManager('tags', 'html');
+        break;
       default:
         console.warn('⚠️ Unknown metric type in handleMetricAction:', metricType);
         break;
@@ -643,6 +647,12 @@ ${gtmMetrics.actionPlan.map(item => {
                 type: "variableQuality",
                 value: `${safeRender(gtmMetrics.quality.variableQuality)}%`,
                 color: "bg-indigo-50 text-indigo-700 dark:bg-indigo-900/20",
+              },
+              {
+                label: "Sicurezza HTML",
+                type: "htmlSecurity",
+                value: `${safeRender(gtmMetrics.quality.htmlSecurity)}%`,
+                color: "bg-red-50 text-red-700 dark:bg-red-900/20",
               },
             ].filter((item): item is { label: string; type: string; value: string; color: string; subtitle?: string } => {
               // Ensure item is valid

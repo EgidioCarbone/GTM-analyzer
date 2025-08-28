@@ -4,6 +4,7 @@ import { IssueCard } from './IssueCard';
 import { ConsentModeCard } from './ConsentModeCard';
 import { TriggerQualityCard } from './TriggerQualityCard';
 import { VariableQualityCard } from './VariableQualityCard';
+import { HtmlSecurityCard } from './HtmlSecurityCard';
 import { GtmMetrics } from '../services/gtm-metrics';
 import { getMetricInfo } from '../services/gtm-metrics';
 
@@ -66,6 +67,11 @@ export const QualityOfContainer: React.FC<QualityOfContainerProps> = ({
       priority: 3.5 // Maggiore per affidabilità
     },
     { 
+      type: 'htmlSecurity' as const, 
+      count: gtmMetrics.kpi.htmlSecurity.html_security.critical + gtmMetrics.kpi.htmlSecurity.html_security.major,
+      priority: 1.5 // Critica per sicurezza
+    },
+    { 
       type: 'uaObsolete' as const, 
       count: gtmMetrics.kpi.uaObsolete,
       priority: 4 // Critico
@@ -85,7 +91,7 @@ export const QualityOfContainer: React.FC<QualityOfContainerProps> = ({
       count: gtmMetrics.kpi.namingIssues.total,
       priority: 7 // Basso
     }
-  ].filter((metric): metric is { type: 'doublePageView' | 'consentMode' | 'triggerQuality' | 'variableQuality' | 'paused' | 'unused' | 'uaObsolete' | 'namingIssues'; count: number; priority: number } => {
+  ].filter((metric): metric is { type: 'doublePageView' | 'consentMode' | 'triggerQuality' | 'variableQuality' | 'htmlSecurity' | 'paused' | 'unused' | 'uaObsolete' | 'namingIssues'; count: number; priority: number } => {
     // Ensure metric is valid
     if (!metric || typeof metric !== 'object' || typeof metric.type !== 'string' || metric.count == null) {
       console.warn('⚠️ Invalid metric:', metric);
@@ -206,6 +212,9 @@ export const QualityOfContainer: React.FC<QualityOfContainerProps> = ({
             case 'variableQuality':
               ctaLabel = '🧩 Ottimizza Variabili';
               break;
+            case 'htmlSecurity':
+              ctaLabel = '🔒 Rivedi Sicurezza HTML';
+              break;
             case 'uaObsolete':
               ctaLabel = '📜 Vedi lista UA obsoleti';
               break;
@@ -248,6 +257,17 @@ export const QualityOfContainer: React.FC<QualityOfContainerProps> = ({
               <VariableQualityCard
                 key={metric.type}
                 variableResult={gtmMetrics.kpi.variableQuality}
+                onAction={() => onMetricAction(metric.type)}
+              />
+            );
+          }
+
+          // Special handling for HTML security card
+          if (metric.type === 'htmlSecurity') {
+            return (
+              <HtmlSecurityCard
+                key={metric.type}
+                htmlSecurityResult={gtmMetrics.kpi.htmlSecurity}
                 onAction={() => onMetricAction(metric.type)}
               />
             );

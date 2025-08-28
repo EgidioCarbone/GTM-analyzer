@@ -124,3 +124,45 @@ export interface VariableQualityResult {
     contribution: number;
   };
 }
+
+// ============================================================================
+// HTML SECURITY TYPES
+// ============================================================================
+
+export interface HtmlSecurityIssue {
+  type: string;
+  message: string;
+  url?: string; // For insecure requests
+}
+
+export interface HtmlSecurityDetail {
+  id: string;
+  name: string;
+  severity: 'critical' | 'major' | 'minor';
+  issues: HtmlSecurityIssue[];
+  suggestion: string;
+  fires_on: string;
+  paused: boolean;
+}
+
+export interface HtmlSecurityResult {
+  html_security: {
+    checked: number;
+    critical: number;
+    major: number;
+    minor: number;
+    third_parties: string[];
+    details: HtmlSecurityDetail[];
+    score: number; // 0-1
+  };
+  message: {
+    title: string;
+    status: 'critical' | 'major' | 'minor' | 'ok';
+    summary: string;
+    cta: string;
+  };
+  impact: {
+    weight: number;
+    contribution: number;
+  };
+}

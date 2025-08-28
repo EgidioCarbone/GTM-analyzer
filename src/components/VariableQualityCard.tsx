@@ -136,20 +136,129 @@ export const VariableQualityCard: React.FC<VariableQualityCardProps> = ({
           </div>
         </div>
       </div>
-      
-      {/* Breakdown dei punteggi - solo se espanso */}
-      {isExpanded && (
-        <div className="mb-4">
-          <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Analisi dettagliata:
-          </h4>
-          <div className="grid grid-cols-2 gap-2 text-xs">
-            <div className="flex justify-between">
-              <span className="text-gray-600 dark:text-gray-400">DLV:</span>
-              <span className={`font-medium ${variable_quality.breakdown.dlv >= 0.8 ? 'text-green-600' : variable_quality.breakdown.dlv >= 0.6 ? 'text-orange-600' : 'text-red-600'}`}>
+
+      {/* Badge per categorie di issue */}
+      <div className="flex flex-wrap gap-2 mb-4">
+        {variable_quality.stats.dlv_missing_fallback > 0 && (
+          <span className="px-2 py-1 text-xs bg-orange-100 text-orange-800 rounded-full flex items-center gap-1">
+            ⚠️ DLV senza fallback ({variable_quality.stats.dlv_missing_fallback})
+          </span>
+        )}
+        {variable_quality.stats.lookup_without_default > 0 && (
+          <span className="px-2 py-1 text-xs bg-red-100 text-red-800 rounded-full flex items-center gap-1">
+            ❌ Lookup senza default ({variable_quality.stats.lookup_without_default})
+          </span>
+        )}
+        {variable_quality.stats.duplicates > 0 && (
+          <span className="px-2 py-1 text-xs bg-yellow-100 text-yellow-800 rounded-full flex items-center gap-1">
+            🔄 Duplicati ({variable_quality.stats.duplicates})
+          </span>
+        )}
+        {variable_quality.stats.regex_malformed > 0 && (
+          <span className="px-2 py-1 text-xs bg-red-100 text-red-800 rounded-full flex items-center gap-1">
+            🚫 Regex malformate ({variable_quality.stats.regex_malformed})
+          </span>
+        )}
+        {variable_quality.stats.css_fragile_selectors > 0 && (
+          <span className="px-2 py-1 text-xs bg-yellow-100 text-yellow-800 rounded-full flex items-center gap-1">
+            🎯 Selettori fragili ({variable_quality.stats.css_fragile_selectors})
+          </span>
+        )}
+        {variable_quality.stats.js_unsafe_code > 0 && (
+          <span className="px-2 py-1 text-xs bg-red-100 text-red-800 rounded-full flex items-center gap-1">
+            ⚡ JS non sicuro ({variable_quality.stats.js_unsafe_code})
+          </span>
+        )}
+      </div>
+
+      {/* Score parziali con mini barre */}
+      <div className="mb-4">
+        <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+          Score per categoria:
+        </h4>
+        <div className="space-y-2">
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-gray-600 dark:text-gray-400">DLV:</span>
+            <div className="flex items-center gap-2">
+              <div className="w-16 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                <div 
+                  className={`h-full transition-all duration-300 ${
+                    variable_quality.breakdown.dlv >= 0.8 ? 'bg-green-500' : 
+                    variable_quality.breakdown.dlv >= 0.6 ? 'bg-yellow-500' : 'bg-red-500'
+                  }`}
+                  style={{ width: `${variable_quality.breakdown.dlv * 100}%` }}
+                />
+              </div>
+              <span className="font-medium w-8 text-right">
                 {Math.round(variable_quality.breakdown.dlv * 100)}%
               </span>
             </div>
+          </div>
+          
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-gray-600 dark:text-gray-400">Lookup:</span>
+            <div className="flex items-center gap-2">
+              <div className="w-16 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                <div 
+                  className={`h-full transition-all duration-300 ${
+                    variable_quality.breakdown.lookup >= 0.8 ? 'bg-green-500' : 
+                    variable_quality.breakdown.lookup >= 0.6 ? 'bg-yellow-500' : 'bg-red-500'
+                  }`}
+                  style={{ width: `${variable_quality.breakdown.lookup * 100}%` }}
+                />
+              </div>
+              <span className="font-medium w-8 text-right">
+                {Math.round(variable_quality.breakdown.lookup * 100)}%
+              </span>
+            </div>
+          </div>
+          
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-gray-600 dark:text-gray-400">Igiene:</span>
+            <div className="flex items-center gap-2">
+              <div className="w-16 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                <div 
+                  className={`h-full transition-all duration-300 ${
+                    variable_quality.breakdown.hygiene >= 0.8 ? 'bg-green-500' : 
+                    variable_quality.breakdown.hygiene >= 0.6 ? 'bg-yellow-500' : 'bg-red-500'
+                  }`}
+                  style={{ width: `${variable_quality.breakdown.hygiene * 100}%` }}
+                />
+              </div>
+              <span className="font-medium w-8 text-right">
+                {Math.round(variable_quality.breakdown.hygiene * 100)}%
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Esempi di problemi principali */}
+      {variable_quality.issues.length > 0 && (
+        <div className="mb-4">
+          <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            Esempi di problemi:
+          </h4>
+          <div className="space-y-1">
+            {variable_quality.issues
+              .slice(0, 3) // Mostra solo i primi 3
+              .map((issue, index) => (
+                <div key={issue.variable_id || index} className="text-xs text-gray-600 dark:text-gray-400">
+                  <span className="font-bold text-gray-800 dark:text-gray-200">{issue.name}</span>
+                  <span className="ml-2">→ {issue.reason}</span>
+                </div>
+              ))}
+          </div>
+        </div>
+      )}
+      
+      {/* Analisi dettagliata - solo se espanso */}
+      {isExpanded && (
+        <div className="mb-4">
+          <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            Analisi dettagliata completa:
+          </h4>
+          <div className="grid grid-cols-2 gap-2 text-xs">
             <div className="flex justify-between">
               <span className="text-gray-600 dark:text-gray-400">Selettori:</span>
               <span className={`font-medium ${variable_quality.breakdown.selectors >= 0.8 ? 'text-green-600' : variable_quality.breakdown.selectors >= 0.6 ? 'text-orange-600' : 'text-red-600'}`}>
@@ -163,21 +272,9 @@ export const VariableQualityCard: React.FC<VariableQualityCardProps> = ({
               </span>
             </div>
             <div className="flex justify-between">
-              <span className="text-gray-600 dark:text-gray-400">Lookup:</span>
-              <span className={`font-medium ${variable_quality.breakdown.lookup >= 0.8 ? 'text-green-600' : variable_quality.breakdown.lookup >= 0.6 ? 'text-orange-600' : 'text-red-600'}`}>
-                {Math.round(variable_quality.breakdown.lookup * 100)}%
-              </span>
-            </div>
-            <div className="flex justify-between">
               <span className="text-gray-600 dark:text-gray-400">Regex:</span>
               <span className={`font-medium ${variable_quality.breakdown.regex >= 0.8 ? 'text-green-600' : variable_quality.breakdown.regex >= 0.6 ? 'text-orange-600' : 'text-red-600'}`}>
                 {Math.round(variable_quality.breakdown.regex * 100)}%
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-600 dark:text-gray-400">Igiene:</span>
-              <span className={`font-medium ${variable_quality.breakdown.hygiene >= 0.8 ? 'text-green-600' : variable_quality.breakdown.hygiene >= 0.6 ? 'text-orange-600' : 'text-red-600'}`}>
-                {Math.round(variable_quality.breakdown.hygiene * 100)}%
               </span>
             </div>
           </div>
@@ -244,7 +341,7 @@ export const VariableQualityCard: React.FC<VariableQualityCardProps> = ({
         </div>
       )}
       
-      {/* CTA */}
+      {/* CTA orientato all'azione */}
       <div className="flex justify-end">
         <button 
           className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${cardStyle.buttonColor}`}
@@ -253,7 +350,28 @@ export const VariableQualityCard: React.FC<VariableQualityCardProps> = ({
             onAction?.();
           }}
         >
-          🧩 {message.cta}
+          {(() => {
+            // Determina il CTA più specifico basandosi sui problemi più critici
+            if (variable_quality.stats.lookup_without_default > 0) {
+              return '❌ Esamina Lookup senza default';
+            }
+            if (variable_quality.stats.dlv_missing_fallback > 0) {
+              return '⚠️ Esamina DLV senza fallback';
+            }
+            if (variable_quality.stats.js_unsafe_code > 0) {
+              return '⚡ Esamina JS non sicuro';
+            }
+            if (variable_quality.stats.regex_malformed > 0) {
+              return '🚫 Esamina Regex malformate';
+            }
+            if (variable_quality.stats.duplicates > 0) {
+              return '🔄 Esamina Duplicati';
+            }
+            if (variable_quality.stats.unused > 0) {
+              return '🗑️ Esamina Variabili non usate';
+            }
+            return '🧩 Rivedi variabili';
+          })()}
         </button>
       </div>
       
