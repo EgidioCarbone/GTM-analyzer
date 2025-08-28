@@ -444,65 +444,65 @@ ${gtmMetrics.actionPlan.map(item => {
               }
               
               return (
-                <div key={metric.type} className={`${info.color} rounded-lg p-4 border-l-4 ${info.textColor} border-l-current`}>
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <span className="text-2xl">{info.icon}</span>
-                      <div>
-                        <div className="text-2xl font-bold">{safeRender(metric.count)}</div>
-                        <div className="text-sm font-medium">{info.title}</div>
-                                              {/* Micro-incidenza */}
-                      {metric.count > 0 && (
-                        <div className="text-xs text-gray-500 dark:text-gray-400">
-                          {metric.type === 'paused' && `${Math.round((Number(metric.count) / Math.max(1, Number(gtmMetrics.counts.tags))) * 100)}% dei tag`}
-                          {metric.type === 'uaObsolete' && `${Math.round((Number(metric.count) / Math.max(1, Number(gtmMetrics.counts.tags))) * 100)}% dei tag`}
-                          {metric.type === 'namingIssues' && `${Math.round((Number(metric.count) / Math.max(1, Number(gtmMetrics.counts.tags) + Number(gtmMetrics.counts.triggers) + Number(gtmMetrics.counts.variables))) * 100)}% degli elementi`}
+                <div key={metric.type} className={`${info.color} rounded-lg p-4 border-l-4 ${info.textColor} border-l-current flex flex-col h-full`}>
+                  {/* Contenuto principale */}
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-2xl">{info.icon}</span>
+                        <div>
+                          <div className="text-2xl font-bold">{safeRender(metric.count)}</div>
+                          <div className="text-sm font-medium">{info.title}</div>
+                          {/* Micro-incidenza */}
+                          {metric.count > 0 && (
+                            <div className="text-xs text-gray-500 dark:text-gray-400">
+                              {metric.type === 'paused' && `${Math.round((Number(metric.count) / Math.max(1, Number(gtmMetrics.counts.tags))) * 100)}% dei tag`}
+                              {metric.type === 'uaObsolete' && `${Math.round((Number(metric.count) / Math.max(1, Number(gtmMetrics.counts.tags))) * 100)}% dei tag`}
+                              {metric.type === 'namingIssues' && `${Math.round((Number(metric.count) / Math.max(1, Number(gtmMetrics.counts.tags) + Number(gtmMetrics.counts.triggers) + Number(gtmMetrics.counts.variables))) * 100)}% degli elementi`}
+                            </div>
+                          )}
                         </div>
-                      )}
                       </div>
+                      <span className={`px-2 py-1 text-xs font-medium rounded-full ${info.priorityColor}`}>
+                        {info.priority}
+                      </span>
                     </div>
-                    <span className={`px-2 py-1 text-xs font-medium rounded-full ${info.priorityColor}`}>
-                      {info.priority}
-                    </span>
-                  </div>
-                  
-                  {/* Breakdown per elementi non utilizzati */}
-                  {metric.type === 'unused' && (
-                    <div className="text-xs mb-2 p-2 bg-white/30 rounded">
-                      <div className="font-medium mb-1">Breakdown:</div>
-                      <div className="flex gap-2 text-xs">
-                        <span className="cursor-pointer hover:underline" title="Click per vedere trigger non utilizzati">
-                          Tr: {safeRender(gtmMetrics.kpi.unused.triggers)}
-                        </span>
-                        <span className="cursor-pointer hover:underline" title="Click per vedere variabili non utilizzate">
-                          Var: {safeRender(gtmMetrics.kpi.unused.variables)}
-                        </span>
-                        <span className="cursor-pointer hover:underline" title="Click per vedere tag senza trigger">
-                          Tag: {safeRender(gtmMetrics.kpi.unused.tagsNoTrigger)}
-                        </span>
+                    
+                    {/* Breakdown per elementi non utilizzati */}
+                    {metric.type === 'unused' && (
+                      <div className="text-xs mb-2 p-2 bg-white/30 rounded">
+                        <div className="font-medium mb-1">Breakdown:</div>
+                        <div className="flex gap-2 text-xs">
+                          <span className="cursor-pointer hover:underline" title="Click per vedere trigger non utilizzati">
+                            Trigger: {safeRender(gtmMetrics.kpi.unused.triggers)}
+                          </span>
+                          <span className="cursor-pointer hover:underline" title="Click per vedere variabili non utilizzate">
+                            Variabili: {safeRender(gtmMetrics.kpi.unused.variables)}
+                          </span>
+                        </div>
                       </div>
-                    </div>
-                  )}
-                  
-                  <div className="text-xs opacity-80 mb-2">
-                    🔹 {info.subtitle}
-                    {metric.type === 'uaObsolete' && (
-                      <InfoTooltip content="Questi tag appartengono a Universal Analytics (obsoleto). Migra a GA4 per dati affidabili.">
-                        <span className="ml-1 text-blue-500 cursor-help">ℹ️</span>
-                      </InfoTooltip>
                     )}
-                  </div>
-                  <div className="text-xs opacity-90">
-                    👉 {info.impact}
-                  </div>
-                  <div className="text-xs mt-2 p-2 bg-white/20 rounded">
-                    {info.risk}
+                    
+                    <div className="text-xs opacity-80 mb-2">
+                      🔹 {info.subtitle}
+                      {metric.type === 'uaObsolete' && (
+                        <InfoTooltip content="Questi tag appartengono a Universal Analytics (obsoleto). Migra a GA4 per dati affidabili.">
+                          <span className="ml-1 text-blue-500 cursor-help">ℹ️</span>
+                        </InfoTooltip>
+                      )}
+                    </div>
+                    <div className="text-xs opacity-90">
+                      👉 {info.impact}
+                    </div>
+                    <div className="text-xs mt-2 p-2 bg-white/20 rounded">
+                      {info.risk}
+                    </div>
                   </div>
                   
-                  {/* CTA coerenti */}
-                  <div className="mt-3 pt-2 border-t border-white/20">
+                  {/* CTA allineate in basso */}
+                  <div className="mt-4 pt-3 border-t border-white/20">
                     <button 
-                      className="text-xs px-3 py-1 bg-white/30 hover:bg-white/50 rounded-full transition-colors font-medium"
+                      className="w-full text-sm px-4 py-2.5 bg-white/80 hover:bg-white text-gray-800 hover:text-gray-900 rounded-lg transition-all duration-200 font-medium shadow-sm hover:shadow-md transform hover:scale-[1.02]"
                       onClick={(e) => {
                         e.stopPropagation();
                         handleMetricAction(metric.type);
