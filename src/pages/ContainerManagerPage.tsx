@@ -19,7 +19,9 @@ import {
   ArrowDownRight,
   Minus,
   AlertCircle,
-  X
+  X,
+  Edit,
+  Eye
 } from "lucide-react";
 import { useContainer } from "../context/ContainerContext";
 import { GTMTag, GTMTrigger, GTMVariable, IssueCategory } from "../types/gtm";
@@ -176,6 +178,459 @@ function DeleteModal({ isOpen, onClose, onConfirm, item, itemType, dependencies 
   );
 }
 
+// Modale di rinomina
+function RenameModal({ 
+  isOpen, 
+  onClose, 
+  onConfirm, 
+  item, 
+  itemType, 
+  currentName, 
+  suggestedName, 
+  newName, 
+  setNewName 
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+  item: any;
+  itemType: 'tag' | 'trigger' | 'variable';
+  currentName: string;
+  suggestedName: string;
+  newName: string;
+  setNewName: (name: string) => void;
+}) {
+  if (!isOpen) return null;
+
+  const handleConfirm = () => {
+    if (newName.trim() && newName.trim() !== currentName) {
+      onConfirm();
+    }
+  };
+
+  const handleUseSuggested = () => {
+    setNewName(suggestedName);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.95 }}
+        className="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-2xl w-full mx-4 shadow-xl"
+      >
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+            Rinomina {itemType === 'tag' ? 'Tag' : itemType === 'trigger' ? 'Trigger' : 'Variabile'}
+          </h3>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Nome attuale:
+            </label>
+            <div className="p-3 bg-gray-100 dark:bg-gray-700 rounded-lg text-sm text-gray-600 dark:text-gray-400">
+              {currentName}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Nome suggerito:
+            </label>
+            <div className="flex items-center gap-2">
+              <div className="flex-1 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-sm text-blue-800 dark:text-blue-200">
+                {suggestedName}
+              </div>
+              <button
+                onClick={handleUseSuggested}
+                className="px-3 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                Usa
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Nuovo nome:
+            </label>
+            <input
+              type="text"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              placeholder="Inserisci il nuovo nome..."
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+              autoFocus
+            />
+          </div>
+
+          <div className="text-xs text-gray-500 dark:text-gray-400">
+            💡 Suggerimento: Usa nomi descrittivi che seguano le convenzioni di naming (es. HTML_, TRG_, DLV_)
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-3 mt-6">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 transition-colors"
+          >
+            Annulla
+          </button>
+          <button
+            onClick={handleConfirm}
+            disabled={!newName.trim() || newName.trim() === currentName}
+            className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+          >
+            Rinomina
+          </button>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
+// Modale di conferma toggle pause
+function ToggleModal({ 
+  isOpen, 
+  onClose, 
+  onConfirm, 
+  item, 
+  currentPaused 
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+  item: any;
+  currentPaused: boolean;
+}) {
+  if (!isOpen) return null;
+
+  const action = currentPaused ? 'riattivare' : 'mettere in pausa';
+  const actionCapitalized = currentPaused ? 'Riattivare' : 'Mettere in pausa';
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.95 }}
+        className="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-md w-full mx-4 shadow-xl"
+      >
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+            {actionCapitalized} Elemento
+          </h3>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="space-y-4">
+          <div className="flex items-center gap-3 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+            {currentPaused ? (
+              <Play className="w-5 h-5 text-green-600" />
+            ) : (
+              <Pause className="w-5 h-5 text-orange-600" />
+            )}
+            <div>
+              <p className="text-sm font-medium text-gray-900 dark:text-white">
+                Sei sicuro di voler {action} questo elemento?
+              </p>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                <strong>{item?.name}</strong>
+              </p>
+            </div>
+          </div>
+
+          <div className="text-sm text-gray-600 dark:text-gray-400">
+            {currentPaused ? (
+              <p>Riattivando l'elemento, tornerà a funzionare normalmente e verrà eseguito secondo le sue regole di trigger.</p>
+            ) : (
+              <p>Mettendo in pausa l'elemento, non verrà più eseguito fino a quando non verrà riattivato.</p>
+            )}
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-3 mt-6">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 transition-colors"
+          >
+            Annulla
+          </button>
+          <button
+            onClick={onConfirm}
+            className={`px-4 py-2 text-sm text-white rounded-lg transition-colors ${
+              currentPaused 
+                ? 'bg-green-600 hover:bg-green-700' 
+                : 'bg-orange-600 hover:bg-orange-700'
+            }`}
+          >
+            {actionCapitalized}
+          </button>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
+// Modale dei dettagli elemento
+function DetailsModal({ 
+  isOpen, 
+  onClose, 
+  item, 
+  itemType 
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  item: any;
+  itemType: 'tag' | 'trigger' | 'variable';
+}) {
+  if (!isOpen || !item) return null;
+
+  const renderTagDetails = (tag: GTMTag) => (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <h4 className="font-semibold text-gray-900 dark:text-white mb-2">Informazioni Base</h4>
+          <div className="space-y-2 text-sm">
+            <div><span className="font-medium">Nome:</span> {tag?.name || 'N/A'}</div>
+            <div><span className="font-medium">Tipo:</span> {tag?.type || 'N/A'}</div>
+            <div><span className="font-medium">ID:</span> {tag?.tagId || 'N/A'}</div>
+            <div><span className="font-medium">Stato:</span> 
+              <span className={`ml-2 px-2 py-1 rounded text-xs ${
+                tag?.paused 
+                  ? 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200' 
+                  : 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+              }`}>
+                {tag?.paused ? 'Pausato' : 'Attivo'}
+              </span>
+            </div>
+          </div>
+        </div>
+        
+        <div>
+          <h4 className="font-semibold text-gray-900 dark:text-white mb-2">Configurazione</h4>
+          <div className="space-y-2 text-sm">
+            {tag?.firingTriggerId && Array.isArray(tag.firingTriggerId) && tag.firingTriggerId.length > 0 && (
+              <div><span className="font-medium">Trigger:</span> {tag.firingTriggerId.join(', ')}</div>
+            )}
+            {tag?.blockingTriggerId && Array.isArray(tag.blockingTriggerId) && tag.blockingTriggerId.length > 0 && (
+              <div><span className="font-medium">Blocking Triggers:</span> {tag.blockingTriggerId.join(', ')}</div>
+            )}
+            {tag?.priority && (
+              <div><span className="font-medium">Priorità:</span> {tag.priority}</div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {tag?.parameter && Array.isArray(tag.parameter) && tag.parameter.length > 0 && (
+        <div>
+          <h4 className="font-semibold text-gray-900 dark:text-white mb-2">Parametri</h4>
+          <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-3">
+            <div className="space-y-2 text-sm">
+              {tag.parameter.map((param, index) => (
+                <div key={index} className="flex justify-between">
+                  <span className="font-medium text-gray-700 dark:text-gray-300">{param?.key || 'N/A'}:</span>
+                  <span className="text-gray-600 dark:text-gray-400 max-w-xs truncate" title={param?.value || ''}>
+                    {param?.value || 'N/A'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {tag?.html && (
+        <div>
+          <h4 className="font-semibold text-gray-900 dark:text-white mb-2">HTML Code</h4>
+          <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-3">
+            <pre className="text-xs text-gray-600 dark:text-gray-400 whitespace-pre-wrap overflow-x-auto">
+              {tag.html}
+            </pre>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  const renderTriggerDetails = (trigger: GTMTrigger) => (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <h4 className="font-semibold text-gray-900 dark:text-white mb-2">Informazioni Base</h4>
+          <div className="space-y-2 text-sm">
+            <div><span className="font-medium">Nome:</span> {trigger?.name || 'N/A'}</div>
+            <div><span className="font-medium">Tipo:</span> {trigger?.type || 'N/A'}</div>
+            <div><span className="font-medium">ID:</span> {trigger?.triggerId || 'N/A'}</div>
+            <div><span className="font-medium">Stato:</span> 
+              <span className={`ml-2 px-2 py-1 rounded text-xs ${
+                trigger?.paused 
+                  ? 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200' 
+                  : 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+              }`}>
+                {trigger?.paused ? 'Pausato' : 'Attivo'}
+              </span>
+            </div>
+          </div>
+        </div>
+        
+        <div>
+          <h4 className="font-semibold text-gray-900 dark:text-white mb-2">Configurazione</h4>
+          <div className="space-y-2 text-sm">
+            {trigger?.autoEventFilter && Array.isArray(trigger.autoEventFilter) && trigger.autoEventFilter.length > 0 && (
+              <div><span className="font-medium">Auto Event Filters:</span> {trigger.autoEventFilter.length}</div>
+            )}
+            {trigger?.customEventFilter && Array.isArray(trigger.customEventFilter) && trigger.customEventFilter.length > 0 && (
+              <div><span className="font-medium">Custom Event Filters:</span> {trigger.customEventFilter.length}</div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {trigger?.parameter && Array.isArray(trigger.parameter) && trigger.parameter.length > 0 && (
+        <div>
+          <h4 className="font-semibold text-gray-900 dark:text-white mb-2">Parametri</h4>
+          <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-3">
+            <div className="space-y-2 text-sm">
+              {trigger.parameter.map((param, index) => (
+                <div key={index} className="flex justify-between">
+                  <span className="font-medium text-gray-700 dark:text-gray-300">{param?.key || 'N/A'}:</span>
+                  <span className="text-gray-600 dark:text-gray-400 max-w-xs truncate" title={param?.value || ''}>
+                    {param?.value || 'N/A'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  const renderVariableDetails = (variable: GTMVariable) => (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <h4 className="font-semibold text-gray-900 dark:text-white mb-2">Informazioni Base</h4>
+          <div className="space-y-2 text-sm">
+            <div><span className="font-medium">Nome:</span> {variable?.name || 'N/A'}</div>
+            <div><span className="font-medium">Tipo:</span> {variable?.type || 'N/A'}</div>
+            <div><span className="font-medium">ID:</span> {variable?.variableId || 'N/A'}</div>
+            <div><span className="font-medium">Stato:</span> 
+              <span className={`ml-2 px-2 py-1 rounded text-xs ${
+                variable?.paused 
+                  ? 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200' 
+                  : 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+              }`}>
+                {variable?.paused ? 'Pausato' : 'Attivo'}
+              </span>
+            </div>
+          </div>
+        </div>
+        
+        <div>
+          <h4 className="font-semibold text-gray-900 dark:text-white mb-2">Configurazione</h4>
+          <div className="space-y-2 text-sm">
+            {variable?.format && (
+              <div><span className="font-medium">Formato:</span> {variable.format}</div>
+            )}
+            {variable?.enableBuiltInVariable && (
+              <div><span className="font-medium">Built-in:</span> Sì</div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {variable?.parameter && Array.isArray(variable.parameter) && variable.parameter.length > 0 && (
+        <div>
+          <h4 className="font-semibold text-gray-900 dark:text-white mb-2">Parametri</h4>
+          <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-3">
+            <div className="space-y-2 text-sm">
+              {variable.parameter.map((param, index) => (
+                <div key={index} className="flex justify-between">
+                  <span className="font-medium text-gray-700 dark:text-gray-300">{param?.key || 'N/A'}:</span>
+                  <span className="text-gray-600 dark:text-gray-400 max-w-xs truncate" title={param?.value || ''}>
+                    {param?.value || 'N/A'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  const getItemTypeLabel = () => {
+    switch (itemType) {
+      case 'tag': return 'Tag';
+      case 'trigger': return 'Trigger';
+      case 'variable': return 'Variabile';
+      default: return 'Elemento';
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.95 }}
+        className="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-4xl w-full mx-4 shadow-xl max-h-[90vh] overflow-y-auto"
+      >
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-3">
+            {itemType === 'tag' && <Tag className="w-6 h-6 text-blue-600" />}
+            {itemType === 'trigger' && <Zap className="w-6 h-6 text-yellow-600" />}
+            {itemType === 'variable' && <Variable className="w-6 h-6 text-green-600" />}
+            <h3 className="text-xl font-semibold text-gray-900 dark:text-white">
+              Dettagli {getItemTypeLabel()}
+            </h3>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+          >
+            <X className="w-6 h-6" />
+          </button>
+        </div>
+
+        <div className="border-b border-gray-200 dark:border-gray-700 pb-4 mb-6">
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{item?.name || 'Elemento senza nome'}</h2>
+        </div>
+
+        {itemType === 'tag' && item && renderTagDetails(item)}
+        {itemType === 'trigger' && item && renderTriggerDetails(item)}
+        {itemType === 'variable' && item && renderVariableDetails(item)}
+
+        <div className="flex justify-end mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
+          <button
+            onClick={onClose}
+            className="px-6 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition-colors"
+          >
+            Chiudi
+          </button>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
 export default function ContainerManagerPage({}: ContainerManagerPageProps) {
   const { container, setContainer, analysis } = useContainer();
   const location = useLocation();
@@ -230,6 +685,45 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
     item: null,
     itemType: '',
     dependencies: []
+  });
+
+  // Stato per la modale di rinomina
+  const [renameModal, setRenameModal] = useState<{
+    isOpen: boolean;
+    item: any;
+    itemType: 'tag' | 'trigger' | 'variable';
+    currentName: string;
+    suggestedName: string;
+    newName: string;
+  }>({
+    isOpen: false,
+    item: null,
+    itemType: 'tag',
+    currentName: '',
+    suggestedName: '',
+    newName: ''
+  });
+
+  // Stato per la modale di toggle pause
+  const [toggleModal, setToggleModal] = useState<{
+    isOpen: boolean;
+    item: any;
+    currentPaused: boolean;
+  }>({
+    isOpen: false,
+    item: null,
+    currentPaused: false
+  });
+
+  // Stato per la modale dei dettagli
+  const [detailsModal, setDetailsModal] = useState<{
+    isOpen: boolean;
+    item: any;
+    itemType: 'tag' | 'trigger' | 'variable';
+  }>({
+    isOpen: false,
+    item: null,
+    itemType: 'tag'
   });
 
   // Gestisci i parametri di navigazione dalla Dashboard
@@ -606,10 +1100,87 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
     setDeleteModal({ isOpen: false, item: null, itemType: '', dependencies: [] });
   };
 
+  const handleRenameConfirm = () => {
+    if (!container || !renameModal.item || !renameModal.newName.trim()) return;
+
+    const newContainer = { ...container };
+    const itemType = renameModal.itemType;
+    const oldName = renameModal.currentName;
+    const newName = renameModal.newName.trim();
+
+    // Trova e aggiorna l'elemento
+    if (newContainer[itemType]) {
+      const index = newContainer[itemType]!.findIndex(item => item.name === oldName);
+      if (index !== -1) {
+        // Aggiorna il nome
+        newContainer[itemType]![index] = {
+          ...newContainer[itemType]![index],
+          name: newName
+        };
+
+        // Aggiorna il container
+        setContainer(newContainer);
+
+        // Registra la modifica nella cronologia
+        const newQuality = calculateContainerQuality(newContainer);
+        setQualityHistory(prev => [...prev, {
+          timestamp: new Date(),
+          score: newQuality.overallScore,
+          metrics: {
+            pausedItems: newQuality.pausedItems,
+            unusedItems: newQuality.unusedItems,
+            uaItems: newQuality.uaItems,
+            namingIssues: newQuality.namingIssues
+          },
+          action: 'Elemento rinominato',
+          itemName: `${oldName} → ${newName}`
+        }]);
+      }
+    }
+
+    // Chiudi la modale
+    setRenameModal({
+      isOpen: false,
+      item: null,
+      itemType: 'tag',
+      currentName: '',
+      suggestedName: '',
+      newName: ''
+    });
+  };
+
   const handleTogglePause = (itemId: string) => {
     if (!container) return;
 
+    // Trova l'elemento
+    let item = null;
+    let itemType: 'tag' | 'trigger' | 'variable' = 'tag';
+    
+    if (container.tag?.find(t => t.name === itemId)) {
+      itemType = 'tag';
+      item = container.tag.find(t => t.name === itemId);
+    } else if (container.trigger?.find(t => t.name === itemId)) {
+      itemType = 'trigger';
+      item = container.trigger.find(t => t.name === itemId);
+    } else if (container.variable?.find(t => t.name === itemId)) {
+      itemType = 'variable';
+      item = container.variable.find(t => t.name === itemId);
+    }
+
+    if (item) {
+      setToggleModal({
+        isOpen: true,
+        item: item,
+        currentPaused: item.paused
+      });
+    }
+  };
+
+  const handleToggleConfirm = () => {
+    if (!container || !toggleModal.item) return;
+
     const newContainer = { ...container };
+    const itemId = toggleModal.item.name;
     let itemType: 'tag' | 'trigger' | 'variable' = 'tag';
     
     // Trova il tipo di elemento
@@ -640,6 +1211,13 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
         }]);
       }
     }
+
+    // Chiudi la modale
+    setToggleModal({
+      isOpen: false,
+      item: null,
+      currentPaused: false
+    });
   };
 
   const filteredItems = getFilteredItems();
@@ -1305,26 +1883,40 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
                           </div>
                           <div className="flex items-center gap-2">
                             {/* Azioni rapide per issues */}
+                            <button
+                              onClick={() => {
+                                const type: 'tag' | 'trigger' | 'variable' = activeTab === 'tags' ? 'tag' : activeTab === 'triggers' ? 'trigger' : 'variable';
+                                setDetailsModal({
+                                  isOpen: true,
+                                  item: item,
+                                  itemType: type
+                                });
+                              }}
+                              className="p-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                              title="Visualizza dettagli"
+                            >
+                              <Eye className="w-5 h-5" />
+                            </button>
+                            
                             {issues.some(i => i.categories.includes('naming')) && (
                               <button
                                 onClick={() => {
-                                  const it = { ...item };
                                   const type: 'tag' | 'trigger' | 'variable' = activeTab === 'tags' ? 'tag' : activeTab === 'triggers' ? 'trigger' : 'variable';
-                                  fixNaming(it, type);
-                                  const updated = { ...container };
-                                  const itemType = activeTab.slice(0, -1) as 'tag' | 'trigger' | 'variable';
-                                  if (updated[itemType]) {
-                                    const index = updated[itemType]!.findIndex(i => (i.tagId || i.triggerId || i.variableId || i.name) === itemId);
-                                    if (index !== -1) {
-                                      updated[itemType]![index] = it;
-                                      setContainer(updated);
-                                    }
-                                  }
+                                  const suggestedName = suggestName(type, item.name);
+                                  
+                                  setRenameModal({
+                                    isOpen: true,
+                                    item: item,
+                                    itemType: type,
+                                    currentName: item.name,
+                                    suggestedName: suggestedName,
+                                    newName: suggestedName
+                                  });
                                 }}
-                                className="text-xs px-2 py-1 rounded bg-blue-600 text-white hover:bg-blue-700"
-                                title="Rinomina automaticamente"
+                                className="p-2 bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 rounded-lg hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors"
+                                title="Rinomina elemento"
                               >
-                                ✏️
+                                <Edit className="w-5 h-5" />
                               </button>
                             )}
                             
@@ -1337,14 +1929,14 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
                               }`}
                               title={item.paused ? 'Riprendi' : 'Metti in pausa'}
                             >
-                              {item.paused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
+                              {item.paused ? <Play className="w-5 h-5" /> : <Pause className="w-5 h-5" />}
                             </button>
                             <button
                               onClick={() => handleDeleteClick(item)}
                               className="p-2 bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300 rounded-lg hover:bg-red-200 dark:hover:bg-red-800 transition-colors"
                               title="Elimina"
                             >
-                              <Trash2 className="w-4 h-4" />
+                              <Trash2 className="w-5 h-5" />
                             </button>
                           </div>
                         </div>
@@ -1366,6 +1958,51 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
         item={deleteModal.item}
         itemType={deleteModal.itemType}
         dependencies={deleteModal.dependencies}
+      />
+
+      {/* Modale di rinomina */}
+      <RenameModal
+        isOpen={renameModal.isOpen}
+        onClose={() => setRenameModal({
+          isOpen: false,
+          item: null,
+          itemType: 'tag',
+          currentName: '',
+          suggestedName: '',
+          newName: ''
+        })}
+        onConfirm={handleRenameConfirm}
+        item={renameModal.item}
+        itemType={renameModal.itemType}
+        currentName={renameModal.currentName}
+        suggestedName={renameModal.suggestedName}
+        newName={renameModal.newName}
+        setNewName={(name) => setRenameModal(prev => ({ ...prev, newName: name }))}
+      />
+
+      {/* Modale di conferma toggle pause */}
+      <ToggleModal
+        isOpen={toggleModal.isOpen}
+        onClose={() => setToggleModal({
+          isOpen: false,
+          item: null,
+          currentPaused: false
+        })}
+        onConfirm={handleToggleConfirm}
+        item={toggleModal.item}
+        currentPaused={toggleModal.currentPaused}
+      />
+
+      {/* Modale dei dettagli elemento */}
+      <DetailsModal
+        isOpen={detailsModal.isOpen}
+        onClose={() => setDetailsModal({
+          isOpen: false,
+          item: null,
+          itemType: 'tag'
+        })}
+        item={detailsModal.item}
+        itemType={detailsModal.itemType}
       />
     </div>
   );

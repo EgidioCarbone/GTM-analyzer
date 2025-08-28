@@ -26,7 +26,11 @@ function setParam(item: GTMTag | GTMVariable, key: string, value: any): void {
 }
 
 function normalize(s: string): string {
-  return s.trim().replace(/[^\w]+/g, '_').replace(/_+/g, '_');
+  return s.trim()
+    .replace(/[^\w]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_|_$/g, '') // Rimuovi underscore all'inizio e alla fine
+    .toUpperCase();
 }
 
 // ============================================================================
@@ -34,15 +38,33 @@ function normalize(s: string): string {
 // ============================================================================
 
 export function suggestName(itemType: 'tag' | 'trigger' | 'variable', name: string): string {
-  // Regole di naming basate su gtm-metrics.ts
+  const normalized = normalize(name);
+  
   if (itemType === 'trigger') {
-    return name.startsWith('TRG_') ? name : 'TRG_' + normalize(name);
+    // Per i trigger, rimuovi il prefisso esistente e aggiungi TRG_
+    const cleanName = normalized.replace(/^(trg_|trigger_)/i, '');
+    return 'TRG_' + cleanName;
   }
+  
   if (itemType === 'variable') {
-    return /^[A-Z]+_/.test(name) ? name : 'DLV_' + normalize(name);
+    // Per le variabili, rimuovi prefissi esistenti e aggiungi DLV_
+    const cleanName = normalized.replace(/^(dlv_|var_|variable_)/i, '');
+    return 'DLV_' + cleanName;
   }
-  // tag:
-  return /^(UA|GA4_EVENT|GTAG|HTML)_/.test(name) ? name : 'HTML_' + normalize(name);
+  
+  // Per i tag, determina il tipo corretto e crea un nome più breve
+  const cleanName = normalized.replace(/^(html_|ua_|ga4_|gtag_|tag_)/i, '');
+  
+  // Determina il tipo di tag basato sul contenuto
+  if (cleanName.toLowerCase().includes('purchase') || cleanName.toLowerCase().includes('conversion')) {
+    return 'HTML_PURCHASE_' + cleanName.substring(0, 20);
+  } else if (cleanName.toLowerCase().includes('facebook') || cleanName.toLowerCase().includes('fb')) {
+    return 'HTML_FB_' + cleanName.substring(0, 15);
+  } else if (cleanName.toLowerCase().includes('google') || cleanName.toLowerCase().includes('ga')) {
+    return 'HTML_GA_' + cleanName.substring(0, 15);
+  } else {
+    return 'HTML_' + cleanName.substring(0, 25);
+  }
 }
 
 export function fixNaming(item: GTMTag | GTMTrigger | GTMVariable, itemType: 'tag' | 'trigger' | 'variable'): void {
