@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { ConsentModeResult, getConsentMetricInfo } from '../services/consentModeService';
 import { InfoTooltip } from './ui/InfoTooltip';
 
@@ -13,6 +13,7 @@ export const ConsentModeCard: React.FC<ConsentModeCardProps> = ({
 }) => {
   const { consent_coverage, message } = consentResult;
   const metricInfo = getConsentMetricInfo(message.status);
+  const [isExpanded, setIsExpanded] = useState(false);
   
   // Calcola il numero totale di problemi
   const totalIssues = consent_coverage.missing + consent_coverage.not_configured;
@@ -85,7 +86,7 @@ export const ConsentModeCard: React.FC<ConsentModeCardProps> = ({
   
   return (
     <div className={`${cardStyle.bgColor} ${cardStyle.borderColor} border-2 rounded-xl p-6 shadow-md hover:shadow-lg transition-all duration-200 cursor-pointer`}
-         onClick={onAction}>
+         onClick={() => setIsExpanded(!isExpanded)}>
       
       {/* Header con icona e titolo */}
       <div className="flex items-center justify-between mb-4">
@@ -139,8 +140,8 @@ export const ConsentModeCard: React.FC<ConsentModeCardProps> = ({
         </div>
       </div>
       
-      {/* Dettagli dei problemi */}
-      {totalIssues > 0 && (
+      {/* Dettagli dei problemi - solo se espanso */}
+      {isExpanded && totalIssues > 0 && (
         <div className="mb-4">
           <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
             Problemi rilevati:
@@ -183,6 +184,13 @@ export const ConsentModeCard: React.FC<ConsentModeCardProps> = ({
         >
           {message.cta}
         </button>
+      </div>
+      
+      {/* Indicatore espansione */}
+      <div className="flex justify-center mt-2">
+        <span className="text-xs text-gray-500 dark:text-gray-400">
+          {isExpanded ? '🔼 Clicca per comprimere' : '🔽 Clicca per espandere'}
+        </span>
       </div>
       
       {/* Tooltip informativo */}

@@ -11,10 +11,12 @@
 // ============================================================================
 
 export const SCORE_WEIGHTS = {
-  tags: 0.30,
-  triggers: 0.30, 
-  variables: 0.25,
+  tags: 0.20,
+  triggers: 0.20, 
+  variables: 0.15,
   consent: 0.15, // 15% per consent mode
+  triggerQuality: 0.15, // 15% per trigger quality
+  variableQuality: 0.15, // 15% per variable quality
 };
 
 // ============================================================================
@@ -23,6 +25,8 @@ export const SCORE_WEIGHTS = {
 
 import { GenerateDocInput, GTMTag, GTMTrigger, GTMVariable } from "../types/gtm";
 import { analyzeConsentMode, ConsentModeResult } from "./consentModeService";
+import { analyzeTriggerQuality, TriggerQualityResult } from "./triggerQualityService";
+import { analyzeVariableQuality, VariableQualityResult } from "./variableQualityService";
 
 export interface GTMContainerVersion extends GenerateDocInput {
   // Estende GenerateDocInput per compatibilità
@@ -418,7 +422,7 @@ function calculateVariableQuality(cv: GTMContainerVersion) {
 
 function generateActionPlan(kpi: any) {
   const actions: Array<{
-    type: 'uaObsolete' | 'paused' | 'unused' | 'namingIssues' | 'doublePageView' | 'consentMode';
+    type: 'uaObsolete' | 'paused' | 'unused' | 'namingIssues' | 'doublePageView' | 'consentMode' | 'triggerQuality' | 'variableQuality';
     priority: number;
     count: number;
     action: string;
@@ -448,10 +452,32 @@ function generateActionPlan(kpi: any) {
     });
   }
   
+  if (kpi.triggerQuality > 0) {
+    actions.push({
+      type: 'triggerQuality',
+      priority: 2, // Priorità alta per performance
+      count: kpi.triggerQuality,
+      action: 'Ottimizza Trigger',
+      description: 'Trigger con problemi di configurazione - impatto performance',
+      impact: 6 // +6% per ottimizzazione trigger
+    });
+  }
+  
+  if (kpi.variableQuality > 0) {
+    actions.push({
+      type: 'variableQuality',
+      priority: 2.5, // Priorità alta per affidabilità
+      count: kpi.variableQuality,
+      action: 'Ottimizza Variabili',
+      description: 'Variabili con problemi di configurazione - impatto affidabilità',
+      impact: 5 // +5% per ottimizzazione variabili
+    });
+  }
+  
   if (kpi.uaObsolete > 0) {
     actions.push({
       type: 'uaObsolete',
-      priority: 2,
+      priority: 3,
       count: kpi.uaObsolete,
       action: 'Migra a GA4',
       description: 'UA è obsoleto, serve migrare a GA4',
@@ -462,7 +488,7 @@ function generateActionPlan(kpi: any) {
   if (kpi.paused > 0) {
     actions.push({
       type: 'paused',
-      priority: 3,
+      priority: 4,
       count: kpi.paused,
       action: 'Valuta rimozione',
       description: 'Tag in pausa appesantiscono il container',
@@ -473,7 +499,7 @@ function generateActionPlan(kpi: any) {
   if (kpi.unused.total > 0) {
     actions.push({
       type: 'unused',
-      priority: 4,
+      priority: 5,
       count: kpi.unused.total,
       action: 'Elimina elementi',
       description: 'Elementi non utilizzati creano rumore',
@@ -484,7 +510,7 @@ function generateActionPlan(kpi: any) {
   if (kpi.namingIssues.total > 0) {
     actions.push({
       type: 'namingIssues',
-      priority: 5,
+      priority: 6,
       count: kpi.namingIssues.total,
       action: 'Standardizza nomi',
       description: 'Nomi incoerenti complicano la manutenzione',
@@ -551,6 +577,8 @@ export type GtmMetrics = {
       action: string;
     };
     consentMode: ConsentModeResult;
+    triggerQuality: TriggerQualityResult;
+    variableQuality: VariableQualityResult;
   };
   counts: { tags: number; triggers: number; variables: number };
   distribution: { 
@@ -561,7 +589,7 @@ export type GtmMetrics = {
     other: number;
     chartData: Array<{ family: string; count: number }>;
   };
-  quality: { tags: number; triggers: number; variables: number; consent: number }; // 0–100
+  quality: { tags: number; triggers: number; variables: number; consent: number; triggerQuality: number; variableQuality: number }; // 0–100
   score: {
     total: number;
     breakdown: Array<{
@@ -572,7 +600,7 @@ export type GtmMetrics = {
     }>;
   };
   actionPlan: Array<{
-    type: 'uaObsolete' | 'paused' | 'unused' | 'namingIssues' | 'doublePageView' | 'consentMode';
+    type: 'uaObsolete' | 'paused' | 'unused' | 'namingIssues' | 'doublePageView' | 'consentMode' | 'triggerQuality' | 'variableQuality';
     priority: number;
     count: number;
     action: string;
@@ -608,12 +636,16 @@ export function calculateGtmMetrics(cv: GTMContainerVersion): GtmMetrics {
     const namingIssues = calculateNamingIssues(cv);
     const doublePageView = calculateDoublePageView(cv);
     const consentMode = analyzeConsentMode(cv);
+    const triggerQualityAnalysis = analyzeTriggerQuality(cv);
+    const variableQualityAnalysis = analyzeVariableQuality(cv);
     const counts = calculateCounts(cv);
     const distribution = calculateDistribution(cv);
     const tagQuality = calculateTagQuality(cv);
     const triggerQuality = calculateTriggerQuality(cv);
     const variableQuality = calculateVariableQuality(cv);
     const consentQuality = Math.round(consentMode.consent_coverage.score * 100);
+    const triggerQualityScore = Math.round(triggerQualityAnalysis.trigger_quality.score * 100);
+    const variableQualityScore = Math.round(variableQualityAnalysis.variable_quality.score * 100);
     
     // Genera piano d'azione
     const actionPlan = generateActionPlan({
@@ -622,7 +654,9 @@ export function calculateGtmMetrics(cv: GTMContainerVersion): GtmMetrics {
       unused: unused,
       namingIssues: namingIssues,
       doublePageView: doublePageView.isDoublePageView,
-      consentMode: consentMode.consent_coverage.missing + consentMode.consent_coverage.not_configured
+      consentMode: consentMode.consent_coverage.missing + consentMode.consent_coverage.not_configured,
+      triggerQuality: triggerQualityAnalysis.trigger_quality.issues.filter(issue => issue.severity === 'major' || issue.severity === 'critical').length,
+      variableQuality: variableQualityAnalysis.variable_quality.issues.filter(issue => issue.severity === 'major' || issue.severity === 'critical').length
     });
     
     // Calcola percentuali per UX
@@ -638,7 +672,9 @@ export function calculateGtmMetrics(cv: GTMContainerVersion): GtmMetrics {
       tags: tagQuality.score,
       triggers: triggerQuality.score,
       variables: variableQuality.score,
-      consent: consentQuality
+      consent: consentQuality,
+      triggerQuality: triggerQualityScore,
+      variableQuality: variableQualityScore
     });
 
     const metrics: GtmMetrics = {
@@ -658,7 +694,9 @@ export function calculateGtmMetrics(cv: GTMContainerVersion): GtmMetrics {
           variables: namingIssues.variables
         },
         doublePageView,
-        consentMode
+        consentMode,
+        triggerQuality: triggerQualityAnalysis,
+        variableQuality: variableQualityAnalysis
       },
       counts,
       distribution: {
@@ -669,7 +707,9 @@ export function calculateGtmMetrics(cv: GTMContainerVersion): GtmMetrics {
         tags: tagQuality.score,
         triggers: triggerQuality.score,
         variables: variableQuality.score,
-        consent: consentQuality
+        consent: consentQuality,
+        triggerQuality: triggerQualityScore,
+        variableQuality: variableQualityScore
       },
       score,
       actionPlan,
@@ -703,7 +743,7 @@ export function calculateGtmMetrics(cv: GTMContainerVersion): GtmMetrics {
 // 10. CALCOLO SCORE TRASPARENTE E STIMA IMPATTO
 // ============================================================================
 
-function calculateTransparentScore(quality: { tags: number; triggers: number; variables: number; consent: number }) {
+function calculateTransparentScore(quality: { tags: number; triggers: number; variables: number; consent: number; triggerQuality: number; variableQuality: number }) {
   const breakdown = [
     {
       label: 'Pulizia tag',
@@ -728,6 +768,18 @@ function calculateTransparentScore(quality: { tags: number; triggers: number; va
       value: quality.consent,
       weight: SCORE_WEIGHTS.consent,
       percentage: Math.round(quality.consent * SCORE_WEIGHTS.consent)
+    },
+    {
+      label: 'Configurazione Trigger',
+      value: quality.triggerQuality,
+      weight: SCORE_WEIGHTS.triggerQuality,
+      percentage: Math.round(quality.triggerQuality * SCORE_WEIGHTS.triggerQuality)
+    },
+    {
+      label: 'Qualità Variabili',
+      value: quality.variableQuality,
+      weight: SCORE_WEIGHTS.variableQuality,
+      percentage: Math.round(quality.variableQuality * SCORE_WEIGHTS.variableQuality)
     }
   ];
   
@@ -735,7 +787,9 @@ function calculateTransparentScore(quality: { tags: number; triggers: number; va
     quality.tags * SCORE_WEIGHTS.tags +
     quality.triggers * SCORE_WEIGHTS.triggers +
     quality.variables * SCORE_WEIGHTS.variables +
-    quality.consent * SCORE_WEIGHTS.consent
+    quality.consent * SCORE_WEIGHTS.consent +
+    quality.triggerQuality * SCORE_WEIGHTS.triggerQuality +
+    quality.variableQuality * SCORE_WEIGHTS.variableQuality
   );
   
   return { total, breakdown };
@@ -848,6 +902,28 @@ export function getMetricInfo(type: string) {
       priorityColor: "bg-red-100 text-red-800",
       color: "bg-red-50 dark:bg-red-900/20",
       textColor: "text-red-600 dark:text-red-400"
+    },
+    triggerQuality: {
+      icon: "⚡",
+      title: "Qualità Trigger",
+      subtitle: "Trigger con problemi di configurazione",
+      impact: "Trigger mal configurati possono causare problemi di performance e tracking.",
+      risk: "Rischio: tracking non affidabile, performance degradate.",
+      priority: "Maggiore",
+      priorityColor: "bg-orange-100 text-orange-800",
+      color: "bg-orange-50 dark:bg-orange-900/20",
+      textColor: "text-orange-600 dark:text-orange-400"
+    },
+    variableQuality: {
+      icon: "🧩",
+      title: "Qualità Variabili",
+      subtitle: "Variabili con problemi di configurazione",
+      impact: "Variabili mal configurate possono causare errori di tracking e performance.",
+      risk: "Rischio: tracking non affidabile, errori JavaScript.",
+      priority: "Maggiore",
+      priorityColor: "bg-orange-100 text-orange-800",
+      color: "bg-orange-50 dark:bg-orange-900/20",
+      textColor: "text-orange-600 dark:text-orange-400"
     }
   };
   
@@ -888,6 +964,14 @@ export function getQualityInfo(type: string) {
     consent: {
       description: "% di tag marketing con consensi configurati correttamente.",
       icon: "🔒"
+    },
+    triggerQuality: {
+      description: "% di trigger configurati in modo ottimale (specificità, timing, blocking).",
+      icon: "⚡"
+    },
+    variableQuality: {
+      description: "% di variabili configurate in modo ottimale (DLV, regex, selettori, JS, lookup).",
+      icon: "🧩"
     }
   };
   return qualityInfo[type as keyof typeof qualityInfo];

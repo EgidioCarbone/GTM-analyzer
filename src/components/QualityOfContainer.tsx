@@ -2,6 +2,8 @@ import React from 'react';
 import { QualityAccordion } from './QualityAccordion';
 import { IssueCard } from './IssueCard';
 import { ConsentModeCard } from './ConsentModeCard';
+import { TriggerQualityCard } from './TriggerQualityCard';
+import { VariableQualityCard } from './VariableQualityCard';
 import { GtmMetrics } from '../services/gtm-metrics';
 import { getMetricInfo } from '../services/gtm-metrics';
 
@@ -54,26 +56,36 @@ export const QualityOfContainer: React.FC<QualityOfContainerProps> = ({
       priority: 2 // Critico per compliance
     },
     { 
+      type: 'triggerQuality' as const, 
+      count: gtmMetrics.kpi.triggerQuality.trigger_quality.issues.filter(issue => issue.severity === 'major' || issue.severity === 'critical').length,
+      priority: 3 // Maggiore per performance
+    },
+    { 
+      type: 'variableQuality' as const, 
+      count: gtmMetrics.kpi.variableQuality.variable_quality.issues.filter(issue => issue.severity === 'major' || issue.severity === 'critical').length,
+      priority: 3.5 // Maggiore per affidabilità
+    },
+    { 
       type: 'uaObsolete' as const, 
       count: gtmMetrics.kpi.uaObsolete,
-      priority: 3 // Critico
+      priority: 4 // Critico
     },
     { 
       type: 'unused' as const, 
       count: gtmMetrics.kpi.unused.total,
-      priority: 4 // Alto
+      priority: 5 // Alto
     },
     { 
       type: 'paused' as const, 
       count: gtmMetrics.kpi.paused,
-      priority: 5 // Alto
+      priority: 6 // Alto
     },
     { 
       type: 'namingIssues' as const, 
       count: gtmMetrics.kpi.namingIssues.total,
-      priority: 6 // Basso
+      priority: 7 // Basso
     }
-  ].filter((metric): metric is { type: 'doublePageView' | 'consentMode' | 'paused' | 'unused' | 'uaObsolete' | 'namingIssues'; count: number; priority: number } => {
+  ].filter((metric): metric is { type: 'doublePageView' | 'consentMode' | 'triggerQuality' | 'variableQuality' | 'paused' | 'unused' | 'uaObsolete' | 'namingIssues'; count: number; priority: number } => {
     // Ensure metric is valid
     if (!metric || typeof metric !== 'object' || typeof metric.type !== 'string' || metric.count == null) {
       console.warn('⚠️ Invalid metric:', metric);
@@ -179,7 +191,7 @@ export const QualityOfContainer: React.FC<QualityOfContainerProps> = ({
 
           // Determina la CTA label con verbi più forti e azioni chiare
           let ctaLabel = '';
-          let defaultExpanded = false; // Tutte le card partono collapsed
+          let defaultExpanded = false; // Tutte le card partono collapsed per risparmiare spazio
           
           switch (metric.type) {
             case 'doublePageView':
@@ -187,6 +199,12 @@ export const QualityOfContainer: React.FC<QualityOfContainerProps> = ({
               break;
             case 'consentMode':
               ctaLabel = '🔒 Rivedi impostazioni Consent';
+              break;
+            case 'triggerQuality':
+              ctaLabel = '⚡ Ottimizza Trigger';
+              break;
+            case 'variableQuality':
+              ctaLabel = '🧩 Ottimizza Variabili';
               break;
             case 'uaObsolete':
               ctaLabel = '📜 Vedi lista UA obsoleti';
@@ -208,6 +226,28 @@ export const QualityOfContainer: React.FC<QualityOfContainerProps> = ({
               <ConsentModeCard
                 key={metric.type}
                 consentResult={gtmMetrics.kpi.consentMode}
+                onAction={() => onMetricAction(metric.type)}
+              />
+            );
+          }
+
+          // Special handling for trigger quality card
+          if (metric.type === 'triggerQuality') {
+            return (
+              <TriggerQualityCard
+                key={metric.type}
+                triggerResult={gtmMetrics.kpi.triggerQuality}
+                onAction={() => onMetricAction(metric.type)}
+              />
+            );
+          }
+
+          // Special handling for variable quality card
+          if (metric.type === 'variableQuality') {
+            return (
+              <VariableQualityCard
+                key={metric.type}
+                variableResult={gtmMetrics.kpi.variableQuality}
                 onAction={() => onMetricAction(metric.type)}
               />
             );
