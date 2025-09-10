@@ -218,6 +218,55 @@ export default function ChecklistPage() {
               </p>
             </div>
 
+            {/* Score Overview */}
+            <div className="rounded-xl bg-white/60 p-6 shadow-inner backdrop-blur-md dark:bg-gray-900/40">
+              <h3 className="mb-4 text-lg font-medium">📊 Punteggi Generali</h3>
+              <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
+                Questi punteggi indicano la qualità complessiva del tuo sito web
+              </p>
+              <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+                <div className="text-center p-4 bg-gradient-to-br from-fuchsia-50 to-pink-50 dark:from-fuchsia-900/20 dark:to-pink-900/20 rounded-lg">
+                  <div className="text-3xl font-bold text-fuchsia-600 mb-2">
+                    {result.overallScore || 0}/100
+                  </div>
+                  <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Punteggio Generale</div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400">
+                    {result.overallScore >= 90 ? 'Eccellente' : 
+                     result.overallScore >= 80 ? 'Molto Buono' : 
+                     result.overallScore >= 70 ? 'Buono' : 
+                     result.overallScore >= 60 ? 'Sufficiente' : 'Da Migliorare'}
+                  </div>
+                </div>
+                <div className="text-center p-4 bg-gradient-to-br from-blue-50 to-cyan-50 dark:from-blue-900/20 dark:to-cyan-900/20 rounded-lg">
+                  <div className="text-3xl font-bold text-blue-600 mb-2">
+                    {result.performanceScore || 0}/100
+                  </div>
+                  <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Performance</div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400">
+                    Velocità e ottimizzazione
+                  </div>
+                </div>
+                <div className="text-center p-4 bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 rounded-lg">
+                  <div className="text-3xl font-bold text-green-600 mb-2">
+                    {result.accessibilityScore || 0}/100
+                  </div>
+                  <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Accessibilità</div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400">
+                    Usabilità per tutti
+                  </div>
+                </div>
+                <div className="text-center p-4 bg-gradient-to-br from-orange-50 to-amber-50 dark:from-orange-900/20 dark:to-amber-900/20 rounded-lg">
+                  <div className="text-3xl font-bold text-orange-600 mb-2">
+                    {result.seoScore || 0}/100
+                  </div>
+                  <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">SEO</div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400">
+                    Ottimizzazione motori di ricerca
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {Object.entries(result.checks).map(([key, ok]) => (
                 <motion.div
@@ -243,6 +292,314 @@ export default function ChecklistPage() {
                 </motion.div>
               ))}
             </div>
+
+            {/* Performance Metrics */}
+            {result.extra?.performanceMetrics && (
+              <div className="rounded-xl bg-white/60 p-6 shadow-inner backdrop-blur-md dark:bg-gray-900/40">
+                <h3 className="mb-4 text-lg font-medium">📊 Metriche di Performance</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {/* Core Web Vitals */}
+                  <div className="space-y-3">
+                    <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2">
+                      🚀 Core Web Vitals
+                    </h4>
+                    {result.extra.performanceMetrics.lcp && (
+                      <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm text-gray-600 dark:text-gray-300">Largest Contentful Paint</span>
+                          <span className={`text-lg font-bold ${
+                            result.extra.performanceMetrics.lcp < 2500 ? 'text-green-600' : 
+                            result.extra.performanceMetrics.lcp < 4000 ? 'text-yellow-600' : 'text-red-600'
+                          }`}>
+                            {(result.extra.performanceMetrics.lcp / 1000).toFixed(1)}s
+                          </span>
+                        </div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          Tempo di caricamento del contenuto principale
+                        </div>
+                      </div>
+                    )}
+                    {result.extra.performanceMetrics.fid && (
+                      <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm text-gray-600 dark:text-gray-300">First Input Delay</span>
+                          <span className={`text-lg font-bold ${
+                            result.extra.performanceMetrics.fid < 100 ? 'text-green-600' : 
+                            result.extra.performanceMetrics.fid < 300 ? 'text-yellow-600' : 'text-red-600'
+                          }`}>
+                            {result.extra.performanceMetrics.fid.toFixed(0)}ms
+                          </span>
+                        </div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          Tempo di risposta al primo click
+                        </div>
+                      </div>
+                    )}
+                    {result.extra.performanceMetrics.cls && (
+                      <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm text-gray-600 dark:text-gray-300">Cumulative Layout Shift</span>
+                          <span className={`text-lg font-bold ${
+                            result.extra.performanceMetrics.cls < 0.1 ? 'text-green-600' : 
+                            result.extra.performanceMetrics.cls < 0.25 ? 'text-yellow-600' : 'text-red-600'
+                          }`}>
+                            {result.extra.performanceMetrics.cls.toFixed(3)}
+                          </span>
+                        </div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          Stabilità visiva della pagina
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Tempi di Caricamento */}
+                  <div className="space-y-3">
+                    <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2">
+                      ⏱️ Tempi di Caricamento
+                    </h4>
+                    {result.extra.performanceMetrics.fcp && (
+                      <div className="p-3 bg-green-50 dark:bg-green-900/20 rounded-lg">
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm text-gray-600 dark:text-gray-300">First Contentful Paint</span>
+                          <span className={`text-lg font-bold ${
+                            result.extra.performanceMetrics.fcp < 1800 ? 'text-green-600' : 
+                            result.extra.performanceMetrics.fcp < 3000 ? 'text-yellow-600' : 'text-red-600'
+                          }`}>
+                            {(result.extra.performanceMetrics.fcp / 1000).toFixed(1)}s
+                          </span>
+                        </div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          Primo contenuto visibile
+                        </div>
+                      </div>
+                    )}
+                    {result.extra.performanceMetrics.ttfb && (
+                      <div className="p-3 bg-green-50 dark:bg-green-900/20 rounded-lg">
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm text-gray-600 dark:text-gray-300">Time to First Byte</span>
+                          <span className={`text-lg font-bold ${
+                            result.extra.performanceMetrics.ttfb < 600 ? 'text-green-600' : 
+                            result.extra.performanceMetrics.ttfb < 1500 ? 'text-yellow-600' : 'text-red-600'
+                          }`}>
+                            {result.extra.performanceMetrics.ttfb.toFixed(0)}ms
+                          </span>
+                        </div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          Tempo di risposta del server
+                        </div>
+                      </div>
+                    )}
+                    {result.extra.performanceMetrics.speedIndex && (
+                      <div className="p-3 bg-green-50 dark:bg-green-900/20 rounded-lg">
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm text-gray-600 dark:text-gray-300">Speed Index</span>
+                          <span className={`text-lg font-bold ${
+                            result.extra.performanceMetrics.speedIndex < 3400 ? 'text-green-600' : 
+                            result.extra.performanceMetrics.speedIndex < 5800 ? 'text-yellow-600' : 'text-red-600'
+                          }`}>
+                            {(result.extra.performanceMetrics.speedIndex / 1000).toFixed(1)}s
+                          </span>
+                        </div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          Velocità di caricamento percepita
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Utilizzo Risorse */}
+                  <div className="space-y-3">
+                    <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2">
+                      💾 Utilizzo Risorse
+                    </h4>
+                    {result.extra.performanceMetrics.jsHeapUsedSize && (
+                      <div className="p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm text-gray-600 dark:text-gray-300">Memoria JavaScript</span>
+                          <span className="text-lg font-bold text-purple-600">
+                            {(result.extra.performanceMetrics.jsHeapUsedSize / 1024 / 1024).toFixed(1)}MB
+                          </span>
+                        </div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          Memoria utilizzata dal browser
+                        </div>
+                      </div>
+                    )}
+                    {result.extra.performanceMetrics.nodes && (
+                      <div className="p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm text-gray-600 dark:text-gray-300">Elementi DOM</span>
+                          <span className="text-lg font-bold text-purple-600">
+                            {result.extra.performanceMetrics.nodes.toLocaleString()}
+                          </span>
+                        </div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          Elementi nella pagina
+                        </div>
+                      </div>
+                    )}
+                    {result.extra.performanceMetrics.layoutCount && (
+                      <div className="p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm text-gray-600 dark:text-gray-300">Ricalcoli Layout</span>
+                          <span className={`text-lg font-bold ${
+                            result.extra.performanceMetrics.layoutCount < 10 ? 'text-green-600' : 
+                            result.extra.performanceMetrics.layoutCount < 30 ? 'text-yellow-600' : 'text-red-600'
+                          }`}>
+                            {result.extra.performanceMetrics.layoutCount}
+                          </span>
+                        </div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          Ricalcoli di posizionamento
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Interactive Test Results */}
+            {result.extra?.interactiveTestResults && (
+              <div className="rounded-xl bg-white/60 p-6 shadow-inner backdrop-blur-md dark:bg-gray-900/40">
+                <h3 className="mb-4 text-lg font-medium">🧪 Test Interattivi</h3>
+                <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
+                  Questi test verificano automaticamente il funzionamento del sistema di consenso cookie
+                </p>
+                <div className="space-y-4">
+                  {result.extra.interactiveTestResults.acceptAllTest && (
+                    <div className="p-4 bg-gray-50/60 dark:bg-gray-800/40 rounded-lg">
+                      <div className="flex items-center justify-between mb-3">
+                        <h4 className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                          ✅ Test "Accetta Tutti"
+                        </h4>
+                        <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                          result.extra.interactiveTestResults.acceptAllTest.passed 
+                            ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                            : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
+                        }`}>
+                          {result.extra.interactiveTestResults.acceptAllTest.passed ? 'SUPERATO' : 'FALLITO'}
+                        </span>
+                      </div>
+                      <div className="space-y-2 text-xs text-gray-600 dark:text-gray-300">
+                        <div className="flex items-center gap-2">
+                          <span className={`w-2 h-2 rounded-full ${
+                            result.extra.interactiveTestResults.acceptAllTest.consentUpdated ? 'bg-green-500' : 'bg-red-500'
+                          }`}></span>
+                          <span>Consenso aggiornato: {result.extra.interactiveTestResults.acceptAllTest.consentUpdated ? 'Sì' : 'No'}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className={`w-2 h-2 rounded-full ${
+                            result.extra.interactiveTestResults.acceptAllTest.marketingTagsFired ? 'bg-green-500' : 'bg-red-500'
+                          }`}></span>
+                          <span>Tag marketing attivati: {result.extra.interactiveTestResults.acceptAllTest.marketingTagsFired ? 'Sì' : 'No'}</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {result.extra.interactiveTestResults.rejectAllTest && (
+                    <div className="p-4 bg-gray-50/60 dark:bg-gray-800/40 rounded-lg">
+                      <div className="flex items-center justify-between mb-3">
+                        <h4 className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                          ❌ Test "Rifiuta Tutti"
+                        </h4>
+                        <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                          result.extra.interactiveTestResults.rejectAllTest.passed 
+                            ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                            : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
+                        }`}>
+                          {result.extra.interactiveTestResults.rejectAllTest.passed ? 'SUPERATO' : 'FALLITO'}
+                        </span>
+                      </div>
+                      <div className="space-y-2 text-xs text-gray-600 dark:text-gray-300">
+                        <div className="flex items-center gap-2">
+                          <span className={`w-2 h-2 rounded-full ${
+                            result.extra.interactiveTestResults.rejectAllTest.marketingTagsBlocked ? 'bg-green-500' : 'bg-red-500'
+                          }`}></span>
+                          <span>Tag marketing bloccati: {result.extra.interactiveTestResults.rejectAllTest.marketingTagsBlocked ? 'Sì' : 'No'}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className={`w-2 h-2 rounded-full ${
+                            result.extra.interactiveTestResults.rejectAllTest.consentDenied ? 'bg-green-500' : 'bg-red-500'
+                          }`}></span>
+                          <span>Consenso negato: {result.extra.interactiveTestResults.rejectAllTest.consentDenied ? 'Sì' : 'No'}</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {result.extra.interactiveTestResults.navigationTest && (
+                    <div className="p-4 bg-gray-50/60 dark:bg-gray-800/40 rounded-lg">
+                      <div className="flex items-center justify-between mb-3">
+                        <h4 className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                          🔄 Test Navigazione
+                        </h4>
+                        <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                          result.extra.interactiveTestResults.navigationTest.passed 
+                            ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                            : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
+                        }`}>
+                          {result.extra.interactiveTestResults.navigationTest.passed ? 'SUPERATO' : 'FALLITO'}
+                        </span>
+                      </div>
+                      <div className="space-y-2 text-xs text-gray-600 dark:text-gray-300">
+                        <div className="flex items-center gap-2">
+                          <span className={`w-2 h-2 rounded-full ${
+                            result.extra.interactiveTestResults.navigationTest.gtmLoaded ? 'bg-green-500' : 'bg-red-500'
+                          }`}></span>
+                          <span>GTM caricato: {result.extra.interactiveTestResults.navigationTest.gtmLoaded ? 'Sì' : 'No'}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className={`w-2 h-2 rounded-full ${
+                            result.extra.interactiveTestResults.navigationTest.consentPersisted ? 'bg-green-500' : 'bg-red-500'
+                          }`}></span>
+                          <span>Consenso persistente: {result.extra.interactiveTestResults.navigationTest.consentPersisted ? 'Sì' : 'No'}</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Debug Section - Temporary */}
+            <div className="rounded-xl bg-yellow-50 dark:bg-yellow-900/20 p-6 shadow-inner backdrop-blur-md">
+              <h3 className="mb-4 text-lg font-medium text-yellow-800 dark:text-yellow-200">🔍 Debug Info</h3>
+              <div className="text-sm text-yellow-700 dark:text-yellow-300">
+                <p><strong>Performance Metrics:</strong> {result.extra?.performanceMetrics ? 'Presente' : 'Assente'}</p>
+                <p><strong>Interactive Tests:</strong> {result.extra?.interactiveTestResults ? 'Presente' : 'Assente'}</p>
+                <p><strong>Screenshots:</strong> {result.extra?.screenshots ? `${result.extra.screenshots.length} immagini` : 'Assente'}</p>
+                <details className="mt-2">
+                  <summary className="cursor-pointer font-medium">Mostra dati extra completi</summary>
+                  <pre className="mt-2 p-2 bg-yellow-100 dark:bg-yellow-800/40 rounded text-xs overflow-auto">
+                    {JSON.stringify(result.extra, null, 2)}
+                  </pre>
+                </details>
+              </div>
+            </div>
+
+            {/* Screenshots */}
+            {result.extra?.screenshots && result.extra.screenshots.length > 0 && (
+              <div className="rounded-xl bg-white/60 p-6 shadow-inner backdrop-blur-md dark:bg-gray-900/40">
+                <h3 className="mb-4 text-lg font-medium">Screenshots</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {result.extra.screenshots.map((screenshot, index) => (
+                    <div key={index} className="text-center">
+                      <img
+                        src={`data:image/png;base64,${screenshot}`}
+                        alt={`Screenshot ${index + 1}`}
+                        className="w-full h-32 object-cover rounded-lg border border-gray-300 dark:border-gray-600"
+                      />
+                      <p className="text-xs text-gray-600 dark:text-gray-300 mt-2">
+                        Screenshot {index + 1}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Diagnosi IA */}
             <div className="rounded-xl bg-white/60 p-6 shadow-inner backdrop-blur-md dark:bg-gray-900/40">

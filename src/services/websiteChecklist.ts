@@ -5,13 +5,14 @@ import type {
   WebsiteChecklistResult,
   WebsiteChecklistChecks,
 } from "../types/websiteChecklist";
+import { cacheService } from "./cacheService";
 
 const openai = new OpenAI({
   apiKey: import.meta.env.VITE_OPENAI_API_KEY, // ✅ Vite env, non process.env
   dangerouslyAllowBrowser: true,
 });
 
-/** Puppeteer backend */
+/** Puppeteer backend con analisi multi-step */
 async function fetchWebsiteData(url: string): Promise<{
   html: string;
   dataLayer: any[];
@@ -19,9 +20,14 @@ async function fetchWebsiteData(url: string): Promise<{
   consentModeCalls: any[];
   gtmIds: string[];
   cookieBannerLibs: string[];
+  performanceMetrics: any;
+  accessibilityScore: number;
+  seoScore: number;
+  interactiveTestResults: any;
+  screenshots: string[];
 }> {
   const res = await fetch(
-    `http://localhost:4001/api/fetchHtmlPuppeteer?url=${encodeURIComponent(url)}`
+    `http://localhost:4001/api/fetchHtmlPuppeteer?url=${encodeURIComponent(url)}&multiStep=true`
   );
 
   if (!res.ok) throw new Error(`Errore da Puppeteer: ${res.status}`);
@@ -39,6 +45,11 @@ async function fetchWebsiteData(url: string): Promise<{
     consentModeCalls: json.consentModeCalls || [],
     gtmIds: json.gtmIds || [],
     cookieBannerLibs: json.cookieBannerLibs || [],
+    performanceMetrics: json.performanceMetrics || {},
+    accessibilityScore: json.accessibilityScore || 0,
+    seoScore: json.seoScore || 0,
+    interactiveTestResults: json.interactiveTestResults || {},
+    screenshots: json.screenshots || [],
   };
 }
 
@@ -126,6 +137,39 @@ function buildFallbackObservations(params: {
   });
 
   return obs;
+}
+
+/** Calcola il performance score basato sulle metriche Core Web Vitals */
+function calculatePerformanceScore(metrics: any): number {
+  if (!metrics || typeof metrics !== 'object') return 0;
+
+  let score = 100;
+  
+  // LCP (Largest Contentful Paint) - Good: <2.5s, Needs Improvement: 2.5-4s, Poor: >4s
+  if (metrics.lcp) {
+    if (metrics.lcp > 4000) score -= 30;
+    else if (metrics.lcp > 2500) score -= 15;
+  }
+  
+  // FID (First Input Delay) - Good: <100ms, Needs Improvement: 100-300ms, Poor: >300ms
+  if (metrics.fid) {
+    if (metrics.fid > 300) score -= 25;
+    else if (metrics.fid > 100) score -= 10;
+  }
+  
+  // CLS (Cumulative Layout Shift) - Good: <0.1, Needs Improvement: 0.1-0.25, Poor: >0.25
+  if (metrics.cls) {
+    if (metrics.cls > 0.25) score -= 25;
+    else if (metrics.cls > 0.1) score -= 10;
+  }
+  
+  // FCP (First Contentful Paint) - Good: <1.8s, Needs Improvement: 1.8-3s, Poor: >3s
+  if (metrics.fcp) {
+    if (metrics.fcp > 3000) score -= 20;
+    else if (metrics.fcp > 1800) score -= 10;
+  }
+  
+  return Math.max(0, Math.min(100, score));
 }
 
 /** Fallback: suggerisci prossimi test interattivi */
@@ -251,6 +295,15 @@ function renderReportFromJson(a: any): string {
 export async function runWebsiteChecklist(
   url: string
 ): Promise<WebsiteChecklistResult> {
+  // Check cache first
+  const cacheKey = cacheService.generateUrlKey(url);
+  const cachedResult = cacheService.get(cacheKey);
+  
+  if (cachedResult) {
+    console.log('Returning cached result for:', url);
+    return cachedResult;
+  }
+
   const {
     html,
     dataLayer,
@@ -258,13 +311,65 @@ export async function runWebsiteChecklist(
     consentModeCalls,
     gtmIds,
     cookieBannerLibs,
+    performanceMetrics = {},
+    accessibilityScore = 0,
+    seoScore = 0,
+    interactiveTestResults = {},
+    screenshots = [],
   } = await fetchWebsiteData(url);
 
   // Estrazioni locali aggiuntive
   const consentCallsFoundInHtml = extractConsentCallsFromHtml(html);
   const dataLayerSummary = summarizeDataLayer(dataLayer);
 
-  // Check booleani per la “griglia”
+  // Calcola score complessivi
+  const performanceScore = calculatePerformanceScore(performanceMetrics);
+  const overallScore = Math.round((performanceScore + accessibilityScore + seoScore) / 3);
+
+  // Aggiungi dati di fallback se mancanti
+  const enhancedPerformanceMetrics = {
+    lcp: performanceMetrics.lcp || 0,
+    fid: performanceMetrics.fid || 0,
+    cls: performanceMetrics.cls || 0,
+    fcp: performanceMetrics.fcp || 0,
+    ttfb: performanceMetrics.ttfb || 0,
+    speedIndex: performanceMetrics.speedIndex || 0,
+    totalBlockingTime: performanceMetrics.totalBlockingTime || 0,
+    nodes: performanceMetrics.nodes || 0,
+    layoutCount: performanceMetrics.layoutCount || 0,
+    recalcStyleCount: performanceMetrics.recalcStyleCount || 0,
+    layoutDuration: performanceMetrics.layoutDuration || 0,
+    recalcStyleDuration: performanceMetrics.recalcStyleDuration || 0,
+    scriptDuration: performanceMetrics.scriptDuration || 0,
+    taskDuration: performanceMetrics.taskDuration || 0,
+    jsHeapUsedSize: performanceMetrics.jsHeapUsedSize || 0,
+    jsHeapTotalSize: performanceMetrics.jsHeapTotalSize || 0,
+    ...performanceMetrics
+  };
+
+  // Aggiungi dati di fallback per i test interattivi
+  const enhancedInteractiveTestResults = {
+    acceptAllTest: {
+      passed: false,
+      consentUpdated: false,
+      marketingTagsFired: false,
+      dataLayerEvents: []
+    },
+    rejectAllTest: {
+      passed: false,
+      marketingTagsBlocked: false,
+      consentDenied: false,
+      dataLayerEvents: []
+    },
+    navigationTest: {
+      passed: false,
+      consentPersisted: false,
+      gtmLoaded: false
+    },
+    ...interactiveTestResults
+  };
+
+  // Check booleani per la "griglia"
   const checks: WebsiteChecklistChecks = {
     "script gtm presente":
       /(googletagmanager\.com\/(gtm|gtag)\.js|GTM-[\w-]{6,10}|ns\.html\?id=GTM)/i.test(
@@ -276,13 +381,18 @@ export async function runWebsiteChecklist(
     "csp blocca gtm":
       /content-security-policy/i.test(html) && !/googletagmanager/i.test(html),
     "cookie banner visibile": cookieBannerLibs.length > 0,
+    "performance ottimale": performanceScore >= 80,
+    "accessibility buona": accessibilityScore >= 80,
+    "seo ottimizzato": seoScore >= 80,
+    "consenso funzionante": interactiveTestResults?.acceptAllTest?.passed && interactiveTestResults?.rejectAllTest?.passed,
+    "test interattivi passati": interactiveTestResults?.navigationTest?.passed,
   };
 
   // Tronchiamo per non esplodere i token
   const htmlExcerpt = html.slice(0, 3000);
   const dataLayerExcerpt = JSON.stringify(dataLayer.slice(0, 5), null, 2);
 
-  // 🔐 Prompt “strict & JSON”: niente falsi positivi sullo snapshot iniziale
+  // 🧠 Prompt AI migliorato per analisi più intelligente e completa
   const prompt = `
 Analizza i seguenti dati raccolti dall'URL: ${url}
 
@@ -303,21 +413,36 @@ ${dataLayerExcerpt}
 ${htmlExcerpt}
 \`\`\`
 
+🚀 METRICHE PERFORMANCE:
+${JSON.stringify(performanceMetrics, null, 2)}
+
+♿ ACCESSIBILITY SCORE: ${accessibilityScore}/100
+🔍 SEO SCORE: ${seoScore}/100
+
+🧪 RISULTATI TEST INTERATTIVI:
+${JSON.stringify(interactiveTestResults, null, 2)}
+
 REGOLE FERREE (non infrangerle):
 - Snapshot PRE-interazione: è NORMALE non vedere aggiornamenti di consenso. NON è una criticità.
 - Segna una criticità SOLO se puoi incollare un ESTRATTO TESTUALE (≤150 caratteri) preso dai dati forniti che la prova.
-- Se l’unica “prova” è che qualcosa NON si vede nello snapshot, NON è una criticità: spostala in "non_verificabile_snapshot_iniziale".
+- Se l'unica "prova" è che qualcosa NON si vede nello snapshot, NON è una criticità: spostala in "non_verificabile_snapshot_iniziale".
 - Niente assunzioni o deduzioni per assenza: usa SOLO i dati forniti.
 
 CRITERI AMMESSI DI VIOLAZIONE (servono prove dirette):
-- Tracciamenti prima del consenso (es. cookie non essenziali impostati, chiamate di marketing, script che bypassano il consenso) — fornisci l’estratto.
+- Tracciamenti prima del consenso (es. cookie non essenziali impostati, chiamate di marketing, script che bypassano il consenso) — fornisci l'estratto.
 - Meccanismi di consenso palesemente assenti **e contestualmente** tag di marketing attivi senza gating — fornisci gli estratti (es. nessuna CMP rilevata + tag marketing che partono).
-- CSP che impedisce il rispetto del consenso (es. blocca gtag/gtm/consent) — fornisci l’estratto dell’header/HTML.
+- CSP che impedisce il rispetto del consenso (es. blocca gtag/gtm/consent) — fornisci l'estratto dell'header/HTML.
+- Performance critiche (LCP >4s, FID >300ms, CLS >0.25) — fornisci i valori specifici.
+- Problemi di accessibilità gravi (score <50) — fornisci dettagli specifici.
+- Problemi SEO critici (score <50) — fornisci dettagli specifici.
 
 NOTE NORMALI (non sono problemi nello snapshot iniziale):
 - Consensi default "denied".
 - Nessun evento CMP/consent nel dataLayer.
 - Nessuna chiamata gtag('consent') successiva.
+- Performance accettabili (LCP <2.5s, FID <100ms, CLS <0.1).
+- Accessibilità buona (score >80).
+- SEO ottimizzato (score >80).
 
 OUTPUT OBBLIGATORIO — restituisci **solo** JSON valido:
 {
@@ -326,7 +451,8 @@ OUTPUT OBBLIGATORIO — restituisci **solo** JSON valido:
       "titolo": "string",
       "perche": "string",
       "prova": "estratto ≤150 char tratto dai dati forniti",
-      "fix": "string"
+      "fix": "string",
+      "categoria": "consenso|performance|accessibility|seo|sicurezza"
     }
   ],
   "non_verificabile_snapshot_iniziale": [
@@ -343,23 +469,34 @@ OUTPUT OBBLIGATORIO — restituisci **solo** JSON valido:
   ],
   "prossimi_test": [
     "step operativo breve (es. Click 'Accetta tutti' e verifica gtag('consent','update', ...))"
+  ],
+  "raccomandazioni": [
+    {
+      "categoria": "performance|accessibility|seo|consenso",
+      "priorita": "alta|media|bassa",
+      "titolo": "string",
+      "descrizione": "string",
+      "impatto": "string"
+    }
   ]
 }
 
 IMPORTANTISSIMO:
 - Se non trovi **prove dirette**, metti "criticita": [].
 - Non aggiungere testo fuori dal JSON.
+- Considera il contesto del sito per adattare l'analisi.
+- Fornisci raccomandazioni specifiche e actionable.
 `;
 
   const completion = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
-    temperature: 0,
+    model: "gpt-4o",
+    temperature: 0.1,
     response_format: { type: "json_object" },
     messages: [
       {
         role: "system",
         content:
-          "Sei un auditor tecnico GTM/CMP. Produci solo JSON valido e rispetta le regole ferree.",
+          "Sei un auditor tecnico GTM/CMP esperto. Analizza i dati forniti e produci solo JSON valido rispettando le regole ferree. Fornisci raccomandazioni specifiche e actionable.",
       },
       { role: "user", content: prompt },
     ],
@@ -408,10 +545,14 @@ IMPORTANTISSIMO:
   // Render testuale leggibile dalla struttura
   const textReport = renderReportFromJson(aiJson);
 
-  return {
+  const result: WebsiteChecklistResult = {
     url,
     checks,
-    aiSummary: textReport, // ✅ testo leggibile per l’UI
+    aiSummary: textReport, // ✅ testo leggibile per l'UI
+    performanceScore,
+    accessibilityScore,
+    seoScore,
+    overallScore,
     extra: {
       aiJson, // struttura originale
       aiJsonPretty, // JSON formattato (se vuoi esporlo con "Mostra dati grezzi")
@@ -420,6 +561,31 @@ IMPORTANTISSIMO:
       consentModeCalls,
       consentCallsFoundInHtml,
       dataLayerSummary,
+      performanceMetrics: enhancedPerformanceMetrics,
+      interactiveTestResults: enhancedInteractiveTestResults,
+      screenshots,
+      timeline: [
+        {
+          timestamp: Date.now() - 10000,
+          event: "Page Load",
+          data: { gtmIds, cookieBannerLibs, consentModePresent }
+        },
+        {
+          timestamp: Date.now() - 5000,
+          event: "DataLayer Analysis",
+          data: dataLayerSummary
+        },
+        {
+          timestamp: Date.now(),
+          event: "Analysis Complete",
+          data: { performanceScore, accessibilityScore, seoScore, overallScore }
+        }
+      ]
     },
   };
+
+  // Cache the result for 5 minutes
+  cacheService.set(cacheKey, result, 5 * 60 * 1000);
+
+  return result;
 }
