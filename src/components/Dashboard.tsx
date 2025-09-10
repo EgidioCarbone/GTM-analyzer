@@ -14,6 +14,7 @@ import { calculateGtmMetrics, GtmMetrics, getMetricInfo, getQualityInfo } from "
 import { useEffect, useState } from "react";
 import { InfoTooltip } from "./ui/InfoTooltip";
 import { QualityOfContainer } from "./QualityOfContainer";
+import { ErrorBoundary } from "./ErrorBoundary";
 
 ChartJS.register(
   BarElement,
@@ -359,10 +360,20 @@ ${gtmMetrics.actionPlan.map(item => {
       </div>
 
       {/* Sezione Qualità del Container con accordion */}
-      <QualityOfContainer 
-        gtmMetrics={gtmMetrics} 
-        onMetricAction={handleMetricAction} 
-      />
+      <ErrorBoundary
+        fallback={
+          <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
+            <p className="text-red-600 dark:text-red-300 text-sm">
+              Errore nel calcolo della qualità del container. Riprova più tardi.
+            </p>
+          </div>
+        }
+      >
+        <QualityOfContainer 
+          gtmMetrics={gtmMetrics} 
+          onMetricAction={handleMetricAction} 
+        />
+      </ErrorBoundary>
 
       {/* Contatori principali */}
       <div className="grid grid-cols-3 gap-4">

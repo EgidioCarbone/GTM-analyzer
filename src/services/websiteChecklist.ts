@@ -6,6 +6,7 @@ import type {
   WebsiteChecklistChecks,
 } from "../types/websiteChecklist";
 import { cacheService } from "./cacheService";
+import { toast } from "react-hot-toast";
 
 const openai = new OpenAI({
   apiKey: import.meta.env.VITE_OPENAI_API_KEY, // ✅ Vite env, non process.env
@@ -144,29 +145,46 @@ function calculatePerformanceScore(metrics: any): number {
   if (!metrics || typeof metrics !== 'object') return 0;
 
   let score = 100;
+  let metricsCount = 0;
   
   // LCP (Largest Contentful Paint) - Good: <2.5s, Needs Improvement: 2.5-4s, Poor: >4s
-  if (metrics.lcp) {
+  if (metrics.lcp && metrics.lcp > 0 && metrics.lcp !== "N/A") {
+    metricsCount++;
     if (metrics.lcp > 4000) score -= 30;
     else if (metrics.lcp > 2500) score -= 15;
   }
   
   // FID (First Input Delay) - Good: <100ms, Needs Improvement: 100-300ms, Poor: >300ms
-  if (metrics.fid) {
+  if (metrics.fid && metrics.fid > 0 && metrics.fid !== "N/A") {
+    metricsCount++;
     if (metrics.fid > 300) score -= 25;
     else if (metrics.fid > 100) score -= 10;
   }
   
   // CLS (Cumulative Layout Shift) - Good: <0.1, Needs Improvement: 0.1-0.25, Poor: >0.25
-  if (metrics.cls) {
+  if (metrics.cls && metrics.cls >= 0 && metrics.cls !== "N/A") {
+    metricsCount++;
     if (metrics.cls > 0.25) score -= 25;
     else if (metrics.cls > 0.1) score -= 10;
   }
   
   // FCP (First Contentful Paint) - Good: <1.8s, Needs Improvement: 1.8-3s, Poor: >3s
-  if (metrics.fcp) {
+  if (metrics.fcp && metrics.fcp > 0 && metrics.fcp !== "N/A") {
+    metricsCount++;
     if (metrics.fcp > 3000) score -= 20;
     else if (metrics.fcp > 1800) score -= 10;
+  }
+  
+  // TTFB (Time to First Byte) - Good: <800ms, Needs Improvement: 800-1800ms, Poor: >1800ms
+  if (metrics.ttfb && metrics.ttfb > 0 && metrics.ttfb !== "N/A") {
+    metricsCount++;
+    if (metrics.ttfb > 1800) score -= 15;
+    else if (metrics.ttfb > 800) score -= 8;
+  }
+  
+  // Se non abbiamo metriche valide, restituisci un score neutro
+  if (metricsCount === 0) {
+    return 50; // Score neutro quando non ci sono metriche valide
   }
   
   return Math.max(0, Math.min(100, score));
@@ -293,58 +311,87 @@ function renderReportFromJson(a: any): string {
 }
 
 export async function runWebsiteChecklist(
-  url: string
+  url: string,
+  onProgress?: (step: string, status: 'running' | 'completed' | 'error', details?: string) => void
 ): Promise<WebsiteChecklistResult> {
-  // Check cache first
-  const cacheKey = cacheService.generateUrlKey(url);
-  const cachedResult = cacheService.get(cacheKey);
-  
-  if (cachedResult) {
-    console.log('Returning cached result for:', url);
-    return cachedResult;
-  }
+  try {
+    // Check cache first
+    const cacheKey = cacheService.generateUrlKey(url);
+    const cachedResult = cacheService.get(cacheKey);
+    
+    if (cachedResult) {
+      console.log('Returning cached result for:', url);
+      return cachedResult;
+    }
 
-  const {
-    html,
-    dataLayer,
-    consentModePresent,
-    consentModeCalls,
-    gtmIds,
-    cookieBannerLibs,
-    performanceMetrics = {},
-    accessibilityScore = 0,
-    seoScore = 0,
-    interactiveTestResults = {},
-    screenshots = [],
-  } = await fetchWebsiteData(url);
+    // Inizia l'analisi
+    onProgress?.('navigation', 'running', 'Navigando verso il sito...');
+    await new Promise(resolve => setTimeout(resolve, 500));
 
-  // Estrazioni locali aggiuntive
-  const consentCallsFoundInHtml = extractConsentCallsFromHtml(html);
-  const dataLayerSummary = summarizeDataLayer(dataLayer);
+    onProgress?.('navigation', 'completed', 'Sito caricato con successo');
+    onProgress?.('html_extraction', 'running', 'Estraendo HTML e analizzando il codice...');
+    await new Promise(resolve => setTimeout(resolve, 300));
 
-  // Calcola score complessivi
-  const performanceScore = calculatePerformanceScore(performanceMetrics);
-  const overallScore = Math.round((performanceScore + accessibilityScore + seoScore) / 3);
+    const {
+      html,
+      dataLayer,
+      consentModePresent,
+      consentModeCalls,
+      gtmIds,
+      cookieBannerLibs,
+      performanceMetrics = {},
+      accessibilityScore = 0,
+      seoScore = 0,
+      interactiveTestResults = {},
+      screenshots = [],
+    } = await fetchWebsiteData(url);
 
-  // Aggiungi dati di fallback se mancanti
+    onProgress?.('html_extraction', 'completed', `HTML estratto (${Math.round(html.length / 1024)}KB)`);
+    onProgress?.('gtm_detection', 'running', `Rilevando GTM... Trovati ${gtmIds.length} container`);
+    await new Promise(resolve => setTimeout(resolve, 300));
+
+    onProgress?.('gtm_detection', 'completed', `GTM rilevato: ${gtmIds.join(', ')}`);
+    onProgress?.('consent_analysis', 'running', 'Analizzando Consent Mode e banner cookie...');
+    await new Promise(resolve => setTimeout(resolve, 300));
+
+    // Estrazioni locali aggiuntive
+    const consentCallsFoundInHtml = extractConsentCallsFromHtml(html);
+    const dataLayerSummary = summarizeDataLayer(dataLayer);
+
+    onProgress?.('consent_analysis', 'completed', `Consent Mode: ${consentModePresent ? 'Attivo' : 'Non rilevato'}, Banner: ${cookieBannerLibs.join(', ') || 'Nessuno'}`);
+    onProgress?.('performance_metrics', 'running', 'Calcolando Core Web Vitals...');
+    await new Promise(resolve => setTimeout(resolve, 300));
+
+    // Calcola score complessivi
+    const performanceScore = calculatePerformanceScore(performanceMetrics);
+    const overallScore = Math.round((performanceScore + accessibilityScore + seoScore) / 3);
+
+    onProgress?.('performance_metrics', 'completed', `Performance: ${performanceScore}%, Accessibilità: ${accessibilityScore}%, SEO: ${seoScore}%`);
+    onProgress?.('interactive_tests', 'running', 'Eseguendo test interattivi...');
+    await new Promise(resolve => setTimeout(resolve, 300));
+
+  // Aggiungi dati di fallback se mancanti e gestisci valori "N/A"
   const enhancedPerformanceMetrics = {
-    lcp: performanceMetrics.lcp || 0,
-    fid: performanceMetrics.fid || 0,
-    cls: performanceMetrics.cls || 0,
-    fcp: performanceMetrics.fcp || 0,
-    ttfb: performanceMetrics.ttfb || 0,
-    speedIndex: performanceMetrics.speedIndex || 0,
-    totalBlockingTime: performanceMetrics.totalBlockingTime || 0,
-    nodes: performanceMetrics.nodes || 0,
-    layoutCount: performanceMetrics.layoutCount || 0,
-    recalcStyleCount: performanceMetrics.recalcStyleCount || 0,
-    layoutDuration: performanceMetrics.layoutDuration || 0,
-    recalcStyleDuration: performanceMetrics.recalcStyleDuration || 0,
-    scriptDuration: performanceMetrics.scriptDuration || 0,
-    taskDuration: performanceMetrics.taskDuration || 0,
-    jsHeapUsedSize: performanceMetrics.jsHeapUsedSize || 0,
-    jsHeapTotalSize: performanceMetrics.jsHeapTotalSize || 0,
-    ...performanceMetrics
+    ...performanceMetrics, // Prima applica tutti i dati originali
+    // Poi sovrascrivi solo i valori che sono effettivamente "N/A" o non validi
+    lcp: performanceMetrics.lcp && performanceMetrics.lcp !== "N/A" ? performanceMetrics.lcp : 0,
+    fid: performanceMetrics.fid && performanceMetrics.fid !== "N/A" ? performanceMetrics.fid : 0,
+    cls: performanceMetrics.cls && performanceMetrics.cls !== "N/A" ? performanceMetrics.cls : 0,
+    fcp: performanceMetrics.fcp && performanceMetrics.fcp !== "N/A" ? performanceMetrics.fcp : 0,
+    ttfb: performanceMetrics.ttfb && performanceMetrics.ttfb !== "N/A" ? performanceMetrics.ttfb : 0,
+    speedIndex: performanceMetrics.speedIndex && performanceMetrics.speedIndex !== "N/A" ? performanceMetrics.speedIndex : 0,
+    totalBlockingTime: performanceMetrics.totalBlockingTime && performanceMetrics.totalBlockingTime !== "N/A" ? performanceMetrics.totalBlockingTime : 0,
+    nodes: performanceMetrics.nodes && performanceMetrics.nodes !== "N/A" ? performanceMetrics.nodes : 0,
+    layoutCount: performanceMetrics.layoutCount && performanceMetrics.layoutCount !== "N/A" ? performanceMetrics.layoutCount : 0,
+    recalcStyleCount: performanceMetrics.recalcStyleCount && performanceMetrics.recalcStyleCount !== "N/A" ? performanceMetrics.recalcStyleCount : 0,
+    layoutDuration: performanceMetrics.layoutDuration && performanceMetrics.layoutDuration !== "N/A" ? performanceMetrics.layoutDuration : 0,
+    recalcStyleDuration: performanceMetrics.recalcStyleDuration && performanceMetrics.recalcStyleDuration !== "N/A" ? performanceMetrics.recalcStyleDuration : 0,
+    scriptDuration: performanceMetrics.scriptDuration && performanceMetrics.scriptDuration !== "N/A" ? performanceMetrics.scriptDuration : 0,
+    taskDuration: performanceMetrics.taskDuration && performanceMetrics.taskDuration !== "N/A" ? performanceMetrics.taskDuration : 0,
+    jsHeapUsedSize: performanceMetrics.jsHeapUsedSize && performanceMetrics.jsHeapUsedSize !== "N/A" ? performanceMetrics.jsHeapUsedSize : 0,
+    jsHeapTotalSize: performanceMetrics.jsHeapTotalSize && performanceMetrics.jsHeapTotalSize !== "N/A" ? performanceMetrics.jsHeapTotalSize : 0,
+    domContentLoaded: performanceMetrics.domContentLoaded && performanceMetrics.domContentLoaded !== "N/A" ? performanceMetrics.domContentLoaded : 0,
+    loadComplete: performanceMetrics.loadComplete && performanceMetrics.loadComplete !== "N/A" ? performanceMetrics.loadComplete : 0,
   };
 
   // Aggiungi dati di fallback per i test interattivi
@@ -388,12 +435,16 @@ export async function runWebsiteChecklist(
     "test interattivi passati": interactiveTestResults?.navigationTest?.passed,
   };
 
-  // Tronchiamo per non esplodere i token
-  const htmlExcerpt = html.slice(0, 3000);
-  const dataLayerExcerpt = JSON.stringify(dataLayer.slice(0, 5), null, 2);
+    onProgress?.('interactive_tests', 'completed', `Test completati: ${Object.keys(interactiveTestResults).length} test eseguiti`);
+    onProgress?.('ai_analysis', 'running', 'Elaborando con intelligenza artificiale...');
+    await new Promise(resolve => setTimeout(resolve, 500));
 
-  // 🧠 Prompt AI migliorato per analisi più intelligente e completa
-  const prompt = `
+    // Tronchiamo per non esplodere i token
+    const htmlExcerpt = html.slice(0, 3000);
+    const dataLayerExcerpt = JSON.stringify(dataLayer.slice(0, 5), null, 2);
+
+    // 🧠 Prompt AI migliorato per analisi più intelligente e completa
+    const prompt = `
 Analizza i seguenti dati raccolti dall'URL: ${url}
 
 📌 GTM IDs: ${JSON.stringify(gtmIds)}
@@ -488,19 +539,22 @@ IMPORTANTISSIMO:
 - Fornisci raccomandazioni specifiche e actionable.
 `;
 
-  const completion = await openai.chat.completions.create({
-    model: "gpt-4o",
-    temperature: 0.1,
-    response_format: { type: "json_object" },
-    messages: [
-      {
-        role: "system",
-        content:
-          "Sei un auditor tecnico GTM/CMP esperto. Analizza i dati forniti e produci solo JSON valido rispettando le regole ferree. Fornisci raccomandazioni specifiche e actionable.",
-      },
-      { role: "user", content: prompt },
-    ],
-  });
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o",
+      temperature: 0.1,
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content:
+            "Sei un auditor tecnico GTM/CMP esperto. Analizza i dati forniti e produci solo JSON valido rispettando le regole ferree. Fornisci raccomandazioni specifiche e actionable.",
+        },
+        { role: "user", content: prompt },
+      ],
+    });
+
+    onProgress?.('ai_analysis', 'completed', 'Analisi AI completata');
+    await new Promise(resolve => setTimeout(resolve, 300));
 
   // Parse sicuro del JSON dell'AI
   const raw = completion.choices[0].message.content ?? "{}";
@@ -584,8 +638,34 @@ IMPORTANTISSIMO:
     },
   };
 
-  // Cache the result for 5 minutes
-  cacheService.set(cacheKey, result, 5 * 60 * 1000);
+    // Cache the result for 5 minutes
+    cacheService.set(cacheKey, result, 5 * 60 * 1000);
 
-  return result;
+    return result;
+  } catch (error) {
+    console.error('Website checklist failed:', error);
+    toast.error(`Errore nell'analisi del sito: ${error instanceof Error ? error.message : 'Errore sconosciuto'}`);
+    
+    // Return fallback result
+    return {
+      url,
+      checks: {} as WebsiteChecklistChecks,
+      aiSummary: 'Errore durante l\'analisi del sito web',
+      performanceScore: 0,
+      accessibilityScore: 0,
+      seoScore: 0,
+      overallScore: 0,
+      extra: {
+        gtmIds: [],
+        cookieBannerLibs: [],
+        consentModeCalls: [],
+        consentCallsFoundInHtml: [],
+        dataLayerSummary: { count: 0, uniqueEvents: [], cmpSignals: [], consentEntriesCount: 0, sampleConsentEntries: [] },
+        performanceMetrics: {},
+        interactiveTestResults: {},
+        screenshots: [],
+        timeline: []
+      }
+    };
+  }
 }

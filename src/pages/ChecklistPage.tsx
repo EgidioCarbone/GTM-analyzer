@@ -1,56 +1,27 @@
 // src/pages/ChecklistPage.tsx
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import {
   Loader2,
   CheckCircle2,
   XCircle,
   NotebookPen,
   RotateCcw,
-  Search,
-  Gauge,
-  Accessibility,
-  Sparkles,
   ChevronDown,
   ChevronUp,
+  Eye,
+  AlertCircle,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import Lottie from "lottie-react";
 import toast from "react-hot-toast";
+import ScreenshotModal from "../components/ScreenshotModal";
 
 import {
   runWebsiteChecklist,
   WebsiteChecklistResult,
 } from "../services/websiteChecklist";
-import animationData from "../assets/background-ai-loader.json";
+import { AnalysisProgress } from "../components/AnalysisProgress";
+import { useAnalysisProgress } from "../hooks/useAnalysisProgress";
 
-/*────────────────────────── type-writer hook ──────────────────────────*/
-function useCyclingTypewriter(
-  texts: string[],
-  speed = 70,
-  hold = 3000
-): { text: string; step: number } {
-  const [step, setStep] = useState(0);
-  const [sub, setSub] = useState(0);
-  const [text, setText] = useState("");
-
-  useEffect(() => {
-    let t: NodeJS.Timeout;
-
-    if (sub < texts[step].length) {
-      setText(texts[step].slice(0, sub + 1));
-      t = setTimeout(() => setSub(sub + 1), speed);
-      return () => clearTimeout(t);
-    }
-
-    t = setTimeout(() => {
-      setSub(0);
-      setStep((s) => (s + 1) % texts.length);
-    }, hold);
-    return () => clearTimeout(t);
-  }, [sub, step, texts, speed, hold]);
-
-  return { text, step };
-}
 
 /*────────────────────────── componente ──────────────────────────*/
 export default function ChecklistPage() {
@@ -59,24 +30,31 @@ export default function ChecklistPage() {
   const [result, setResult] = useState<WebsiteChecklistResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showRawData, setShowRawData] = useState(false);
+  const [screenshotModal, setScreenshotModal] = useState({
+    isOpen: false,
+    currentIndex: 0,
+  });
 
-  const steps = [
-    { label: "Analisi delle ottimizzazioni SEO on-page…", icon: Search },
-    { label: "Valutazione delle performance di caricamento…", icon: Gauge },
-    { label: "Verifica dei criteri di accessibilità WCAG…", icon: Accessibility },
-    { label: "Elaborazione del report diagnostico tramite AI…", icon: Sparkles },
+  const { 
+    isVisible: progressVisible, 
+    currentStep, 
+    progress, 
+    steps: hookSteps,
+    startAnalysis, 
+    updateStep, 
+    completeAnalysis, 
+    hideAnalysis 
+  } = useAnalysisProgress();
+
+  const analysisSteps = [
+    { id: 'navigation', title: 'Navigazione al sito' },
+    { id: 'html_extraction', title: 'Estrazione HTML' },
+    { id: 'gtm_detection', title: 'Rilevamento GTM' },
+    { id: 'consent_analysis', title: 'Analisi Consenso' },
+    { id: 'performance_metrics', title: 'Metriche Performance' },
+    { id: 'interactive_tests', title: 'Test Interattivi' },
+    { id: 'ai_analysis', title: 'Analisi AI' }
   ];
-
-  const { text: typing, step } = useCyclingTypewriter(
-    steps.map((s) => s.label),
-    70,
-    3000
-  );
-
-  const CurrentIcon =
-    steps[step] && typeof steps[step].icon === "function"
-      ? steps[step].icon
-      : Loader2;
 
   const handleRun = async () => {
     if (!url) return;
@@ -84,18 +62,25 @@ export default function ChecklistPage() {
     setLoading(true);
     setError(null);
     setResult(null);
+    
+    // Avvia il progresso dettagliato
+    startAnalysis(analysisSteps);
     toast.loading("Analisi in corso…", { id: "check" });
 
     try {
-      const data = await runWebsiteChecklist(url);
+      const data = await runWebsiteChecklist(url, (step, status, details) => {
+        updateStep(step, status, details);
+      });
       setResult(data);
+      completeAnalysis();
       toast.success("Checklist completata!", { id: "check" });
     } catch (e) {
       const msg = (e as Error).message || "Errore imprevisto.";
       setError(msg);
+      completeAnalysis();
       toast.error(msg, { id: "check" });
     } finally {
-      setLoading(false);
+      // Non impostare loading a false qui, lascia che il progresso si chiuda naturalmente
     }
   };
 
@@ -104,6 +89,33 @@ export default function ChecklistPage() {
     setError(null);
     setUrl("");
     setShowRawData(false);
+    setScreenshotModal({ isOpen: false, currentIndex: 0 });
+    setLoading(false);
+    hideAnalysis();
+  };
+
+  const openScreenshotModal = (index: number) => {
+    setScreenshotModal({ isOpen: true, currentIndex: index });
+  };
+
+  const closeScreenshotModal = () => {
+    setScreenshotModal({ isOpen: false, currentIndex: 0 });
+  };
+
+  const goToPreviousScreenshot = () => {
+    if (result?.extra?.screenshots && screenshotModal.currentIndex > 0) {
+      setScreenshotModal(prev => ({ ...prev, currentIndex: prev.currentIndex - 1 }));
+    }
+  };
+
+  const goToNextScreenshot = () => {
+    if (result?.extra?.screenshots && screenshotModal.currentIndex < result.extra.screenshots.length - 1) {
+      setScreenshotModal(prev => ({ ...prev, currentIndex: prev.currentIndex + 1 }));
+    }
+  };
+
+  const goToScreenshot = (index: number) => {
+    setScreenshotModal(prev => ({ ...prev, currentIndex: index }));
   };
 
   return (
@@ -122,26 +134,17 @@ export default function ChecklistPage() {
         className="absolute -bottom-64 -right-64 -z-10 size-[45rem] rounded-full bg-pink-300 opacity-40 blur-3xl dark:bg-pink-600/20"
       />
 
-      {/* overlay loader */}
-      {loading && (
-        <div className="fixed inset-0 z-50 bg-gradient-to-br from-fuchsia-50 via-pink-50 to-white dark:from-gray-900 dark:via-gray-950 dark:to-black flex items-center justify-center overflow-hidden">
-          <div className="absolute -top-48 -left-48 w-[600px] h-[600px] bg-fuchsia-400 opacity-30 blur-3xl rounded-full" />
-          <div className="absolute -bottom-48 -right-48 w-[600px] h-[600px] bg-pink-400 opacity-30 blur-3xl rounded-full" />
-
-          <div className="relative flex flex-col items-center">
-            <div className="w-[500px] max-w-[90%]">
-              <Lottie animationData={animationData} loop autoplay />
-              <div className="mt-4 flex items-center justify-center gap-2">
-                <CurrentIcon className="h-5 w-5 text-fuchsia-600 shrink-0" />
-                <p className="min-h-[1.5rem] text-lg font-semibold text-gray-800 dark:text-white">
-                  {typing || "Stiamo analizzando il tuo sito…"}
-                </p>
-                <Loader2 className="h-5 w-5 animate-spin text-fuchsia-600" />
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Progress Modal - Sostituisce il loader generico */}
+      <AnalysisProgress
+        isVisible={loading && progressVisible}
+        currentStep={currentStep}
+        progress={progress}
+        steps={hookSteps}
+        onComplete={() => {
+          setLoading(false);
+          hideAnalysis();
+        }}
+      />
 
       {/* hero */}
       <motion.div
@@ -303,54 +306,74 @@ export default function ChecklistPage() {
                     <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2">
                       🚀 Core Web Vitals
                     </h4>
-                    {result.extra.performanceMetrics.lcp && (
+                    <div className="text-xs text-gray-500 dark:text-gray-400 bg-blue-50 dark:bg-blue-900/20 p-3 rounded">
+                      <strong>Perché "Non disponibile"?</strong>
+                      <ul className="mt-2 space-y-1 text-xs">
+                        <li>• <strong>LCP:</strong> Richiede identificazione dell'elemento più grande (difficile in headless)</li>
+                        <li>• <strong>FID:</strong> Richiede interazione utente reale (click/tap)</li>
+                        <li>• <strong>CLS:</strong> Richiede rilevamento di spostamenti visivi (limitato in headless)</li>
+                      </ul>
+                      <div className="mt-2 text-xs text-blue-600 dark:text-blue-400">
+                        💡 <strong>Suggerimento:</strong> Per metriche complete, testa con Chrome DevTools o PageSpeed Insights
+                      </div>
+                    </div>
+                    {/* LCP */}
                       <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
                         <div className="flex justify-between items-center">
                           <span className="text-sm text-gray-600 dark:text-gray-300">Largest Contentful Paint</span>
                           <span className={`text-lg font-bold ${
-                            result.extra.performanceMetrics.lcp < 2500 ? 'text-green-600' : 
-                            result.extra.performanceMetrics.lcp < 4000 ? 'text-yellow-600' : 'text-red-600'
+                          result.extra.performanceMetrics.lcp && result.extra.performanceMetrics.lcp < 2500 ? 'text-green-600' : 
+                          result.extra.performanceMetrics.lcp && result.extra.performanceMetrics.lcp < 4000 ? 'text-yellow-600' : 
+                          result.extra.performanceMetrics.lcp ? 'text-red-600' : 'text-gray-500'
                           }`}>
-                            {(result.extra.performanceMetrics.lcp / 1000).toFixed(1)}s
+                          {result.extra.performanceMetrics.lcp > 0 ? 
+                            `${(result.extra.performanceMetrics.lcp / 1000).toFixed(1)}s` : 
+                            'Non disponibile'
+                          }
                           </span>
                         </div>
                         <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                           Tempo di caricamento del contenuto principale
                         </div>
                       </div>
-                    )}
-                    {result.extra.performanceMetrics.fid && (
+                    {/* FID */}
                       <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
                         <div className="flex justify-between items-center">
                           <span className="text-sm text-gray-600 dark:text-gray-300">First Input Delay</span>
                           <span className={`text-lg font-bold ${
-                            result.extra.performanceMetrics.fid < 100 ? 'text-green-600' : 
-                            result.extra.performanceMetrics.fid < 300 ? 'text-yellow-600' : 'text-red-600'
+                          result.extra.performanceMetrics.fid && result.extra.performanceMetrics.fid < 100 ? 'text-green-600' : 
+                          result.extra.performanceMetrics.fid && result.extra.performanceMetrics.fid < 300 ? 'text-yellow-600' : 
+                          result.extra.performanceMetrics.fid ? 'text-red-600' : 'text-gray-500'
                           }`}>
-                            {result.extra.performanceMetrics.fid.toFixed(0)}ms
+                          {result.extra.performanceMetrics.fid > 0 ? 
+                            `${result.extra.performanceMetrics.fid.toFixed(0)}ms` : 
+                            'Non disponibile'
+                          }
                           </span>
                         </div>
                         <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                           Tempo di risposta al primo click
                         </div>
                       </div>
-                    )}
-                    {result.extra.performanceMetrics.cls && (
+                    {/* CLS */}
                       <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
                         <div className="flex justify-between items-center">
                           <span className="text-sm text-gray-600 dark:text-gray-300">Cumulative Layout Shift</span>
                           <span className={`text-lg font-bold ${
-                            result.extra.performanceMetrics.cls < 0.1 ? 'text-green-600' : 
-                            result.extra.performanceMetrics.cls < 0.25 ? 'text-yellow-600' : 'text-red-600'
+                          result.extra.performanceMetrics.cls && result.extra.performanceMetrics.cls < 0.1 ? 'text-green-600' : 
+                          result.extra.performanceMetrics.cls && result.extra.performanceMetrics.cls < 0.25 ? 'text-yellow-600' : 
+                          result.extra.performanceMetrics.cls ? 'text-red-600' : 'text-gray-500'
                           }`}>
-                            {result.extra.performanceMetrics.cls.toFixed(3)}
+                          {result.extra.performanceMetrics.cls > 0 ? 
+                            result.extra.performanceMetrics.cls.toFixed(3) : 
+                            'Non disponibile'
+                          }
                           </span>
                         </div>
                         <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                           Stabilità visiva della pagina
                         </div>
                       </div>
-                    )}
                   </div>
 
                   {/* Tempi di Caricamento */}
@@ -358,7 +381,7 @@ export default function ChecklistPage() {
                     <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2">
                       ⏱️ Tempi di Caricamento
                     </h4>
-                    {result.extra.performanceMetrics.fcp && (
+                    {result.extra.performanceMetrics.fcp > 0 && (
                       <div className="p-3 bg-green-50 dark:bg-green-900/20 rounded-lg">
                         <div className="flex justify-between items-center">
                           <span className="text-sm text-gray-600 dark:text-gray-300">First Contentful Paint</span>
@@ -374,7 +397,7 @@ export default function ChecklistPage() {
                         </div>
                       </div>
                     )}
-                    {result.extra.performanceMetrics.ttfb && (
+                    {result.extra.performanceMetrics.ttfb > 0 && (
                       <div className="p-3 bg-green-50 dark:bg-green-900/20 rounded-lg">
                         <div className="flex justify-between items-center">
                           <span className="text-sm text-gray-600 dark:text-gray-300">Time to First Byte</span>
@@ -390,7 +413,7 @@ export default function ChecklistPage() {
                         </div>
                       </div>
                     )}
-                    {result.extra.performanceMetrics.speedIndex && (
+                    {result.extra.performanceMetrics.speedIndex > 0 && (
                       <div className="p-3 bg-green-50 dark:bg-green-900/20 rounded-lg">
                         <div className="flex justify-between items-center">
                           <span className="text-sm text-gray-600 dark:text-gray-300">Speed Index</span>
@@ -413,33 +436,37 @@ export default function ChecklistPage() {
                     <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2">
                       💾 Utilizzo Risorse
                     </h4>
-                    {result.extra.performanceMetrics.jsHeapUsedSize && (
-                      <div className="p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
-                        <div className="flex justify-between items-center">
-                          <span className="text-sm text-gray-600 dark:text-gray-300">Memoria JavaScript</span>
-                          <span className="text-lg font-bold text-purple-600">
-                            {(result.extra.performanceMetrics.jsHeapUsedSize / 1024 / 1024).toFixed(1)}MB
-                          </span>
-                        </div>
-                        <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                          Memoria utilizzata dal browser
-                        </div>
+                    {/* Memoria JavaScript */}
+                    <div className="p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-gray-600 dark:text-gray-300">Memoria JavaScript</span>
+                        <span className="text-lg font-bold text-purple-600">
+                          {result.extra.performanceMetrics.jsHeapUsedSize > 0 ? 
+                            `${(result.extra.performanceMetrics.jsHeapUsedSize / 1024 / 1024).toFixed(1)}MB` : 
+                            'Non disponibile'
+                          }
+                        </span>
                       </div>
-                    )}
-                    {result.extra.performanceMetrics.nodes && (
-                      <div className="p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
-                        <div className="flex justify-between items-center">
-                          <span className="text-sm text-gray-600 dark:text-gray-300">Elementi DOM</span>
-                          <span className="text-lg font-bold text-purple-600">
-                            {result.extra.performanceMetrics.nodes.toLocaleString()}
-                          </span>
-                        </div>
-                        <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                          Elementi nella pagina
-                        </div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        Memoria utilizzata dal browser
                       </div>
-                    )}
-                    {result.extra.performanceMetrics.layoutCount && (
+                    </div>
+                    {/* Elementi DOM */}
+                    <div className="p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-gray-600 dark:text-gray-300">Elementi DOM</span>
+                        <span className="text-lg font-bold text-purple-600">
+                          {result.extra.performanceMetrics.nodes > 0 ? 
+                            result.extra.performanceMetrics.nodes.toLocaleString() : 
+                            'Non disponibile'
+                          }
+                        </span>
+                      </div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        Elementi nella pagina
+                      </div>
+                    </div>
+                    {result.extra.performanceMetrics.layoutCount > 0 && (
                       <div className="p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
                         <div className="flex justify-between items-center">
                           <span className="text-sm text-gray-600 dark:text-gray-300">Ricalcoli Layout</span>
@@ -570,7 +597,7 @@ export default function ChecklistPage() {
               <div className="text-sm text-yellow-700 dark:text-yellow-300">
                 <p><strong>Performance Metrics:</strong> {result.extra?.performanceMetrics ? 'Presente' : 'Assente'}</p>
                 <p><strong>Interactive Tests:</strong> {result.extra?.interactiveTestResults ? 'Presente' : 'Assente'}</p>
-                <p><strong>Screenshots:</strong> {result.extra?.screenshots ? `${result.extra.screenshots.length} immagini` : 'Assente'}</p>
+                <p><strong>Screenshots:</strong> {result.extra?.screenshots ? `${result.extra.screenshots.length} ${result.extra.screenshots.length === 1 ? 'banner cookie' : 'immagini'}` : 'Assente'}</p>
                 <details className="mt-2">
                   <summary className="cursor-pointer font-medium">Mostra dati extra completi</summary>
                   <pre className="mt-2 p-2 bg-yellow-100 dark:bg-yellow-800/40 rounded text-xs overflow-auto">
@@ -583,17 +610,42 @@ export default function ChecklistPage() {
             {/* Screenshots */}
             {result.extra?.screenshots && result.extra.screenshots.length > 0 && (
               <div className="rounded-xl bg-white/60 p-6 shadow-inner backdrop-blur-md dark:bg-gray-900/40">
-                <h3 className="mb-4 text-lg font-medium">Screenshots</h3>
+                <h3 className="mb-4 text-lg font-medium">
+                  {result.extra.screenshots.length === 1 ? 'Banner dei Cookie' : 'Screenshots'}
+                </h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {result.extra.screenshots.map((screenshot, index) => (
-                    <div key={index} className="text-center">
-                      <img
-                        src={`data:image/png;base64,${screenshot}`}
-                        alt={`Screenshot ${index + 1}`}
-                        className="w-full h-32 object-cover rounded-lg border border-gray-300 dark:border-gray-600"
-                      />
+                    <div key={index} className="text-center group">
+                      <div className="relative overflow-hidden rounded-lg border border-gray-300 dark:border-gray-600 group-hover:border-blue-500 dark:group-hover:border-blue-400 transition-colors">
+                        <img
+                          src={`data:image/png;base64,${screenshot}`}
+                          alt={result.extra.screenshots.length === 1 ? 'Banner dei Cookie' : `Screenshot ${index + 1}`}
+                          className="w-full h-32 object-cover transition-transform group-hover:scale-105"
+                          onError={(e) => {
+                            const target = e.target as HTMLImageElement;
+                            target.style.display = 'none';
+                            const errorDiv = document.createElement('div');
+                            errorDiv.className = 'w-full h-32 flex items-center justify-center bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400';
+                            errorDiv.innerHTML = `
+                              <div class="text-center">
+                                <div class="text-2xl mb-1">📷</div>
+                                <div class="text-xs">Errore caricamento</div>
+                              </div>
+                            `;
+                            target.parentNode?.insertBefore(errorDiv, target);
+                          }}
+                        />
+                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
+                          <button
+                            onClick={() => openScreenshotModal(index)}
+                            className="opacity-0 group-hover:opacity-100 transition-opacity bg-white/90 dark:bg-gray-800/90 p-2 rounded-full shadow-lg hover:bg-white dark:hover:bg-gray-800"
+                          >
+                            <Eye className="w-5 h-5 text-gray-700 dark:text-gray-300" />
+                          </button>
+                        </div>
+                      </div>
                       <p className="text-xs text-gray-600 dark:text-gray-300 mt-2">
-                        Screenshot {index + 1}
+                        {result.extra.screenshots.length === 1 ? 'Banner dei Cookie' : `Screenshot ${index + 1}`}
                       </p>
                     </div>
                   ))}
@@ -690,6 +742,19 @@ export default function ChecklistPage() {
           </motion.section>
         )}
       </AnimatePresence>
+
+      {/* Screenshot Modal */}
+      {result?.extra?.screenshots && result.extra.screenshots.length > 0 && (
+        <ScreenshotModal
+          isOpen={screenshotModal.isOpen}
+          onClose={closeScreenshotModal}
+          screenshots={result.extra.screenshots}
+          currentIndex={screenshotModal.currentIndex}
+          onPrevious={goToPreviousScreenshot}
+          onNext={goToNextScreenshot}
+          onThumbnailClick={goToScreenshot}
+        />
+      )}
     </div>
   );
 }

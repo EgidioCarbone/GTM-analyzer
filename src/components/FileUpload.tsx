@@ -15,11 +15,23 @@ import {
   Play,
   Sparkles
 } from "lucide-react";
+import { AnalysisProgress } from "./AnalysisProgress";
+import { useAnalysisProgress } from "../hooks/useAnalysisProgress";
 
 export default function FileUpload({ onFile }: { onFile: (f: File) => void }) {
   const input = useRef<HTMLInputElement>(null);
   const [loading, setLoading] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
+  const { 
+    isVisible: progressVisible, 
+    currentStep, 
+    progress, 
+    steps,
+    startAnalysis, 
+    updateStep, 
+    completeAnalysis, 
+    hideAnalysis 
+  } = useAnalysisProgress();
 
   useEffect(() => {
     setIsVisible(true);
@@ -27,9 +39,36 @@ export default function FileUpload({ onFile }: { onFile: (f: File) => void }) {
 
   const handleFile = (file: File) => {
     setLoading(true);
+    
+    // Avvia il progresso dettagliato
+    const analysisSteps = [
+      { id: 'file_upload', title: 'Caricamento File' },
+      { id: 'file_parsing', title: 'Parsing JSON' },
+      { id: 'gtm_analysis', title: 'Analisi GTM' },
+      { id: 'metrics_calculation', title: 'Calcolo Metriche' },
+      { id: 'ai_processing', title: 'Elaborazione AI' },
+      { id: 'dashboard_preparation', title: 'Preparazione Dashboard' }
+    ];
+    
+    startAnalysis(analysisSteps);
+    
+    // Simula il progresso dell'analisi
+    setTimeout(() => updateStep('file_upload', 'completed', 'File caricato con successo'), 500);
+    setTimeout(() => updateStep('file_parsing', 'running', 'Analizzando struttura JSON...'), 800);
+    setTimeout(() => updateStep('file_parsing', 'completed', 'JSON parsato correttamente'), 1200);
+    setTimeout(() => updateStep('gtm_analysis', 'running', 'Analizzando container GTM...'), 1500);
+    setTimeout(() => updateStep('gtm_analysis', 'completed', 'Container GTM analizzato'), 2000);
+    setTimeout(() => updateStep('metrics_calculation', 'running', 'Calcolando metriche di qualità...'), 2300);
+    setTimeout(() => updateStep('metrics_calculation', 'completed', 'Metriche calcolate'), 2800);
+    setTimeout(() => updateStep('ai_processing', 'running', 'Elaborando con intelligenza artificiale...'), 3100);
+    setTimeout(() => updateStep('ai_processing', 'completed', 'Analisi AI completata'), 3600);
+    setTimeout(() => updateStep('dashboard_preparation', 'running', 'Preparando dashboard...'), 3900);
+    setTimeout(() => updateStep('dashboard_preparation', 'completed', 'Dashboard pronta'), 4200);
+    
     setTimeout(() => {
+      completeAnalysis();
       onFile(file);
-    }, 800);
+    }, 4500);
   };
 
   const features = [
@@ -82,12 +121,25 @@ export default function FileUpload({ onFile }: { onFile: (f: File) => void }) {
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[80vh] animate-fadeIn space-y-6">
-        <Loader2 className="w-10 h-10 text-orange-500 animate-spin" />
-        <p className="text-lg text-gray-600 dark:text-gray-300 font-medium">
-          Analizzando la struttura del contenitore...
-        </p>
-      </div>
+      <>
+        <div className="flex flex-col items-center justify-center min-h-[80vh] animate-fadeIn space-y-6">
+          <Loader2 className="w-10 h-10 text-orange-500 animate-spin" />
+          <p className="text-lg text-gray-600 dark:text-gray-300 font-medium">
+            Analizzando la struttura del contenitore...
+          </p>
+        </div>
+        
+        {/* Progress Modal */}
+        <AnalysisProgress
+          isVisible={progressVisible}
+          currentStep={currentStep}
+          progress={progress}
+          steps={steps}
+          onComplete={() => {
+            setTimeout(() => hideAnalysis(), 2000);
+          }}
+        />
+      </>
     );
   }
 

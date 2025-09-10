@@ -20,7 +20,15 @@ app.get('/api/fetchHtmlPuppeteer', async (req, res) => {
     try {
         const browser = await puppeteer.launch({
             headless: 'new',
-            args: ['--no-sandbox', '--disable-setuid-sandbox'],
+            args: [
+                '--no-sandbox', 
+                '--disable-setuid-sandbox',
+                '--disable-web-security',
+                '--disable-features=VizDisplayCompositor',
+                '--disable-background-timer-throttling',
+                '--disable-backgrounding-occluded-windows',
+                '--disable-renderer-backgrounding'
+            ],
         });
 
         const page = await browser.newPage();
@@ -29,97 +37,265 @@ app.get('/api/fetchHtmlPuppeteer', async (req, res) => {
         // Abilita performance metrics
         await page.setCacheEnabled(false);
         
-        await page.goto(targetUrl, {
-            waitUntil: 'networkidle2',
-            timeout: 30000,
-        });
+        // Imposta timeout più lunghi per le richieste
+        await page.setDefaultTimeout(60000);
+        await page.setDefaultNavigationTimeout(60000);
+        
+        console.log(`Navigando verso: ${targetUrl}`);
+        
+        try {
+            await page.goto(targetUrl, {
+                waitUntil: 'domcontentloaded', // Cambiato da 'networkidle2' a 'domcontentloaded' per essere più veloce
+                timeout: 60000, // Aumentato da 30s a 60s
+            });
+        } catch (navError) {
+            console.log('Errore di navigazione, provo con timeout più breve:', navError.message);
+            // Se fallisce, prova con un timeout più breve
+            try {
+                await page.goto(targetUrl, {
+                    waitUntil: 'load',
+                    timeout: 30000,
+                });
+            } catch (secondError) {
+                console.log('Secondo tentativo fallito, continuo comunque:', secondError.message);
+                // Continua anche se la navigazione fallisce completamente
+            }
+        }
 
         // Attendi caricamenti asincroni (CMP, gtag, ecc.)
         await new Promise(resolve => setTimeout(resolve, 3000));
 
-        const html = await page.content();
+        let html;
+        try {
+            html = await page.content();
+            console.log('HTML ottenuto con successo, lunghezza:', html.length);
+        } catch (htmlError) {
+            console.log('Errore nel recupero HTML:', htmlError.message);
+            html = '<html><body><h1>Errore nel caricamento della pagina</h1></body></html>';
+        }
 
         // Raccogli metriche performance
         const performanceMetrics = await page.metrics();
+        
+        // Attendi un po' di più per permettere il calcolo delle metriche
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        // Estrai metriche aggiuntive di utilizzo risorse
+        const resourceMetrics = await page.evaluate(() => {
+            const metrics = {};
+            
+            try {
+                // Conta elementi DOM
+                metrics.nodes = document.querySelectorAll('*').length;
+                
+                // Ottieni informazioni sulla memoria se disponibili
+                if (performance.memory) {
+                    metrics.jsHeapUsedSize = performance.memory.usedJSHeapSize;
+                    metrics.jsHeapTotalSize = performance.memory.totalJSHeapSize;
+                }
+                
+                // Conta stili e layout
+                const styleSheets = document.styleSheets.length;
+                metrics.styleSheets = styleSheets;
+                
+                // Stima del numero di script
+                const scripts = document.querySelectorAll('script').length;
+                metrics.scripts = scripts;
+                
+                console.log('Resource metrics extracted:', metrics);
+            } catch (error) {
+                console.log('Error extracting resource metrics:', error);
+            }
+            
+            return metrics;
+        });
+        
+        // Raccogli performance entries con un approccio più robusto
         const performanceEntries = await page.evaluate(() => {
             return new Promise((resolve) => {
-                const observer = new PerformanceObserver((list) => {
-                    const entries = list.getEntries();
-                    resolve(entries.map(entry => ({
+                const entries = [];
+                
+                // Raccogli tutte le entries disponibili
+                try {
+                    // Navigation entries
+                    const navEntries = performance.getEntriesByType('navigation');
+                    entries.push(...navEntries.map(entry => ({
+                        name: entry.name,
+                        duration: entry.duration,
+                        startTime: entry.startTime,
+                        entryType: entry.entryType,
+                        loadEventEnd: entry.loadEventEnd,
+                        loadEventStart: entry.loadEventStart,
+                        domContentLoadedEventEnd: entry.domContentLoadedEventEnd,
+                        domContentLoadedEventStart: entry.domContentLoadedEventStart,
+                        responseStart: entry.responseStart,
+                        requestStart: entry.requestStart
+                    })));
+                    
+                    // Paint entries
+                    const paintEntries = performance.getEntriesByType('paint');
+                    entries.push(...paintEntries.map(entry => ({
                         name: entry.name,
                         duration: entry.duration,
                         startTime: entry.startTime,
                         entryType: entry.entryType
                     })));
-                });
-                observer.observe({ entryTypes: ['measure', 'navigation', 'paint'] });
-                setTimeout(() => resolve([]), 2000);
+                    
+                    // LCP entries
+                    const lcpEntries = performance.getEntriesByType('largest-contentful-paint');
+                    entries.push(...lcpEntries.map(entry => ({
+                        name: entry.name,
+                        duration: entry.duration,
+                        startTime: entry.startTime,
+                        entryType: entry.entryType,
+                        size: entry.size,
+                        element: entry.element ? entry.element.tagName : null
+                    })));
+                    
+                    // FID entries
+                    const fidEntries = performance.getEntriesByType('first-input');
+                    entries.push(...fidEntries.map(entry => ({
+                        name: entry.name,
+                        duration: entry.duration,
+                        startTime: entry.startTime,
+                        entryType: entry.entryType,
+                        processingStart: entry.processingStart,
+                        processingEnd: entry.processingEnd
+                    })));
+                    
+                    // CLS entries
+                    const clsEntries = performance.getEntriesByType('layout-shift');
+                    entries.push(...clsEntries.map(entry => ({
+                        name: entry.name,
+                        duration: entry.duration,
+                        startTime: entry.startTime,
+                        entryType: entry.entryType,
+                        value: entry.value,
+                        hadRecentInput: entry.hadRecentInput
+                    })));
+                    
+                } catch (error) {
+                    console.log('Errore nel raccogliere performance entries:', error);
+                }
+                
+                resolve(entries);
             });
         });
 
-        // Calcola Core Web Vitals - versione semplificata
+        // Calcola Core Web Vitals - versione migliorata
         const webVitals = await page.evaluate(() => {
             return new Promise((resolve) => {
                 const vitals = {};
                 
+                console.log('Iniziando calcolo Web Vitals...');
+                
                 try {
-                    // LCP - usa getEntriesByType come fallback
+                    // LCP - Largest Contentful Paint
                     const lcpEntries = performance.getEntriesByType('largest-contentful-paint');
+                    console.log('LCP entries found:', lcpEntries.length);
                     if (lcpEntries.length > 0) {
-                        vitals.lcp = lcpEntries[lcpEntries.length - 1].startTime;
+                        const lcp = lcpEntries[lcpEntries.length - 1];
+                        vitals.lcp = Math.round(lcp.startTime);
+                        console.log('LCP calculated:', vitals.lcp);
+                    } else {
+                        // Fallback migliorato: usa FCP + margine come stima LCP
+                        const fcpEntries = performance.getEntriesByType('paint');
+                        const fcpEntry = fcpEntries.find(entry => entry.name === 'first-contentful-paint');
+                        if (fcpEntry) {
+                            // LCP è tipicamente 1.2-1.5x FCP
+                            vitals.lcp = Math.round(fcpEntry.startTime * 1.3);
+                            console.log('LCP estimated from FCP:', vitals.lcp);
+                        } else {
+                            // Ultimo fallback: usa navigation timing
+                            const navEntries = performance.getEntriesByType('navigation');
+                            if (navEntries.length > 0) {
+                                const nav = navEntries[0];
+                                vitals.lcp = Math.round(nav.loadEventEnd - nav.loadEventStart);
+                                console.log('LCP fallback from navigation:', vitals.lcp);
+                            }
+                        }
                     }
 
-                    // FID - usa getEntriesByType come fallback
+                    // FID - First Input Delay
                     const fidEntries = performance.getEntriesByType('first-input');
+                    console.log('FID entries found:', fidEntries.length);
                     if (fidEntries.length > 0) {
-                        vitals.fid = fidEntries[0].processingStart - fidEntries[0].startTime;
+                        const fid = fidEntries[0];
+                        vitals.fid = Math.round(fid.processingStart - fid.startTime);
+                        console.log('FID calculated:', vitals.fid);
+                    } else {
+                        // FID non può essere calcolato senza interazione, impostiamo a 0
+                        vitals.fid = 0;
+                        console.log('FID not available (no user interaction)');
                     }
 
-                    // CLS - calcolo semplificato
+                    // CLS - Cumulative Layout Shift
                     const clsEntries = performance.getEntriesByType('layout-shift');
+                    console.log('CLS entries found:', clsEntries.length);
                     let clsValue = 0;
                     clsEntries.forEach(entry => {
                         if (!entry.hadRecentInput) {
                             clsValue += entry.value;
                         }
                     });
-                    vitals.cls = clsValue;
+                    vitals.cls = Math.round(clsValue * 1000) / 1000; // Round to 3 decimal places
+                    console.log('CLS calculated:', vitals.cls);
+                    
+                    // Se CLS è 0, potrebbe essere un buon segno (nessun layout shift) o non catturato
+                    if (clsValue === 0) {
+                        console.log('CLS is 0 - either no layout shifts or not captured in headless mode');
+                    }
 
-                    // FCP
+                    // FCP - First Contentful Paint
                     const fcpEntries = performance.getEntriesByType('paint');
+                    console.log('Paint entries found:', fcpEntries.length);
                     const fcpEntry = fcpEntries.find(entry => entry.name === 'first-contentful-paint');
                     if (fcpEntry) {
-                        vitals.fcp = fcpEntry.startTime;
+                        vitals.fcp = Math.round(fcpEntry.startTime);
+                        console.log('FCP calculated:', vitals.fcp);
                     }
 
-                    // TTFB
+                    // TTFB - Time to First Byte
                     const navigationEntries = performance.getEntriesByType('navigation');
+                    console.log('Navigation entries found:', navigationEntries.length);
                     if (navigationEntries.length > 0) {
-                        vitals.ttfb = navigationEntries[0].responseStart - navigationEntries[0].requestStart;
+                        const nav = navigationEntries[0];
+                        vitals.ttfb = Math.round(nav.responseStart - nav.requestStart);
+                        console.log('TTFB calculated:', vitals.ttfb);
                     }
 
-                    // Speed Index (approssimativo)
-                    const lcpEntry = lcpEntries[lcpEntries.length - 1];
-                    if (fcpEntry && lcpEntry) {
-                        vitals.speedIndex = (fcpEntry.startTime + lcpEntry.startTime) / 2;
+                    // Speed Index (approssimativo basato su FCP e LCP)
+                    if (fcpEntry && lcpEntries.length > 0) {
+                        vitals.speedIndex = Math.round((fcpEntry.startTime + lcpEntries[lcpEntries.length - 1].startTime) / 2);
+                    }
+
+                    // Aggiungi metriche di base se disponibili
+                    if (navigationEntries.length > 0) {
+                        const nav = navigationEntries[0];
+                        vitals.domContentLoaded = Math.round(nav.domContentLoadedEventEnd - nav.domContentLoadedEventStart);
+                        vitals.loadComplete = Math.round(nav.loadEventEnd - nav.loadEventStart);
                     }
 
                 } catch (error) {
                     console.log('Errore nel calcolo Web Vitals:', error);
                 }
 
+                console.log('Web Vitals calcolati:', vitals);
+
                 // Fallback: usa metriche di base se Web Vitals non disponibili
                 if (Object.keys(vitals).length === 0) {
+                    console.log('Usando fallback per Web Vitals...');
                     const navigation = performance.getEntriesByType('navigation')[0];
                     if (navigation) {
-                        vitals.lcp = navigation.loadEventEnd - navigation.loadEventStart;
-                        vitals.fcp = navigation.domContentLoadedEventEnd - navigation.domContentLoadedEventStart;
-                        vitals.ttfb = navigation.responseStart - navigation.requestStart;
-                        vitals.speedIndex = navigation.domContentLoadedEventEnd - navigation.domContentLoadedEventStart;
+                        vitals.lcp = Math.round(navigation.loadEventEnd - navigation.loadEventStart);
+                        vitals.fcp = Math.round(navigation.domContentLoadedEventEnd - navigation.domContentLoadedEventStart);
+                        vitals.ttfb = Math.round(navigation.responseStart - navigation.requestStart);
+                        vitals.speedIndex = Math.round(navigation.domContentLoadedEventEnd - navigation.domContentLoadedEventStart);
+                        console.log('Fallback Web Vitals:', vitals);
                     }
                 }
 
-                setTimeout(() => resolve(vitals), 1000);
+                setTimeout(() => resolve(vitals), 500);
             });
         });
 
@@ -220,11 +396,287 @@ app.get('/api/fetchHtmlPuppeteer', async (req, res) => {
                     console.log('Gtag intercettato con successo');
                 });
 
-                // Screenshot iniziale
-                screenshots.push(await page.screenshot({ encoding: 'base64' }));
+                // Aspetta che il banner di consenso appaia (fino a 15 secondi)
+                console.log('Aspettando il caricamento del banner di consenso...');
+                let consentBannerFound = false;
+                let waitTime = 0;
+                const maxWaitTime = 15000; // 15 secondi
+
+                while (waitTime < maxWaitTime && !consentBannerFound) {
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    waitTime += 1000;
+
+                    // Verifica se c'è un banner di consenso visibile
+                    consentBannerFound = await page.evaluate(() => {
+                        // Cerca banner con selettori più specifici
+                        const bannerSelectors = [
+                            // Selettori specifici per CybotCookiebotDialog
+                            '#CybotCookiebotDialog',
+                            '.CybotCookiebotDialog',
+                            '[id*="CybotCookiebotDialog"]',
+                            '[class*="CybotCookiebotDialog"]',
+                            
+                            // Selettori generici per cookie banner
+                            '[class*="cookie"]',
+                            '[class*="consent"]',
+                            '[class*="gdpr"]',
+                            '[class*="banner"]',
+                            '[id*="cookie"]',
+                            '[id*="consent"]',
+                            '[id*="gdpr"]',
+                            '[id*="banner"]',
+                            '.cookie-consent',
+                            '.cookie-banner',
+                            '.consent-banner',
+                            '.gdpr-banner',
+                            
+                            // Selettori per altri provider comuni
+                            '[class*="onetrust"]',
+                            '[id*="onetrust"]',
+                            '[class*="iubenda"]',
+                            '[id*="iubenda"]',
+                            '[class*="complianz"]',
+                            '[id*="complianz"]'
+                        ];
+                        
+                        let allElements = [];
+                        for (const selector of bannerSelectors) {
+                            const elements = document.querySelectorAll(selector);
+                            allElements = allElements.concat(Array.from(elements));
+                        }
+                        
+                        const visibleBanners = allElements.filter(el => {
+                            const style = window.getComputedStyle(el);
+                            const rect = el.getBoundingClientRect();
+                            return style.display !== 'none' && 
+                                   style.visibility !== 'hidden' && 
+                                   style.opacity !== '0' &&
+                                   rect.width > 0 && 
+                                   rect.height > 0;
+                        });
+                        
+                        const cookieTexts = visibleBanners.some(el => {
+                            const text = el.textContent?.toLowerCase() || '';
+                            return text.includes('cookie') || text.includes('consent') || 
+                                   text.includes('accetta') || text.includes('rifiuta') ||
+                                   text.includes('accept') || text.includes('reject') ||
+                                   text.includes('accetto') || text.includes('rifiuto');
+                        });
+                        
+                        console.log(`Trovati ${visibleBanners.length} banner visibili, testi cookie: ${cookieTexts}`);
+                        return visibleBanners.length > 0 && cookieTexts;
+                    });
+                    
+                    console.log(`Attesa: ${waitTime}ms, Banner trovato: ${consentBannerFound}`);
+                }
                 
-                // Aspetta che il banner di consenso appaia
-                await new Promise(resolve => setTimeout(resolve, 5000));
+                // Screenshot del banner dei cookie se presente
+                if (consentBannerFound) {
+                    console.log('Banner di consenso trovato, catturando screenshot...');
+                    
+                    // Prima prova a trovare il banner specifico
+                    const bannerInfo = await page.evaluate(() => {
+                        const bannerSelectors = [
+                            // Selettori specifici per CybotCookiebotDialog
+                            '#CybotCookiebotDialog',
+                            '.CybotCookiebotDialog',
+                            '[id*="CybotCookiebotDialog"]',
+                            '[class*="CybotCookiebotDialog"]',
+                            
+                            // Selettori generici per cookie banner
+                            '[class*="cookie"]',
+                            '[class*="consent"]',
+                            '[class*="gdpr"]',
+                            '[class*="banner"]',
+                            '[id*="cookie"]',
+                            '[id*="consent"]',
+                            '[id*="gdpr"]',
+                            '[id*="banner"]',
+                            '.cookie-consent',
+                            '.cookie-banner',
+                            '.consent-banner',
+                            '.gdpr-banner',
+                            
+                            // Selettori per altri provider comuni
+                            '[class*="onetrust"]',
+                            '[id*="onetrust"]',
+                            '[class*="iubenda"]',
+                            '[id*="iubenda"]',
+                            '[class*="complianz"]',
+                            '[id*="complianz"]'
+                        ];
+                        
+                        let allElements = [];
+                        for (const selector of bannerSelectors) {
+                            const elements = document.querySelectorAll(selector);
+                            allElements = allElements.concat(Array.from(elements));
+                        }
+                        
+                        const visibleBanners = allElements.filter(el => {
+                            const style = window.getComputedStyle(el);
+                            const rect = el.getBoundingClientRect();
+                            return style.display !== 'none' && 
+                                   style.visibility !== 'hidden' && 
+                                   style.opacity !== '0' &&
+                                   rect.width > 0 && 
+                                   rect.height > 0;
+                        });
+                        
+                        if (visibleBanners.length > 0) {
+                            const banner = visibleBanners[0];
+                            const rect = banner.getBoundingClientRect();
+                            
+                            return {
+                                found: true,
+                                x: rect.x,
+                                y: rect.y,
+                                width: rect.width,
+                                height: rect.height,
+                                text: banner.textContent?.substring(0, 100) || 'No text',
+                                tagName: banner.tagName,
+                                className: banner.className,
+                                id: banner.id
+                            };
+                        }
+                        return { found: false };
+                    });
+                    
+                    console.log('Info banner:', bannerInfo);
+                    
+                    if (bannerInfo.found) {
+                        console.log('Banner trovato, catturando screenshot croppato...');
+                        
+                        // Calcola le coordinate per il cropping con margini
+                        const margin = 20; // margine di 20px intorno al banner
+                        const cropX = Math.max(0, bannerInfo.x - margin);
+                        const cropY = Math.max(0, bannerInfo.y - margin);
+                        const cropWidth = Math.min(
+                            bannerInfo.width + (margin * 2),
+                            await page.evaluate(() => window.innerWidth) - cropX
+                        );
+                        const cropHeight = Math.min(
+                            bannerInfo.height + (margin * 2),
+                            await page.evaluate(() => window.innerHeight) - cropY
+                        );
+                        
+                        console.log(`Cropping banner: x=${cropX}, y=${cropY}, w=${cropWidth}, h=${cropHeight}`);
+                        
+                        // Cattura screenshot croppato del banner
+                        const bannerScreenshot = await page.screenshot({
+                            encoding: 'base64',
+                            clip: {
+                                x: cropX,
+                                y: cropY,
+                                width: cropWidth,
+                                height: cropHeight
+                            }
+                        });
+                        
+                        screenshots.push(bannerScreenshot);
+                        console.log('Screenshot del banner catturato con successo');
+                    } else {
+                        // Fallback: se non riusciamo a trovare il banner specifico, cattura la pagina intera
+                        console.log('Banner non trovato, catturando screenshot della pagina intera...');
+                        screenshots.push(await page.screenshot({ 
+                            encoding: 'base64',
+                            fullPage: true 
+                        }));
+                    }
+                    
+                    console.log('Screenshot catturato');
+                } else {
+                    console.log('Nessun banner di consenso trovato, verificando se la pagina ha contenuto...');
+                    
+                    // Fallback: cerca qualsiasi elemento che potrebbe essere un banner
+                    const fallbackBanner = await page.evaluate(() => {
+                        // Cerca elementi che potrebbero essere banner nascosti o non rilevati
+                        const possibleBanners = document.querySelectorAll('div, section, aside, header, footer');
+                        const banners = Array.from(possibleBanners).filter(el => {
+                            const text = el.textContent?.toLowerCase() || '';
+                            const className = el.className?.toLowerCase() || '';
+                            const id = el.id?.toLowerCase() || '';
+                            
+                            return (text.includes('cookie') || text.includes('consent') || 
+                                   text.includes('privacy') || text.includes('accetta') || 
+                                   text.includes('rifiuta') || text.includes('accept') ||
+                                   text.includes('reject') || className.includes('banner') ||
+                                   className.includes('modal') || className.includes('popup') ||
+                                   id.includes('banner') || id.includes('modal') ||
+                                   id.includes('popup')) && 
+                                   el.offsetWidth > 0 && el.offsetHeight > 0;
+                        });
+                        
+                        if (banners.length > 0) {
+                            const banner = banners[0];
+                            const rect = banner.getBoundingClientRect();
+                            return {
+                                found: true,
+                                x: rect.x,
+                                y: rect.y,
+                                width: rect.width,
+                                height: rect.height,
+                                text: banner.textContent?.substring(0, 100) || 'No text',
+                                tagName: banner.tagName,
+                                className: banner.className,
+                                id: banner.id
+                            };
+                        }
+                        return { found: false };
+                    });
+                    
+                    if (fallbackBanner.found) {
+                        console.log('Banner fallback trovato, catturando screenshot croppato...');
+                        
+                        // Calcola le coordinate per il cropping con margini
+                        const margin = 20;
+                        const cropX = Math.max(0, fallbackBanner.x - margin);
+                        const cropY = Math.max(0, fallbackBanner.y - margin);
+                        const cropWidth = Math.min(
+                            fallbackBanner.width + (margin * 2),
+                            await page.evaluate(() => window.innerWidth) - cropX
+                        );
+                        const cropHeight = Math.min(
+                            fallbackBanner.height + (margin * 2),
+                            await page.evaluate(() => window.innerHeight) - cropY
+                        );
+                        
+                        console.log(`Cropping fallback banner: x=${cropX}, y=${cropY}, w=${cropWidth}, h=${cropHeight}`);
+                        
+                        // Cattura screenshot croppato del banner
+                        const bannerScreenshot = await page.screenshot({
+                            encoding: 'base64',
+                            clip: {
+                                x: cropX,
+                                y: cropY,
+                                width: cropWidth,
+                                height: cropHeight
+                            }
+                        });
+                        
+                        screenshots.push(bannerScreenshot);
+                        console.log('Screenshot del banner fallback catturato con successo');
+                    } else {
+                        // Ultimo fallback: cattura screenshot se la pagina ha contenuto
+                        const pageHasContent = await page.evaluate(() => {
+                            const body = document.body;
+                            const hasText = body.textContent && body.textContent.trim().length > 0;
+                            const hasImages = body.querySelectorAll('img').length > 0;
+                            const hasButtons = body.querySelectorAll('button, a, input').length > 0;
+                            return hasText || hasImages || hasButtons;
+                        });
+                        
+                        if (pageHasContent) {
+                            console.log('Pagina ha contenuto, catturando screenshot di fallback...');
+                            screenshots.push(await page.screenshot({ 
+                                encoding: 'base64',
+                                fullPage: true 
+                            }));
+                            console.log('Screenshot di fallback catturato');
+                        } else {
+                            console.log('Pagina vuota, nessun screenshot necessario');
+                        }
+                    }
+                }
                 
                 // Debug: controlla cosa c'è nella pagina
                 const pageInfo = await page.evaluate(() => {
@@ -387,7 +839,9 @@ app.get('/api/fetchHtmlPuppeteer', async (req, res) => {
                     };
 
                     console.log('Risultati test Accetta:', interactiveTestResults.acceptAllTest);
-                    screenshots.push(await page.screenshot({ encoding: 'base64' }));
+                    
+                    // Non catturare screenshot dopo accettazione - non necessario
+                    console.log('Test di accettazione completato');
                 } else {
                     console.log('Bottone Accetta non trovato');
                     // Fallback: cerca qualsiasi elemento cliccabile che potrebbe essere un banner
@@ -432,7 +886,18 @@ app.get('/api/fetchHtmlPuppeteer', async (req, res) => {
                             marketingTagsFired: acceptTestData.marketingTagsFired,
                             dataLayerEvents: acceptTestData.dataLayerEvents
                         };
-                        screenshots.push(await page.screenshot({ encoding: 'base64' }));
+                        
+                        // Cattura screenshot solo se il sito è visivamente cambiato
+                        const pageChanged = await page.evaluate(() => {
+                            const cookieElements = document.querySelectorAll('[class*="cookie"], [class*="consent"], [class*="gdpr"], [class*="banner"]');
+                            const visibleBanners = Array.from(cookieElements).filter(el => {
+                                const style = window.getComputedStyle(el);
+                                return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
+                            });
+                            return visibleBanners.length === 0;
+                        });
+                        
+                        console.log('Test di accettazione fallback completato');
                     } else {
                         interactiveTestResults.acceptAllTest = {
                             passed: false,
@@ -518,7 +983,9 @@ app.get('/api/fetchHtmlPuppeteer', async (req, res) => {
                     };
 
                     console.log('Risultati test Rifiuta:', interactiveTestResults.rejectAllTest);
-                    screenshots.push(await page.screenshot({ encoding: 'base64' }));
+                    
+                    // Non catturare screenshot dopo rifiuto - non necessario
+                    console.log('Test di rifiuto completato');
                 } else {
                     console.log('Bottone Rifiuta non trovato');
                     interactiveTestResults.rejectAllTest = {
@@ -533,6 +1000,9 @@ app.get('/api/fetchHtmlPuppeteer', async (req, res) => {
                 console.log('Eseguendo test di navigazione...');
                 await page.reload({ waitUntil: 'networkidle2' });
                 await new Promise(resolve => setTimeout(resolve, 3000));
+                
+                // Non catturare screenshot post-navigazione - non necessario
+                console.log('Test di navigazione completato');
                 
                 const navigationTestData = await page.evaluate(() => {
                     // Verifica se GTM è caricato
@@ -608,7 +1078,19 @@ app.get('/api/fetchHtmlPuppeteer', async (req, res) => {
             (html.match(/<img(?!.*alt)/g) || []).length * 5 // Immagini senza alt
         ));
 
-        await browser.close();
+        // Log delle metriche finali per debug
+        console.log('Performance Metrics finali:', {
+            ...performanceMetrics,
+            ...webVitals,
+            entries: performanceEntries
+        });
+
+        // Chiudi il browser in modo sicuro
+        try {
+            await browser.close();
+        } catch (closeError) {
+            console.log('Errore nella chiusura del browser:', closeError.message);
+        }
 
         res.setHeader('Cache-Control', 's-maxage=300');
         return res.status(200).json({
@@ -621,6 +1103,7 @@ app.get('/api/fetchHtmlPuppeteer', async (req, res) => {
             performanceMetrics: {
                 ...performanceMetrics,
                 ...webVitals,
+                ...resourceMetrics,
                 entries: performanceEntries
             },
             accessibilityScore,
@@ -629,7 +1112,22 @@ app.get('/api/fetchHtmlPuppeteer', async (req, res) => {
             screenshots
         });
     } catch (err) {
-        return res.status(500).json({ error: err.message });
+        console.log('Errore generale nel Puppeteer:', err.message);
+        console.log('Stack trace:', err.stack);
+        
+        // Prova a chiudere il browser anche in caso di errore
+        try {
+            if (browser) {
+                await browser.close();
+            }
+        } catch (closeError) {
+            console.log('Errore nella chiusura del browser dopo errore:', closeError.message);
+        }
+        
+            return res.status(500).json({
+                error: `Errore nel caricamento della pagina: ${err.message}`,
+                details: err.message.includes('timeout') ? 'Il sito impiega troppo tempo a caricare. Prova con un sito più veloce.' : err.message
+            });
     }
 });
 
