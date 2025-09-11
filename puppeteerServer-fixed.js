@@ -348,8 +348,12 @@ app.get('/api/fetchHtmlPuppeteer', async (req, res) => {
         
         function trackMarketing(page){
             const seen = [];
-            page.on('request', r => { if (MARKETING_HOSTS.some(rx => rx.test(r.url()))) seen.push(r.url()); });
-            return () => seen.slice();
+            const listener = r => { if (MARKETING_HOSTS.some(rx => rx.test(r.url()))) seen.push(r.url()); };
+            page.on('request', listener);
+            return {
+                get: () => seen.slice(),
+                cleanup: () => page.removeListener('request', listener)
+            };
         }
 
         async function findAndClickConsent(page, action /* 'accept' | 'reject' */) {
@@ -357,31 +361,100 @@ app.get('/api/fetchHtmlPuppeteer', async (req, res) => {
             const X_REJECT = "//button[.//text()[contains(translate(., 'CDEHILNQRSTUV', 'cdehilnqrstuv'),'rifiuta') or contains(.,'reject') or contains(.,'decline') or contains(.,'deny')]]";
             const x = action === 'accept' ? X_ACCEPT : X_REJECT;
 
+            let clicked = false;
+
             // try in known vendor iframes
             const f = page.frames().find(fr => /onetrust|iubenda|cookiebot|complianz/i.test(fr.url()));
             if (f) {
                 const btns = await f.$x(x);
-                if (btns.length) { await btns[0].click(); return true; }
+                for (const btn of btns) {
+                    const isVisible = await btn.isIntersectingViewport();
+                    const isEnabled = await btn.evaluate(el => !el.hasAttribute('disabled'));
+                    if (isVisible && isEnabled) {
+                        await btn.click();
+                        clicked = true;
+                        break;
+                    }
+                }
             }
 
-            // try in main document via XPath
-            const nodes = await page.$x(x);
-            if (nodes.length) { await nodes[0].click(); return true; }
-
-            // deep traversal across shadow roots
-            await page.evaluate((intent) => {
-                const matches = [];
-                const visit = (root) => {
-                    for (const el of root.querySelectorAll('button,[role=button],a,input[type=button]')) {
-                        const t = (el.textContent || '').toLowerCase();
-                        if (intent==='accept' ? /accett|accept|consent|agree/.test(t) : /rifiut|reject|declin|deny/.test(t)) matches.push(el);
+            if (!clicked) {
+                // try in main document via XPath
+                const nodes = await page.$x(x);
+                for (const node of nodes) {
+                    const isVisible = await node.isIntersectingViewport();
+                    const isEnabled = await node.evaluate(el => !el.hasAttribute('disabled'));
+                    if (isVisible && isEnabled) {
+                        await node.click();
+                        clicked = true;
+                        break;
                     }
-                    root.querySelectorAll('*').forEach(e => e.shadowRoot && visit(e.shadowRoot));
-                };
-                visit(document);
-                if (matches[0]) matches[0].click();
-            }, action);
-            return true; // best-effort
+                }
+            }
+
+            if (!clicked) {
+                // deep traversal across shadow roots
+                clicked = await page.evaluate((intent) => {
+                    const matches = [];
+                    const visit = (root) => {
+                        for (const el of root.querySelectorAll('button,[role=button],a,input[type=button]')) {
+                            const t = (el.textContent || '').toLowerCase();
+                            const isVisible = el.offsetWidth > 0 && el.offsetHeight > 0;
+                            const isEnabled = !el.hasAttribute('disabled');
+                            if (isVisible && isEnabled && (intent==='accept' ? /accett|accept|consent|agree/.test(t) : /rifiut|reject|declin|deny/.test(t))) {
+                                matches.push(el);
+                            }
+                        }
+                        root.querySelectorAll('*').forEach(e => e.shadowRoot && visit(e.shadowRoot));
+                    };
+                    visit(document);
+                    if (matches[0]) {
+                        matches[0].click();
+                        return true;
+                    }
+                    return false;
+                }, action);
+            }
+
+            if (clicked) {
+                // Wait up to 6s for consent propagation
+                const startTime = Date.now();
+                const maxWait = 6000;
+                
+                while (Date.now() - startTime < maxWait) {
+                    await new Promise(resolve => setTimeout(resolve, 300));
+                    
+                    // Check for new gtag consent calls
+                    const gtagCalls = await page.evaluate(() => window.__gtagCalls || []);
+                    const hasConsentUpdate = gtagCalls.some(call => 
+                        call[0] === 'consent' && call[1] === 'update'
+                    );
+                    
+                    if (hasConsentUpdate) break;
+                    
+                    // Check for CMP cookie changes
+                    const currentState = await readConsentState(page);
+                    if (currentState.cmp.vendor !== 'unknown') break;
+                    
+                    // Check for banner disappearance
+                    const bannerGone = await page.evaluate(() => {
+                        const bannerSelectors = [
+                            '#onetrust-consent-sdk', '.onetrust-pc-sdk', '.ot-pc-container',
+                            '#CybotCookiebotDialog', '.CybotCookiebotDialog',
+                            '[class*="cookie"]', '[class*="consent"]', '[class*="gdpr"]', '[class*="banner"]'
+                        ];
+                        const elements = bannerSelectors.flatMap(sel => Array.from(document.querySelectorAll(sel)));
+                        return elements.every(el => {
+                            const style = window.getComputedStyle(el);
+                            return style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0';
+                        });
+                    });
+                    
+                    if (bannerGone) break;
+                }
+            }
+
+            return clicked;
         }
 
         async function readConsentState(page){
@@ -429,7 +502,34 @@ app.get('/api/fetchHtmlPuppeteer', async (req, res) => {
 
             const cmp = parseCMP();
             const gtag = await page.evaluate(() => window.__gtagCalls || []);
-            return { cmp, gtag };
+            
+            // Extract Consent Mode v2 keys from gtag calls
+            const consentMode = {
+                ad_storage: null,
+                analytics_storage: null,
+                ad_user_data: null,
+                ad_personalization: null
+            };
+            
+            gtag.forEach(call => {
+                if (call[0] === 'consent' && call[1] === 'update' && call[2]) {
+                    const params = call[2];
+                    if (params.ad_storage) consentMode.ad_storage = params.ad_storage;
+                    if (params.analytics_storage) consentMode.analytics_storage = params.analytics_storage;
+                    if (params.ad_user_data) consentMode.ad_user_data = params.ad_user_data;
+                    if (params.ad_personalization) consentMode.ad_personalization = params.ad_personalization;
+                }
+            });
+            
+            return { cmp, gtag, consentMode };
+        }
+
+        function normalizeEvidence(evidence) {
+            return {
+                cmp: evidence.cmp || {},
+                gtagCalls: (evidence.gtagCalls || []).slice(0, 50),
+                marketingRequests: (evidence.marketingRequests || []).slice(0, 50)
+            };
         }
 
         if (multiStep) {
@@ -440,7 +540,7 @@ app.get('/api/fetchHtmlPuppeteer', async (req, res) => {
                 await instrumentPage(page);
 
                 // Start marketing tracking
-                const stopTrack = trackMarketing(page);
+                const marketingTracker = trackMarketing(page);
                 
                 // Navigate to the page
                 await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
@@ -510,20 +610,25 @@ app.get('/api/fetchHtmlPuppeteer', async (req, res) => {
                 const stateA = await readConsentState(page);
                 
                 const consentUpdated = stateA.cmp.marketingOn === true || 
-                    stateA.gtag.some(c => c[0]==='consent' && c[1]==='update' && 
-                        (c[2].ad_storage==='granted' || c[2].analytics_storage==='granted'));
-                const marketingActive = consentUpdated || stopTrack().length > 0;
+                    (stateA.consentMode.ad_storage === 'granted' || 
+                     stateA.consentMode.analytics_storage === 'granted' ||
+                     stateA.consentMode.ad_user_data === 'granted' ||
+                     stateA.consentMode.ad_personalization === 'granted');
+                const marketingActive = consentUpdated || marketingTracker.get().length > 0;
                 
                 interactiveTestResults.acceptAll = {
                     clicked: acceptClicked,
                     consentUpdated,
                     marketingActive,
-                    evidence: {
+                    evidence: normalizeEvidence({
                         cmp: stateA.cmp,
                         gtagCalls: stateA.gtag,
-                        marketingRequests: stopTrack()
-                    }
+                        marketingRequests: marketingTracker.get()
+                    })
                 };
+                
+                // Clean up marketing tracker
+                marketingTracker.cleanup();
                 
                 // Test 2: Reject All
                 console.log('Eseguendo test Reject All...');
@@ -532,28 +637,40 @@ app.get('/api/fetchHtmlPuppeteer', async (req, res) => {
                 await page.reload({ waitUntil: 'networkidle0' });
                 const stateR = await readConsentState(page);
                 
-                const consentDenied = stateR.cmp.marketingOn === false || 
-                    stateR.gtag.some(c => c[0]==='consent' && c[1]==='update' && 
-                        (c[2].ad_storage==='denied' || c[2].analytics_storage==='denied'));
-                const marketingBlocked = consentDenied && stopTrack().length === 0;
+                const consentDenied = (stateR.consentMode.ad_storage === 'denied' || 
+                                      stateR.consentMode.analytics_storage === 'denied' ||
+                                      stateR.consentMode.ad_user_data === 'denied' ||
+                                      stateR.consentMode.ad_personalization === 'denied') &&
+                                     (stateR.cmp.vendor === 'unknown' || stateR.cmp.marketingOn === false);
+                const marketingBlocked = consentDenied && marketingTracker.get().length === 0;
                 
                 interactiveTestResults.rejectAll = {
                     clicked: rejectClicked,
                     marketingBlocked,
                     consentDenied,
-                    evidence: {
+                    evidence: normalizeEvidence({
                         cmp: stateR.cmp,
                         gtagCalls: stateR.gtag,
-                        marketingRequests: stopTrack()
-                    }
+                        marketingRequests: marketingTracker.get()
+                    })
                 };
+                
+                // Clean up marketing tracker
+                marketingTracker.cleanup();
                 
                 // Test 3: Navigation persistence
                 console.log('Eseguendo test Navigation...');
-                // Navigate to another path on same domain or reload
+                
+                // Reload to ensure consent state is persisted
+                await page.reload({ waitUntil: 'networkidle0' });
+                
+                // Navigate to another path on same domain
                 const currentUrl = new URL(targetUrl);
-                const testPath = currentUrl.pathname === '/' ? '/test' : currentUrl.pathname + '/test';
+                const testPath = currentUrl.pathname === '/' ? '/?cmp-check=1' : currentUrl.pathname + '/?cmp-check=1';
                 const testUrl = currentUrl.origin + testPath;
+                
+                // Instrument page before navigation
+                await instrumentPage(page);
                 
                 try {
                     await page.goto(testUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
@@ -565,18 +682,43 @@ app.get('/api/fetchHtmlPuppeteer', async (req, res) => {
                 const gtmLoaded = await page.evaluate(() => 
                     !!(window.gtag || window.google_tag_manager || window.dataLayer?.length));
                 const stateN = await readConsentState(page);
-                const consentPersistent = stateN.cmp.vendor !== 'unknown' && 
-                    (stateN.cmp.marketingOn !== null || stateN.gtag.length > 0);
+                
+                // Compare with accept/reject outcome to determine persistence
+                const acceptOutcome = interactiveTestResults.acceptAll.consentUpdated;
+                const rejectOutcome = interactiveTestResults.rejectAll.consentDenied;
+                
+                let consentPersistent = false;
+                if (acceptOutcome) {
+                    // If accept worked, check if consent is still granted
+                    consentPersistent = stateN.cmp.marketingOn === true || 
+                        (stateN.consentMode.ad_storage === 'granted' || 
+                         stateN.consentMode.analytics_storage === 'granted' ||
+                         stateN.consentMode.ad_user_data === 'granted' ||
+                         stateN.consentMode.ad_personalization === 'granted');
+                } else if (rejectOutcome) {
+                    // If reject worked, check if consent is still denied
+                    consentPersistent = (stateN.consentMode.ad_storage === 'denied' || 
+                                        stateN.consentMode.analytics_storage === 'denied' ||
+                                        stateN.consentMode.ad_user_data === 'denied' ||
+                                        stateN.consentMode.ad_personalization === 'denied') &&
+                                       (stateN.cmp.vendor === 'unknown' || stateN.cmp.marketingOn === false);
+                } else {
+                    // If neither worked, check if there's any consent state at all
+                    consentPersistent = stateN.cmp.vendor !== 'unknown' || stateN.gtag.length > 0;
+                }
                 
                 interactiveTestResults.navigation = {
                     gtmLoaded,
                     consentPersistent,
-                    evidence: {
+                    evidence: normalizeEvidence({
                         cmp: stateN.cmp,
                         gtagCalls: stateN.gtag,
-                        marketingRequests: stopTrack()
-                    }
+                        marketingRequests: marketingTracker.get()
+                    })
                 };
+                
+                // Clean up marketing tracker
+                marketingTracker.cleanup();
                 
                 // Update the main interactiveTestResults structure
                 interactiveTestResults = {
@@ -595,18 +737,18 @@ app.get('/api/fetchHtmlPuppeteer', async (req, res) => {
                             clicked: false,
                             consentUpdated: false,
                             marketingActive: false,
-                            evidence: { cmp: {}, gtagCalls: [], marketingRequests: [] }
+                            evidence: normalizeEvidence({ cmp: {}, gtagCalls: [], marketingRequests: [] })
                         },
                         rejectAll: {
                             clicked: false,
                             marketingBlocked: false,
                             consentDenied: false,
-                            evidence: { cmp: {}, gtagCalls: [], marketingRequests: [] }
+                            evidence: normalizeEvidence({ cmp: {}, gtagCalls: [], marketingRequests: [] })
                         },
                         navigation: {
                             gtmLoaded: false,
                             consentPersistent: false,
-                            evidence: { cmp: {}, gtagCalls: [], marketingRequests: [] }
+                            evidence: normalizeEvidence({ cmp: {}, gtagCalls: [], marketingRequests: [] })
                         }
                     }
                 };

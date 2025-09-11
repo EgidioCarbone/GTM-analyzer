@@ -496,22 +496,55 @@ function generateTechnicalSummary(params: {
 
   // Interactive Tests
   lines.push("#### 🧪 Test Interattivi");
-  if (interactiveTestResults?.interactive?.acceptAll?.clicked && interactiveTestResults?.interactive?.acceptAll?.consentUpdated) {
-    lines.push("✅ **Test 'Accetta Tutti'**: Superato");
+  
+  // Accept All Test
+  const acceptTest = interactiveTestResults?.interactive?.acceptAll;
+  if (acceptTest) {
+    const hasClicked = typeof acceptTest.clicked === 'boolean';
+    const hasConsentUpdated = typeof acceptTest.consentUpdated === 'boolean';
+    
+    if (!hasClicked || !hasConsentUpdated) {
+      lines.push("⚠️ **Test 'Accetta Tutti'**: Avviso (dati mancanti)");
+    } else if (acceptTest.clicked && acceptTest.consentUpdated) {
+      lines.push("✅ **Test 'Accetta Tutti'**: Superato");
+    } else {
+      lines.push("❌ **Test 'Accetta Tutti'**: Fallito");
+    }
   } else {
-    lines.push("❌ **Test 'Accetta Tutti'**: Fallito");
+    lines.push("❌ **Test 'Accetta Tutti'**: Non disponibile");
   }
   
-  if (interactiveTestResults?.interactive?.rejectAll?.clicked && interactiveTestResults?.interactive?.rejectAll?.consentDenied) {
-    lines.push("✅ **Test 'Rifiuta Tutti'**: Superato");
+  // Reject All Test
+  const rejectTest = interactiveTestResults?.interactive?.rejectAll;
+  if (rejectTest) {
+    const hasClicked = typeof rejectTest.clicked === 'boolean';
+    const hasConsentDenied = typeof rejectTest.consentDenied === 'boolean';
+    
+    if (!hasClicked || !hasConsentDenied) {
+      lines.push("⚠️ **Test 'Rifiuta Tutti'**: Avviso (dati mancanti)");
+    } else if (rejectTest.clicked && rejectTest.consentDenied) {
+      lines.push("✅ **Test 'Rifiuta Tutti'**: Superato");
+    } else {
+      lines.push("❌ **Test 'Rifiuta Tutti'**: Fallito");
+    }
   } else {
-    lines.push("❌ **Test 'Rifiuta Tutti'**: Fallito");
+    lines.push("❌ **Test 'Rifiuta Tutti'**: Non disponibile");
   }
   
-  if (interactiveTestResults?.interactive?.navigation?.consentPersistent) {
-    lines.push("✅ **Test Navigazione**: Superato");
+  // Navigation Test
+  const navTest = interactiveTestResults?.interactive?.navigation;
+  if (navTest) {
+    const hasConsentPersistent = typeof navTest.consentPersistent === 'boolean';
+    
+    if (!hasConsentPersistent) {
+      lines.push("⚠️ **Test Navigazione**: Avviso (dati mancanti)");
+    } else if (navTest.consentPersistent) {
+      lines.push("✅ **Test Navigazione**: Superato");
+    } else {
+      lines.push("❌ **Test Navigazione**: Fallito");
+    }
   } else {
-    lines.push("❌ **Test Navigazione**: Fallito");
+    lines.push("❌ **Test Navigazione**: Non disponibile");
   }
   lines.push("");
 

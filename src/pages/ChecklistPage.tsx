@@ -533,15 +533,30 @@ export default function ChecklistPage() {
                         <h4 className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-2">
                           ✅ Test "Accetta Tutti"
                         </h4>
-                        <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                          result.extra.interactiveTestResults.interactive.acceptAll.clicked && 
-                          result.extra.interactiveTestResults.interactive.acceptAll.consentUpdated
-                            ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                            : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
-                        }`}>
-                          {result.extra.interactiveTestResults.interactive.acceptAll.clicked && 
-                           result.extra.interactiveTestResults.interactive.acceptAll.consentUpdated ? 'SUPERATO' : 'FALLITO'}
-                        </span>
+                        {(() => {
+                          const test = result.extra.interactiveTestResults.interactive.acceptAll;
+                          const hasClicked = typeof test.clicked === 'boolean';
+                          const hasConsentUpdated = typeof test.consentUpdated === 'boolean';
+                          
+                          if (!hasClicked || !hasConsentUpdated) {
+                            return (
+                              <span className="px-3 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200">
+                                AVVISO
+                              </span>
+                            );
+                          }
+                          
+                          const passed = test.clicked && test.consentUpdated;
+                          return (
+                            <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                              passed
+                                ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                                : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
+                            }`}>
+                              {passed ? 'SUPERATO' : 'FALLITO'}
+                            </span>
+                          );
+                        })()}
                       </div>
                       <div className="space-y-2 text-xs text-gray-600 dark:text-gray-300">
                         <div className="flex items-center gap-2">
@@ -572,15 +587,30 @@ export default function ChecklistPage() {
                         <h4 className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-2">
                           ❌ Test "Rifiuta Tutti"
                         </h4>
-                        <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                          result.extra.interactiveTestResults.interactive.rejectAll.clicked && 
-                          result.extra.interactiveTestResults.interactive.rejectAll.consentDenied
-                            ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                            : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
-                        }`}>
-                          {result.extra.interactiveTestResults.interactive.rejectAll.clicked && 
-                           result.extra.interactiveTestResults.interactive.rejectAll.consentDenied ? 'SUPERATO' : 'FALLITO'}
-                        </span>
+                        {(() => {
+                          const test = result.extra.interactiveTestResults.interactive.rejectAll;
+                          const hasClicked = typeof test.clicked === 'boolean';
+                          const hasConsentDenied = typeof test.consentDenied === 'boolean';
+                          
+                          if (!hasClicked || !hasConsentDenied) {
+                            return (
+                              <span className="px-3 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200">
+                                AVVISO
+                              </span>
+                            );
+                          }
+                          
+                          const passed = test.clicked && test.consentDenied;
+                          return (
+                            <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                              passed
+                                ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                                : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
+                            }`}>
+                              {passed ? 'SUPERATO' : 'FALLITO'}
+                            </span>
+                          );
+                        })()}
                       </div>
                       <div className="space-y-2 text-xs text-gray-600 dark:text-gray-300">
                         <div className="flex items-center gap-2">
@@ -611,13 +641,29 @@ export default function ChecklistPage() {
                         <h4 className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-2">
                           🔄 Test Navigazione
                         </h4>
-                        <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                          result.extra.interactiveTestResults.interactive.navigation.consentPersistent
-                            ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                            : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
-                        }`}>
-                          {result.extra.interactiveTestResults.interactive.navigation.consentPersistent ? 'SUPERATO' : 'FALLITO'}
-                        </span>
+                        {(() => {
+                          const test = result.extra.interactiveTestResults.interactive.navigation;
+                          const hasConsentPersistent = typeof test.consentPersistent === 'boolean';
+                          
+                          if (!hasConsentPersistent) {
+                            return (
+                              <span className="px-3 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200">
+                                AVVISO
+                              </span>
+                            );
+                          }
+                          
+                          const passed = test.consentPersistent;
+                          return (
+                            <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                              passed
+                                ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                                : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
+                            }`}>
+                              {passed ? 'SUPERATO' : 'FALLITO'}
+                            </span>
+                          );
+                        })()}
                       </div>
                       <div className="space-y-2 text-xs text-gray-600 dark:text-gray-300">
                         <div className="flex items-center gap-2">
