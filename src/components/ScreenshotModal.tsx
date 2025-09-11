@@ -45,7 +45,7 @@ export default function ScreenshotModal({
             {/* Header */}
             <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                {screenshots.length === 1 ? 'Banner dei Cookie' : `Screenshot ${currentIndex + 1} di ${screenshots.length}`}
+                {screenshots.length === 1 ? '🍪 Banner dei Cookie' : `Screenshot ${currentIndex + 1} di ${screenshots.length}`}
               </h3>
               <button
                 onClick={onClose}
@@ -60,7 +60,7 @@ export default function ScreenshotModal({
               <div className="relative max-h-[70vh] overflow-hidden rounded-lg">
                 <img
                   src={`data:image/png;base64,${currentScreenshot}`}
-                  alt={`Screenshot ${currentIndex + 1}`}
+                  alt={screenshots.length === 1 ? '🍪 Banner dei Cookie' : `Screenshot ${currentIndex + 1}`}
                   className="w-full h-auto max-h-[70vh] object-contain mx-auto"
                   onError={(e) => {
                     const target = e.target as HTMLImageElement;
@@ -115,7 +115,7 @@ export default function ScreenshotModal({
                     >
                       <img
                         src={`data:image/png;base64,${screenshot}`}
-                        alt={`Thumbnail ${index + 1}`}
+                        alt={screenshots.length === 1 ? '🍪 Banner dei Cookie' : `Thumbnail ${index + 1}`}
                         className="w-full h-full object-cover"
                       />
                     </button>

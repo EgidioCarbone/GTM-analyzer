@@ -611,7 +611,7 @@ export default function ChecklistPage() {
             {result.extra?.screenshots && result.extra.screenshots.length > 0 && (
               <div className="rounded-xl bg-white/60 p-6 shadow-inner backdrop-blur-md dark:bg-gray-900/40">
                 <h3 className="mb-4 text-lg font-medium">
-                  {result.extra.screenshots.length === 1 ? 'Banner dei Cookie' : 'Screenshots'}
+                  {result.extra.screenshots.length === 1 ? '🍪 Banner dei Cookie' : 'Screenshots'}
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {result.extra.screenshots.map((screenshot, index) => (
@@ -619,7 +619,7 @@ export default function ChecklistPage() {
                       <div className="relative overflow-hidden rounded-lg border border-gray-300 dark:border-gray-600 group-hover:border-blue-500 dark:group-hover:border-blue-400 transition-colors">
                         <img
                           src={`data:image/png;base64,${screenshot}`}
-                          alt={result.extra.screenshots.length === 1 ? 'Banner dei Cookie' : `Screenshot ${index + 1}`}
+                          alt={result.extra.screenshots.length === 1 ? '🍪 Banner dei Cookie' : `Screenshot ${index + 1}`}
                           className="w-full h-32 object-cover transition-transform group-hover:scale-105"
                           onError={(e) => {
                             const target = e.target as HTMLImageElement;
@@ -645,7 +645,7 @@ export default function ChecklistPage() {
                         </div>
                       </div>
                       <p className="text-xs text-gray-600 dark:text-gray-300 mt-2">
-                        {result.extra.screenshots.length === 1 ? 'Banner dei Cookie' : `Screenshot ${index + 1}`}
+                        {result.extra.screenshots.length === 1 ? '🍪 Banner dei Cookie' : `Screenshot ${index + 1}`}
                       </p>
                     </div>
                   ))}
