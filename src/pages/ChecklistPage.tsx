@@ -524,6 +524,13 @@ export default function ChecklistPage() {
               <h3 className="mb-4 text-lg font-medium">🧪 Test Interattivi</h3>
               <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
                 Questi test verificano automaticamente il funzionamento del sistema di consenso cookie
+                {(() => {
+                  const interactive = result.extra?.interactive ?? result.extra?.interactiveTestResults?.interactive;
+                  const vendor = interactive?.acceptAll?.evidence?.vendor || 
+                               interactive?.rejectAll?.evidence?.vendor || 
+                               interactive?.navigation?.evidence?.vendor;
+                  return vendor ? ` • CMP rilevato: ${vendor}` : '';
+                })()}
               </p>
               
               {(() => {

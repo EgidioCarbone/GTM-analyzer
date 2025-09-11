@@ -357,43 +357,98 @@ app.get('/api/fetchHtmlPuppeteer', async (req, res) => {
         }
 
         async function findAndClickConsent(page, action /* 'accept' | 'reject' */) {
-            const X_ACCEPT = "//button[.//text()[contains(translate(., 'ACEILNOPRSTUV', 'aceilnoprstuv'),'accept') or contains(.,'Accetta') or contains(.,'Consenti') or contains(.,'Agree')]]";
-            const X_REJECT = "//button[.//text()[contains(translate(., 'CDEHILNQRSTUV', 'cdehilnqrstuv'),'rifiuta') or contains(.,'reject') or contains(.,'decline') or contains(.,'deny')]]";
-            const x = action === 'accept' ? X_ACCEPT : X_REJECT;
+            // Vendor-specific selectors
+            const VENDOR_SELECTORS = {
+                accept: [
+                    // OneTrust
+                    '#onetrust-accept-btn-handler', 'button#onetrust-accept-btn-handler',
+                    // Cookiebot
+                    '#CybotCookiebotDialogBodyButtonAccept',
+                    // Usercentrics v2/v3
+                    'button[data-testid="uc-accept-all-button"]', 'button[id^="uc-center-modal-accept-all"]',
+                    // Didomi
+                    'button[mode="accept"]', 'button[data-action="accept"]',
+                    // TrustArc
+                    'button[data-accept="all"]', 'button[data-accept="true"]'
+                ],
+                reject: [
+                    // OneTrust
+                    '#onetrust-reject-all-handler', 'button#onetrust-reject-all-handler',
+                    // Cookiebot
+                    '#CybotCookiebotDialogBodyButtonDecline',
+                    // Usercentrics v2/v3
+                    'button[data-testid="uc-reject-all-button"]', 'button[id^="uc-center-modal-reject-all"]',
+                    // Didomi
+                    'button[mode="deny"]', 'button[data-action="deny"]',
+                    // TrustArc
+                    'button[data-reject="all"]', 'button[data-reject="true"]'
+                ]
+            };
 
+            // Generic XPath selectors
+            const X_ACCEPT = "//button[contains(translate(., 'ACEIPTRFNO', 'aceiptrfno'), 'accept') or contains(., 'Accetta') or contains(., 'I agree') or contains(., 'Consenti')]";
+            const X_REJECT = "//button[contains(translate(., 'DENYRIFIUTA', 'denyrifiuta'), 'deny') or contains(., 'Rifiuta') or contains(., 'Reject') or contains(., 'Decline')]";
+            
+            const selectors = action === 'accept' ? VENDOR_SELECTORS.accept : VENDOR_SELECTORS.reject;
+            const xpath = action === 'accept' ? X_ACCEPT : X_REJECT;
             let clicked = false;
 
-            // try in known vendor iframes
-            const f = page.frames().find(fr => /onetrust|iubenda|cookiebot|complianz/i.test(fr.url()));
-            if (f) {
-                const btns = await f.$x(x);
-                for (const btn of btns) {
-                    const isVisible = await btn.isIntersectingViewport();
-                    const isEnabled = await btn.evaluate(el => !el.hasAttribute('disabled'));
-                    if (isVisible && isEnabled) {
-                        await btn.click();
-                        clicked = true;
-                        break;
+            // Search across all frames
+            const frames = [page, ...page.frames()];
+            
+            for (const frame of frames) {
+                if (clicked) break;
+                
+                try {
+                    // Try vendor-specific selectors first
+                    for (const selector of selectors) {
+                        try {
+                            const elements = await frame.$$(selector);
+                            for (const element of elements) {
+                                const isVisible = await element.isIntersectingViewport();
+                                const isEnabled = await element.evaluate(el => !el.hasAttribute('disabled'));
+                                const boundingBox = await element.boundingBox();
+                                
+                                if (isVisible && isEnabled && boundingBox) {
+                                    await element.click();
+                                    clicked = true;
+                                    console.log(`Clicked ${action} button via selector: ${selector}`);
+                                    break;
+                                }
+                            }
+                            if (clicked) break;
+                        } catch (e) {
+                            // Continue to next selector
+                        }
                     }
+                    
+                    // Try XPath if vendor selectors didn't work
+                    if (!clicked) {
+                        try {
+                            const elements = await frame.$x(xpath);
+                            for (const element of elements) {
+                                const isVisible = await element.isIntersectingViewport();
+                                const isEnabled = await element.evaluate(el => !el.hasAttribute('disabled'));
+                                const boundingBox = await element.boundingBox();
+                                
+                                if (isVisible && isEnabled && boundingBox) {
+                                    await element.click();
+                                    clicked = true;
+                                    console.log(`Clicked ${action} button via XPath`);
+                                    break;
+                                }
+                            }
+                        } catch (e) {
+                            // Continue to next frame
+                        }
+                    }
+                } catch (e) {
+                    // Frame might be inaccessible, continue
                 }
             }
 
+            // Deep traversal across shadow roots in main document
             if (!clicked) {
-                // try in main document via XPath
-                const nodes = await page.$x(x);
-                for (const node of nodes) {
-                    const isVisible = await node.isIntersectingViewport();
-                    const isEnabled = await node.evaluate(el => !el.hasAttribute('disabled'));
-                    if (isVisible && isEnabled) {
-                        await node.click();
-                        clicked = true;
-                        break;
-                    }
-                }
-            }
-
-            if (!clicked) {
-                // deep traversal across shadow roots
                 clicked = await page.evaluate((intent) => {
                     const matches = [];
                     const visit = (root) => {
@@ -417,44 +472,57 @@ app.get('/api/fetchHtmlPuppeteer', async (req, res) => {
             }
 
             if (clicked) {
-                // Wait up to 6s for consent propagation
-                const startTime = Date.now();
-                const maxWait = 6000;
-                
-                while (Date.now() - startTime < maxWait) {
-                    await new Promise(resolve => setTimeout(resolve, 300));
-                    
-                    // Check for new gtag consent calls
-                    const gtagCalls = await page.evaluate(() => window.__gtagCalls || []);
-                    const hasConsentUpdate = gtagCalls.some(call => 
-                        call[0] === 'consent' && call[1] === 'update'
-                    );
-                    
-                    if (hasConsentUpdate) break;
-                    
-                    // Check for CMP cookie changes
-                    const currentState = await readConsentState(page);
-                    if (currentState.cmp.vendor !== 'unknown') break;
-                    
-                    // Check for banner disappearance
-                    const bannerGone = await page.evaluate(() => {
-                        const bannerSelectors = [
-                            '#onetrust-consent-sdk', '.onetrust-pc-sdk', '.ot-pc-container',
-                            '#CybotCookiebotDialog', '.CybotCookiebotDialog',
-                            '[class*="cookie"]', '[class*="consent"]', '[class*="gdpr"]', '[class*="banner"]'
-                        ];
-                        const elements = bannerSelectors.flatMap(sel => Array.from(document.querySelectorAll(sel)));
-                        return elements.every(el => {
-                            const style = window.getComputedStyle(el);
-                            return style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0';
-                        });
-                    });
-                    
-                    if (bannerGone) break;
-                }
+                await waitForConsentChange(page);
             }
 
             return clicked;
+        }
+
+        async function waitForConsentChange(page) {
+            const startTime = Date.now();
+            const maxWait = 10000; // 10 seconds
+            
+            while (Date.now() - startTime < maxWait) {
+                await new Promise(resolve => setTimeout(resolve, 300));
+                
+                // Check for new gtag consent calls
+                const gtagCalls = await page.evaluate(() => window.__gtagCalls || []);
+                const hasConsentUpdate = gtagCalls.some(call => 
+                    call[0] === 'consent' && call[1] === 'update'
+                );
+                
+                if (hasConsentUpdate) {
+                    console.log('Consent change detected via gtag');
+                    break;
+                }
+                
+                // Check for CMP cookie changes
+                const currentState = await readConsentState(page);
+                if (currentState.vendor !== null && currentState.vendor !== 'unknown') {
+                    console.log(`Consent change detected via CMP: ${currentState.vendor}`);
+                    break;
+                }
+                
+                // Check for banner disappearance
+                const bannerGone = await page.evaluate(() => {
+                    const bannerSelectors = [
+                        '#onetrust-consent-sdk', '.onetrust-pc-sdk', '.ot-pc-container',
+                        '#CybotCookiebotDialog', '.CybotCookiebotDialog',
+                        '[class*="cookie"]', '[class*="consent"]', '[class*="gdpr"]', '[class*="banner"]',
+                        '[class*="usercentrics"]', '[class*="trustarc"]', '[class*="didomi"]'
+                    ];
+                    const elements = bannerSelectors.flatMap(sel => Array.from(document.querySelectorAll(sel)));
+                    return elements.every(el => {
+                        const style = window.getComputedStyle(el);
+                        return style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0';
+                    });
+                });
+                
+                if (bannerGone) {
+                    console.log('Banner disappeared');
+                    break;
+                }
+            }
         }
 
         async function readConsentState(page){
@@ -467,37 +535,81 @@ app.get('/api/fetchHtmlPuppeteer', async (req, res) => {
 
             function parseCMP(){
                 const byName = Object.fromEntries(cookies.map(c => [c.name, c.value]));
+                
                 // OneTrust
                 if (byName.OptanonConsent) {
                     const v = decodeURIComponent(byName.OptanonConsent);
                     const groups = (v.match(/groups=([^;]+)/) || [])[1] || '';
                     const mkOn = /C0004:1|marketing:1|adv:1/i.test(groups);
-                    return { vendor: 'OneTrust', marketingOn: mkOn, raw: { cookie: v } };
+                    return { vendor: 'onetrust', marketingOn: mkOn, raw: { cookie: v } };
                 }
+                
+                // Cookiebot
+                if (byName.CookieConsent) {
+                    try {
+                        const obj = JSON.parse(decodeURIComponent(byName.CookieConsent));
+                        const mkOn = !!obj.marketing;
+                        return { vendor: 'cookiebot', marketingOn: mkOn, raw: { cookie: obj } };
+                    } catch {}
+                }
+                
+                // Usercentrics v2
+                if (local.uc_settings) {
+                    try {
+                        const settings = JSON.parse(local.uc_settings);
+                        const userInteraction = local.uc_user_interaction === 'true';
+                        const marketingOn = userInteraction && settings.purposes && 
+                            (settings.purposes.advertising || settings.purposes.marketing);
+                        return { vendor: 'usercentrics', marketingOn, raw: { localStorage: local } };
+                    } catch {}
+                }
+                
+                // Usercentrics v3
+                if (local.ucData || local.ucString) {
+                    try {
+                        const data = JSON.parse(local.ucData || local.ucString);
+                        const marketingOn = data.purposes && 
+                            (data.purposes.advertising || data.purposes.marketing);
+                        return { vendor: 'usercentrics', marketingOn, raw: { localStorage: local } };
+                    } catch {}
+                }
+                
+                // TrustArc
+                if (byName.notice_gdpr_prefs || byName.notice_preferences || byName.consentUUID || 
+                    byName.cmapi_cookie_privacy || byName.cmapi_gtm_bl) {
+                    const marketingOn = byName.notice_gdpr_prefs ? 
+                        /advertising.*true|marketing.*true/i.test(byName.notice_gdpr_prefs) :
+                        byName.notice_preferences ? 
+                        /advertising.*true|marketing.*true/i.test(byName.notice_preferences) : null;
+                    return { vendor: 'trustarc', marketingOn, raw: { cookies: byName } };
+                }
+                
+                // Didomi
+                if (byName.didomi_token || byName['euconsent-v2'] || 
+                    Object.keys(local).some(k => k.startsWith('didomi'))) {
+                    const marketingOn = byName.didomi_token ? 
+                        /advertising.*true|marketing.*true/i.test(byName.didomi_token) : null;
+                    return { vendor: 'didomi', marketingOn, raw: { cookies: byName, localStorage: local } };
+                }
+                
                 // Iubenda
                 const iubKey = Object.keys(byName).find(k => /^_iub_cs-/.test(k));
                 if (iubKey) {
                     try {
                         const obj = JSON.parse(decodeURIComponent(byName[iubKey]));
                         const mkOn = !!(obj.purposesConsent && (obj.purposesConsent['4'] || obj.purposesConsent['5']));
-                        return { vendor: 'Iubenda', marketingOn: mkOn, raw: { cookie: obj } };
+                        return { vendor: 'iubenda', marketingOn: mkOn, raw: { cookie: obj } };
                     } catch {}
                 }
-                // Cookiebot
-                if (byName.CookieConsent) {
-                    try {
-                        const obj = JSON.parse(decodeURIComponent(byName.CookieConsent));
-                        const mkOn = !!obj.marketing;
-                        return { vendor: 'Cookiebot', marketingOn: mkOn, raw: { cookie: obj } };
-                    } catch {}
-                }
+                
                 // Complianz
                 const cmplz = Object.keys(byName).filter(k => /^cmplz_/.test(k));
                 if (cmplz.length) {
                     const mkOn = byName.cmplz_marketing === 'allow' || byName.cmplz_marketing === '1';
-                    return { vendor: 'Complianz', marketingOn: mkOn, raw: { cookie: byName } };
+                    return { vendor: 'complianz', marketingOn: mkOn, raw: { cookies: byName } };
                 }
-                return { vendor: 'unknown', marketingOn: null, raw: { cookies } };
+                
+                return { vendor: null, marketingOn: null, raw: { cookies: byName, localStorage: local } };
             }
 
             const cmp = parseCMP();
@@ -521,12 +633,31 @@ app.get('/api/fetchHtmlPuppeteer', async (req, res) => {
                 }
             });
             
-            return { cmp, gtag, consentMode };
+            // Determine if consent was updated
+            const consentUpdated = 
+                consentMode.ad_storage === 'granted' || 
+                consentMode.analytics_storage === 'granted' ||
+                consentMode.ad_user_data === 'granted' || 
+                consentMode.ad_personalization === 'granted' ||
+                (cmp.vendor && cmp.marketingOn !== null);
+            
+            return { 
+                vendor: cmp.vendor, 
+                marketingOn: cmp.marketingOn, 
+                consentUpdated,
+                ad_storage: consentMode.ad_storage,
+                analytics_storage: consentMode.analytics_storage,
+                ad_user_data: consentMode.ad_user_data,
+                ad_personalization: consentMode.ad_personalization,
+                gtag, 
+                raw: cmp.raw 
+            };
         }
 
         function normalizeEvidence(evidence) {
             return {
-                cmp: evidence.cmp || {},
+                vendor: evidence.vendor || null,
+                marketingOn: evidence.marketingOn || null,
                 gtagCalls: (evidence.gtagCalls || []).slice(0, 50),
                 marketingRequests: (evidence.marketingRequests || []).slice(0, 50)
             };
@@ -549,11 +680,11 @@ app.get('/api/fetchHtmlPuppeteer', async (req, res) => {
                 let bannerFound = false;
                 let waitTime = 0;
                 const maxWaitTime = 8000;
-                
+
                 while (waitTime < maxWaitTime && !bannerFound) {
                     await new Promise(resolve => setTimeout(resolve, 1000));
                     waitTime += 1000;
-                    
+
                     bannerFound = await page.evaluate(() => {
                         // Check for known vendor frames
                         const frames = document.querySelectorAll('iframe');
@@ -606,14 +737,13 @@ app.get('/api/fetchHtmlPuppeteer', async (req, res) => {
                 console.log('Eseguendo test Accept All...');
                 const acceptClicked = await findAndClickConsent(page, 'accept');
                 await page.waitForTimeout(1500);
+                
+                // Instrument page before reload
+                await instrumentPage(page);
                 await page.reload({ waitUntil: 'networkidle0' });
                 const stateA = await readConsentState(page);
                 
-                const consentUpdated = stateA.cmp.marketingOn === true || 
-                    (stateA.consentMode.ad_storage === 'granted' || 
-                     stateA.consentMode.analytics_storage === 'granted' ||
-                     stateA.consentMode.ad_user_data === 'granted' ||
-                     stateA.consentMode.ad_personalization === 'granted');
+                const consentUpdated = stateA.consentUpdated;
                 const marketingActive = consentUpdated || marketingTracker.get().length > 0;
                 
                 interactiveTestResults.acceptAll = {
@@ -621,7 +751,8 @@ app.get('/api/fetchHtmlPuppeteer', async (req, res) => {
                     consentUpdated,
                     marketingActive,
                     evidence: normalizeEvidence({
-                        cmp: stateA.cmp,
+                        vendor: stateA.vendor,
+                        marketingOn: stateA.marketingOn,
                         gtagCalls: stateA.gtag,
                         marketingRequests: marketingTracker.get()
                     })
@@ -634,14 +765,17 @@ app.get('/api/fetchHtmlPuppeteer', async (req, res) => {
                 console.log('Eseguendo test Reject All...');
                 const rejectClicked = await findAndClickConsent(page, 'reject');
                 await page.waitForTimeout(1500);
+                
+                // Instrument page before reload
+                await instrumentPage(page);
                 await page.reload({ waitUntil: 'networkidle0' });
                 const stateR = await readConsentState(page);
                 
-                const consentDenied = (stateR.consentMode.ad_storage === 'denied' || 
-                                      stateR.consentMode.analytics_storage === 'denied' ||
-                                      stateR.consentMode.ad_user_data === 'denied' ||
-                                      stateR.consentMode.ad_personalization === 'denied') &&
-                                     (stateR.cmp.vendor === 'unknown' || stateR.cmp.marketingOn === false);
+                const consentDenied = (stateR.ad_storage === 'denied' || 
+                                      stateR.analytics_storage === 'denied' ||
+                                      stateR.ad_user_data === 'denied' ||
+                                      stateR.ad_personalization === 'denied') ||
+                                     (stateR.vendor && stateR.marketingOn === false);
                 const marketingBlocked = consentDenied && marketingTracker.get().length === 0;
                 
                 interactiveTestResults.rejectAll = {
@@ -649,7 +783,8 @@ app.get('/api/fetchHtmlPuppeteer', async (req, res) => {
                     marketingBlocked,
                     consentDenied,
                     evidence: normalizeEvidence({
-                        cmp: stateR.cmp,
+                        vendor: stateR.vendor,
+                        marketingOn: stateR.marketingOn,
                         gtagCalls: stateR.gtag,
                         marketingRequests: marketingTracker.get()
                     })
@@ -662,6 +797,7 @@ app.get('/api/fetchHtmlPuppeteer', async (req, res) => {
                 console.log('Eseguendo test Navigation...');
                 
                 // Reload to ensure consent state is persisted
+                await instrumentPage(page);
                 await page.reload({ waitUntil: 'networkidle0' });
                 
                 // Navigate to another path on same domain
@@ -690,28 +826,25 @@ app.get('/api/fetchHtmlPuppeteer', async (req, res) => {
                 let consentPersistent = false;
                 if (acceptOutcome) {
                     // If accept worked, check if consent is still granted
-                    consentPersistent = stateN.cmp.marketingOn === true || 
-                        (stateN.consentMode.ad_storage === 'granted' || 
-                         stateN.consentMode.analytics_storage === 'granted' ||
-                         stateN.consentMode.ad_user_data === 'granted' ||
-                         stateN.consentMode.ad_personalization === 'granted');
+                    consentPersistent = stateN.consentUpdated;
                 } else if (rejectOutcome) {
                     // If reject worked, check if consent is still denied
-                    consentPersistent = (stateN.consentMode.ad_storage === 'denied' || 
-                                        stateN.consentMode.analytics_storage === 'denied' ||
-                                        stateN.consentMode.ad_user_data === 'denied' ||
-                                        stateN.consentMode.ad_personalization === 'denied') &&
-                                       (stateN.cmp.vendor === 'unknown' || stateN.cmp.marketingOn === false);
+                    consentPersistent = (stateN.ad_storage === 'denied' || 
+                                        stateN.analytics_storage === 'denied' ||
+                                        stateN.ad_user_data === 'denied' ||
+                                        stateN.ad_personalization === 'denied') ||
+                                       (stateN.vendor && stateN.marketingOn === false);
                 } else {
                     // If neither worked, check if there's any consent state at all
-                    consentPersistent = stateN.cmp.vendor !== 'unknown' || stateN.gtag.length > 0;
+                    consentPersistent = stateN.vendor !== null || stateN.gtag.length > 0;
                 }
                 
                 interactiveTestResults.navigation = {
                     gtmLoaded,
                     consentPersistent,
                     evidence: normalizeEvidence({
-                        cmp: stateN.cmp,
+                        vendor: stateN.vendor,
+                        marketingOn: stateN.marketingOn,
                         gtagCalls: stateN.gtag,
                         marketingRequests: marketingTracker.get()
                     })
@@ -735,14 +868,14 @@ app.get('/api/fetchHtmlPuppeteer', async (req, res) => {
                     interactive: {
                         acceptAll: {
                             clicked: false,
-                            consentUpdated: false,
+                        consentUpdated: false,
                             marketingActive: false,
                             evidence: normalizeEvidence({ cmp: {}, gtagCalls: [], marketingRequests: [] })
                         },
                         rejectAll: {
                             clicked: false,
                             marketingBlocked: false,
-                            consentDenied: false,
+                        consentDenied: false,
                             evidence: normalizeEvidence({ cmp: {}, gtagCalls: [], marketingRequests: [] })
                         },
                         navigation: {

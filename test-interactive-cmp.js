@@ -13,6 +13,7 @@ import http from 'http';
 
 // Test URLs with known CMP implementations
 const TEST_URLS = [
+  'https://www.pec.it', // Usercentrics/TrustArc (enterprise CMP)
   'https://www.genertel.it', // OneTrust
   'https://www.iubenda.com', // Iubenda
   'https://www.cookiebot.com', // Cookiebot
@@ -84,7 +85,8 @@ function validateInteractiveResults(results) {
                        typeof interactive.acceptAll.consentUpdated === 'boolean' &&
                        typeof interactive.acceptAll.marketingActive === 'boolean' &&
                        interactive.acceptAll.evidence &&
-                       typeof interactive.acceptAll.evidence.cmp === 'object' &&
+                       (interactive.acceptAll.evidence.vendor === null || typeof interactive.acceptAll.evidence.vendor === 'string') &&
+                       (interactive.acceptAll.evidence.marketingOn === null || typeof interactive.acceptAll.evidence.marketingOn === 'boolean') &&
                        Array.isArray(interactive.acceptAll.evidence.gtagCalls) &&
                        Array.isArray(interactive.acceptAll.evidence.marketingRequests);
   
@@ -103,7 +105,8 @@ function validateInteractiveResults(results) {
                         typeof interactive.rejectAll.marketingBlocked === 'boolean' &&
                         typeof interactive.rejectAll.consentDenied === 'boolean' &&
                         interactive.rejectAll.evidence &&
-                        typeof interactive.rejectAll.evidence.cmp === 'object' &&
+                        (interactive.rejectAll.evidence.vendor === null || typeof interactive.rejectAll.evidence.vendor === 'string') &&
+                        (interactive.rejectAll.evidence.marketingOn === null || typeof interactive.rejectAll.evidence.marketingOn === 'boolean') &&
                         Array.isArray(interactive.rejectAll.evidence.gtagCalls) &&
                         Array.isArray(interactive.rejectAll.evidence.marketingRequests);
   
@@ -121,7 +124,8 @@ function validateInteractiveResults(results) {
   const navigationValid = typeof interactive.navigation.gtmLoaded === 'boolean' &&
                          typeof interactive.navigation.consentPersistent === 'boolean' &&
                          interactive.navigation.evidence &&
-                         typeof interactive.navigation.evidence.cmp === 'object' &&
+                         (interactive.navigation.evidence.vendor === null || typeof interactive.navigation.evidence.vendor === 'string') &&
+                         (interactive.navigation.evidence.marketingOn === null || typeof interactive.navigation.evidence.marketingOn === 'boolean') &&
                          Array.isArray(interactive.navigation.evidence.gtagCalls) &&
                          Array.isArray(interactive.navigation.evidence.marketingRequests);
   
@@ -145,7 +149,7 @@ function logTestResults(results) {
   console.log(`   Clicked: ${interactive.acceptAll.clicked ? '✅' : '❌'}`);
   console.log(`   Consent Updated: ${interactive.acceptAll.consentUpdated ? '✅' : '❌'}`);
   console.log(`   Marketing Active: ${interactive.acceptAll.marketingActive ? '✅' : '❌'}`);
-  console.log(`   CMP Vendor: ${interactive.acceptAll.evidence.cmp.vendor || 'Unknown'}`);
+  console.log(`   CMP Vendor: ${interactive.acceptAll.evidence.vendor || 'Unknown'}`);
   console.log(`   Gtag Calls: ${interactive.acceptAll.evidence.gtagCalls.length}`);
   console.log(`   Marketing Requests: ${interactive.acceptAll.evidence.marketingRequests.length}`);
   
@@ -154,7 +158,7 @@ function logTestResults(results) {
   console.log(`   Clicked: ${interactive.rejectAll.clicked ? '✅' : '❌'}`);
   console.log(`   Consent Denied: ${interactive.rejectAll.consentDenied ? '✅' : '❌'}`);
   console.log(`   Marketing Blocked: ${interactive.rejectAll.marketingBlocked ? '✅' : '❌'}`);
-  console.log(`   CMP Vendor: ${interactive.rejectAll.evidence.cmp.vendor || 'Unknown'}`);
+  console.log(`   CMP Vendor: ${interactive.rejectAll.evidence.vendor || 'Unknown'}`);
   console.log(`   Gtag Calls: ${interactive.rejectAll.evidence.gtagCalls.length}`);
   console.log(`   Marketing Requests: ${interactive.rejectAll.evidence.marketingRequests.length}`);
   
@@ -162,7 +166,7 @@ function logTestResults(results) {
   console.log('\n🔄 Navigation Test:');
   console.log(`   GTM Loaded: ${interactive.navigation.gtmLoaded ? '✅' : '❌'}`);
   console.log(`   Consent Persistent: ${interactive.navigation.consentPersistent ? '✅' : '❌'}`);
-  console.log(`   CMP Vendor: ${interactive.navigation.evidence.cmp.vendor || 'Unknown'}`);
+  console.log(`   CMP Vendor: ${interactive.navigation.evidence.vendor || 'Unknown'}`);
   console.log(`   Gtag Calls: ${interactive.navigation.evidence.gtagCalls.length}`);
   console.log(`   Marketing Requests: ${interactive.navigation.evidence.marketingRequests.length}`);
 }
