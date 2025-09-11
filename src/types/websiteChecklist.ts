@@ -46,7 +46,9 @@ export interface InteractiveTestResults {
 export interface WebsiteChecklistResult {
   url: string;
   checks: WebsiteChecklistChecks;
-  aiSummary: string;
+  aiSummary: string;        // Diagnosi IA
+  technicalSummary: string; // Analisi Tecnica
+  aiUsed: boolean; // Flag per indicare se l'IA è stata utilizzata
   performanceScore: number;
   accessibilityScore: number;
   seoScore: number;

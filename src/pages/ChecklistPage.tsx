@@ -30,6 +30,7 @@ export default function ChecklistPage() {
   const [result, setResult] = useState<WebsiteChecklistResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showRawData, setShowRawData] = useState(false);
+  const [useAI, setUseAI] = useState(true); // Flag per abilitare/disabilitare l'IA
   const [screenshotModal, setScreenshotModal] = useState({
     isOpen: false,
     currentIndex: 0,
@@ -46,6 +47,7 @@ export default function ChecklistPage() {
     hideAnalysis 
   } = useAnalysisProgress();
 
+  // Genera gli step dinamicamente in base al flag useAI
   const analysisSteps = [
     { id: 'navigation', title: 'Navigazione al sito' },
     { id: 'html_extraction', title: 'Estrazione HTML' },
@@ -53,7 +55,7 @@ export default function ChecklistPage() {
     { id: 'consent_analysis', title: 'Analisi Consenso' },
     { id: 'performance_metrics', title: 'Metriche Performance' },
     { id: 'interactive_tests', title: 'Test Interattivi' },
-    { id: 'ai_analysis', title: 'Analisi AI' }
+    ...(useAI ? [{ id: 'ai_analysis', title: 'Analisi AI' }] : [])
   ];
 
   const handleRun = async () => {
@@ -77,7 +79,7 @@ export default function ChecklistPage() {
     try {
       const data = await runWebsiteChecklist(url, (step, status, details) => {
         updateStep(step, status, details);
-      });
+      }, useAI);
       setResult(data);
       completeAnalysis();
       toast.success("Checklist completata!", { id: "check" });
@@ -100,6 +102,7 @@ export default function ChecklistPage() {
     setScreenshotModal({ isOpen: false, currentIndex: 0 });
     setLoading(false);
     hideAnalysis();
+    // Non resettare useAI per mantenere la preferenza dell'utente
   };
 
   const openScreenshotModal = (index: number) => {
@@ -167,8 +170,29 @@ export default function ChecklistPage() {
         </h1>
         <p className="mx-auto max-w-md text-base leading-relaxed text-gray-700 dark:text-gray-300">
           Inserisci l'URL da analizzare: il tool controllerà performance tecniche
-          e best-practice SEO, restituendo una diagnosi generata dall'AI.
+          e best-practice SEO. Puoi scegliere se includere l'analisi AI avanzata.
         </p>
+
+        {/* Toggle per l'IA */}
+        <div className="mb-4 flex items-center justify-center gap-3">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={useAI}
+              onChange={(e) => setUseAI(e.target.checked)}
+              disabled={loading}
+              className="h-4 w-4 rounded border-gray-300 text-fuchsia-600 focus:ring-fuchsia-500 disabled:opacity-50"
+            />
+            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+              Usa Intelligenza Artificiale
+            </span>
+          </label>
+          {useAI && (
+            <span className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 px-2 py-1 rounded">
+              ⚠️ Consumo token
+            </span>
+          )}
+        </div>
 
         <div className="flex flex-col items-center gap-3 sm:flex-row sm:gap-2">
           <input
@@ -661,11 +685,23 @@ export default function ChecklistPage() {
               </div>
             )}
 
-            {/* Diagnosi IA */}
+            {/* Diagnosi IA - Mostra solo se l'IA è stata utilizzata */}
+            {result.aiUsed && (
+              <div className="rounded-xl bg-white/60 p-6 shadow-inner backdrop-blur-md dark:bg-gray-900/40">
+                <h3 className="mb-3 text-lg font-medium">🤖 Diagnosi IA</h3>
+                <pre className="whitespace-pre-wrap text-sm leading-relaxed text-gray-800 dark:text-gray-200">
+                  {result.aiSummary}
+                </pre>
+              </div>
+            )}
+
+            {/* Analisi Tecnica - Mostra sempre */}
             <div className="rounded-xl bg-white/60 p-6 shadow-inner backdrop-blur-md dark:bg-gray-900/40">
-              <h3 className="mb-3 text-lg font-medium">Diagnosi IA</h3>
+              <h3 className="mb-3 text-lg font-medium">
+                🔧 {result.aiUsed ? 'Analisi Tecnica' : 'Analisi Tecnica (Senza IA)'}
+              </h3>
               <pre className="whitespace-pre-wrap text-sm leading-relaxed text-gray-800 dark:text-gray-200">
-                {result.aiSummary}
+                {result.technicalSummary}
               </pre>
             </div>
 
