@@ -59,6 +59,13 @@ export default function ChecklistPage() {
   const handleRun = async () => {
     if (!url) return;
 
+    // ✅ Validazione URL - deve contenere https://
+    if (!url.toLowerCase().startsWith('https://')) {
+      setError('L\'URL deve iniziare con "https://" per essere valido.');
+      toast.error('L\'URL deve iniziare con "https://" per essere valido.', { id: "check" });
+      return;
+    }
+
     setLoading(true);
     setError(null);
     setResult(null);
@@ -77,10 +84,11 @@ export default function ChecklistPage() {
     } catch (e) {
       const msg = (e as Error).message || "Errore imprevisto.";
       setError(msg);
-      completeAnalysis();
+      // ✅ Chiudi immediatamente la modale in caso di errore
+      hideAnalysis();
       toast.error(msg, { id: "check" });
     } finally {
-      // Non impostare loading a false qui, lascia che il progresso si chiuda naturalmente
+      setLoading(false);
     }
   };
 

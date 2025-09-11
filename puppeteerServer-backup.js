@@ -13,8 +13,8 @@ app.get('/api/fetchHtmlPuppeteer', async (req, res) => {
     const targetUrl = req.query.url;
     const multiStep = req.query.multiStep === 'true';
 
-    if (typeof targetUrl !== 'string' || !/^https?:\/\//i.test(targetUrl)) {
-        return res.status(400).json({ error: 'URL non valido' });
+    if (typeof targetUrl !== 'string' || !/^https:\/\/[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/i.test(targetUrl)) {
+        return res.status(400).json({ error: 'URL non valido. Deve iniziare con https:// e contenere un dominio valido.' });
     }
 
     try {

@@ -39,6 +39,12 @@ async function fetchWebsiteData(url: string): Promise<{
   }
 
   const json = await res.json();
+  
+  // ✅ Controlla se la risposta contiene un errore
+  if (json.error) {
+    throw new Error(json.error);
+  }
+  
   return {
     html: json.html || "",
     dataLayer: json.dataLayer || [],
