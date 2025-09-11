@@ -8,6 +8,16 @@ import type {
 import { cacheService } from "./cacheService";
 import { toast } from "react-hot-toast";
 
+export function normalizeInteractive(raw: any) {
+  return (
+    raw?.interactive ??
+    raw?.interactiveTestResults?.interactive ??
+    raw?.checks?.interactive ??
+    raw?.interactiveTests ??
+    null
+  );
+}
+
 const openai = new OpenAI({
   apiKey: import.meta.env.VITE_OPENAI_API_KEY, // ✅ Vite env, non process.env
   dangerouslyAllowBrowser: true,
@@ -250,6 +260,9 @@ async function fetchWebsiteData(url: string): Promise<{
     throw new Error(json.error);
   }
   
+  // Normalize interactive data for UI compatibility
+  const interactive = normalizeInteractive(json);
+  
   return {
     html: json.html || "",
     dataLayer: json.dataLayer || [],
@@ -262,6 +275,7 @@ async function fetchWebsiteData(url: string): Promise<{
     seoScore: json.seoScore || 0,
     interactiveTestResults: json.interactiveTestResults || {},
     screenshots: json.screenshots || [],
+    interactive, // Always present for UI
   };
 }
 

@@ -797,6 +797,7 @@ app.get('/api/fetchHtmlPuppeteer', async (req, res) => {
             accessibilityScore,
             seoScore,
             interactiveTestResults,
+            interactive: interactiveTestResults?.interactive, // Backward compatibility
             screenshots
         });
     } catch (err) {

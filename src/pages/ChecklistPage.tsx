@@ -520,28 +520,57 @@ export default function ChecklistPage() {
             )}
 
             {/* Interactive Test Results */}
-            {result.extra?.interactiveTestResults?.interactive && (
-              <div className="rounded-xl bg-white/60 p-6 shadow-inner backdrop-blur-md dark:bg-gray-900/40">
-                <h3 className="mb-4 text-lg font-medium">🧪 Test Interattivi</h3>
-                <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
-                  Questi test verificano automaticamente il funzionamento del sistema di consenso cookie
-                </p>
-                <div className="space-y-4">
-                  {result.extra.interactiveTestResults.interactive.acceptAll && (
+            <div className="rounded-xl bg-white/60 p-6 shadow-inner backdrop-blur-md dark:bg-gray-900/40">
+              <h3 className="mb-4 text-lg font-medium">🧪 Test Interattivi</h3>
+              <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
+                Questi test verificano automaticamente il funzionamento del sistema di consenso cookie
+              </p>
+              
+              {(() => {
+                const interactive = result.extra?.interactive ?? result.extra?.interactiveTestResults?.interactive;
+                console.debug('interactive payload', result.extra?.interactive, result.extra?.interactiveTestResults?.interactive);
+                
+                if (!interactive) {
+                  return (
+                    <div className="text-center py-8">
+                      <div className="text-gray-500 dark:text-gray-400 mb-2">⚠️</div>
+                      <p className="text-sm text-gray-600 dark:text-gray-300">
+                        Test non disponibili per questo URL.
+                      </p>
+                    </div>
+                  );
+                }
+                
+                const hasAny = !!(interactive?.acceptAll || interactive?.rejectAll || interactive?.navigation);
+                
+                if (!hasAny) {
+                  return (
+                    <div className="text-center py-8">
+                      <div className="text-gray-500 dark:text-gray-400 mb-2">⚠️</div>
+                      <p className="text-sm text-gray-600 dark:text-gray-300">
+                        Nessun test interattivo disponibile.
+                      </p>
+                    </div>
+                  );
+                }
+                
+                return (
+                  <div className="space-y-4">
+                  {interactive.acceptAll && (
                     <div className="p-4 bg-gray-50/60 dark:bg-gray-800/40 rounded-lg">
                       <div className="flex items-center justify-between mb-3">
                         <h4 className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-2">
                           ✅ Test "Accetta Tutti"
                         </h4>
                         {(() => {
-                          const test = result.extra.interactiveTestResults.interactive.acceptAll;
-                          const hasClicked = typeof test.clicked === 'boolean';
-                          const hasConsentUpdated = typeof test.consentUpdated === 'boolean';
+                          const test = interactive.acceptAll;
+                          const hasClicked = typeof test?.clicked === 'boolean';
+                          const hasConsentUpdated = typeof test?.consentUpdated === 'boolean';
                           
                           if (!hasClicked || !hasConsentUpdated) {
                             return (
                               <span className="px-3 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200">
-                                AVVISO
+                                —
                               </span>
                             );
                           }
@@ -561,41 +590,41 @@ export default function ChecklistPage() {
                       <div className="space-y-2 text-xs text-gray-600 dark:text-gray-300">
                         <div className="flex items-center gap-2">
                           <span className={`w-2 h-2 rounded-full ${
-                            result.extra.interactiveTestResults.interactive.acceptAll.clicked ? 'bg-green-500' : 'bg-red-500'
+                            interactive.acceptAll?.clicked ? 'bg-green-500' : 'bg-red-500'
                           }`}></span>
-                          <span>Pulsante cliccato: {result.extra.interactiveTestResults.interactive.acceptAll.clicked ? 'Sì' : 'No'}</span>
+                          <span>Pulsante cliccato: {interactive.acceptAll?.clicked ? 'Sì' : 'No'}</span>
                         </div>
                         <div className="flex items-center gap-2">
                           <span className={`w-2 h-2 rounded-full ${
-                            result.extra.interactiveTestResults.interactive.acceptAll.consentUpdated ? 'bg-green-500' : 'bg-red-500'
+                            interactive.acceptAll?.consentUpdated ? 'bg-green-500' : 'bg-red-500'
                           }`}></span>
-                          <span>Consenso aggiornato: {result.extra.interactiveTestResults.interactive.acceptAll.consentUpdated ? 'Sì' : 'No'}</span>
+                          <span>Consenso aggiornato: {interactive.acceptAll?.consentUpdated ? 'Sì' : 'No'}</span>
                         </div>
                         <div className="flex items-center gap-2">
                           <span className={`w-2 h-2 rounded-full ${
-                            result.extra.interactiveTestResults.interactive.acceptAll.marketingActive ? 'bg-green-500' : 'bg-red-500'
+                            interactive.acceptAll?.marketingActive ? 'bg-green-500' : 'bg-red-500'
                           }`}></span>
-                          <span>Marketing attivo: {result.extra.interactiveTestResults.interactive.acceptAll.marketingActive ? 'Sì' : 'No'}</span>
+                          <span>Marketing attivo: {interactive.acceptAll?.marketingActive ? 'Sì' : 'No'}</span>
                         </div>
                       </div>
                     </div>
                   )}
 
-                  {result.extra.interactiveTestResults.interactive.rejectAll && (
+                  {interactive.rejectAll && (
                     <div className="p-4 bg-gray-50/60 dark:bg-gray-800/40 rounded-lg">
                       <div className="flex items-center justify-between mb-3">
                         <h4 className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-2">
                           ❌ Test "Rifiuta Tutti"
                         </h4>
                         {(() => {
-                          const test = result.extra.interactiveTestResults.interactive.rejectAll;
-                          const hasClicked = typeof test.clicked === 'boolean';
-                          const hasConsentDenied = typeof test.consentDenied === 'boolean';
+                          const test = interactive.rejectAll;
+                          const hasClicked = typeof test?.clicked === 'boolean';
+                          const hasConsentDenied = typeof test?.consentDenied === 'boolean';
                           
                           if (!hasClicked || !hasConsentDenied) {
                             return (
                               <span className="px-3 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200">
-                                AVVISO
+                                —
                               </span>
                             );
                           }
@@ -615,40 +644,40 @@ export default function ChecklistPage() {
                       <div className="space-y-2 text-xs text-gray-600 dark:text-gray-300">
                         <div className="flex items-center gap-2">
                           <span className={`w-2 h-2 rounded-full ${
-                            result.extra.interactiveTestResults.interactive.rejectAll.clicked ? 'bg-green-500' : 'bg-red-500'
+                            interactive.rejectAll?.clicked ? 'bg-green-500' : 'bg-red-500'
                           }`}></span>
-                          <span>Pulsante cliccato: {result.extra.interactiveTestResults.interactive.rejectAll.clicked ? 'Sì' : 'No'}</span>
+                          <span>Pulsante cliccato: {interactive.rejectAll?.clicked ? 'Sì' : 'No'}</span>
                         </div>
                         <div className="flex items-center gap-2">
                           <span className={`w-2 h-2 rounded-full ${
-                            result.extra.interactiveTestResults.interactive.rejectAll.consentDenied ? 'bg-green-500' : 'bg-red-500'
+                            interactive.rejectAll?.consentDenied ? 'bg-green-500' : 'bg-red-500'
                           }`}></span>
-                          <span>Consenso negato: {result.extra.interactiveTestResults.interactive.rejectAll.consentDenied ? 'Sì' : 'No'}</span>
+                          <span>Consenso negato: {interactive.rejectAll?.consentDenied ? 'Sì' : 'No'}</span>
                         </div>
                         <div className="flex items-center gap-2">
                           <span className={`w-2 h-2 rounded-full ${
-                            result.extra.interactiveTestResults.interactive.rejectAll.marketingBlocked ? 'bg-green-500' : 'bg-red-500'
+                            interactive.rejectAll?.marketingBlocked ? 'bg-green-500' : 'bg-red-500'
                           }`}></span>
-                          <span>Marketing bloccato: {result.extra.interactiveTestResults.interactive.rejectAll.marketingBlocked ? 'Sì' : 'No'}</span>
+                          <span>Marketing bloccato: {interactive.rejectAll?.marketingBlocked ? 'Sì' : 'No'}</span>
                         </div>
                       </div>
                     </div>
                   )}
 
-                  {result.extra.interactiveTestResults.interactive.navigation && (
+                  {interactive.navigation && (
                     <div className="p-4 bg-gray-50/60 dark:bg-gray-800/40 rounded-lg">
                       <div className="flex items-center justify-between mb-3">
                         <h4 className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-2">
                           🔄 Test Navigazione
                         </h4>
                         {(() => {
-                          const test = result.extra.interactiveTestResults.interactive.navigation;
-                          const hasConsentPersistent = typeof test.consentPersistent === 'boolean';
+                          const test = interactive.navigation;
+                          const hasConsentPersistent = typeof test?.consentPersistent === 'boolean';
                           
                           if (!hasConsentPersistent) {
                             return (
                               <span className="px-3 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200">
-                                AVVISO
+                                —
                               </span>
                             );
                           }
@@ -668,22 +697,23 @@ export default function ChecklistPage() {
                       <div className="space-y-2 text-xs text-gray-600 dark:text-gray-300">
                         <div className="flex items-center gap-2">
                           <span className={`w-2 h-2 rounded-full ${
-                            result.extra.interactiveTestResults.interactive.navigation.gtmLoaded ? 'bg-green-500' : 'bg-red-500'
+                            interactive.navigation?.gtmLoaded ? 'bg-green-500' : 'bg-red-500'
                           }`}></span>
-                          <span>GTM caricato: {result.extra.interactiveTestResults.interactive.navigation.gtmLoaded ? 'Sì' : 'No'}</span>
+                          <span>GTM caricato: {interactive.navigation?.gtmLoaded ? 'Sì' : 'No'}</span>
                         </div>
                         <div className="flex items-center gap-2">
                           <span className={`w-2 h-2 rounded-full ${
-                            result.extra.interactiveTestResults.interactive.navigation.consentPersistent ? 'bg-green-500' : 'bg-red-500'
+                            interactive.navigation?.consentPersistent ? 'bg-green-500' : 'bg-red-500'
                           }`}></span>
-                          <span>Consenso persistente: {result.extra.interactiveTestResults.interactive.navigation.consentPersistent ? 'Sì' : 'No'}</span>
+                          <span>Consenso persistente: {interactive.navigation?.consentPersistent ? 'Sì' : 'No'}</span>
                         </div>
                       </div>
                     </div>
                   )}
-                </div>
-              </div>
-            )}
+                  </div>
+                );
+              })()}
+            </div>
 
             {/* Debug Section - Temporary */}
             <div className="rounded-xl bg-yellow-50 dark:bg-yellow-900/20 p-6 shadow-inner backdrop-blur-md">
