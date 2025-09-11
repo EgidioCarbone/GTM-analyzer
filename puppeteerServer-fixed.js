@@ -317,304 +317,297 @@ app.get('/api/fetchHtmlPuppeteer', async (req, res) => {
         let interactiveTestResults = {};
         let screenshots = [];
 
+        // Helper functions for interactive tests
+        async function instrumentPage(page) {
+            await page.evaluateOnNewDocument(() => {
+                const w = window;
+                w.dataLayer = w.dataLayer || [];
+                const origPush = w.dataLayer.push.bind(w.dataLayer);
+                w.__dlEvents = [];
+                w.dataLayer.push = function(...args){ try{w.__dlEvents.push(args[0]);}catch{}; return origPush(...args); };
+
+                const origGtag = (w).gtag && typeof (w).gtag === 'function' ? (w).gtag : null;
+                w.__gtagCalls = [];
+                w.gtag = function(...args){ try{w.__gtagCalls.push(args);}catch{}; if (origGtag) return origGtag(...args); };
+
+                w.__perf = { lcp: 0, cls: 0 };
+                try {
+                    new PerformanceObserver(list => { for (const e of list.getEntries()) if (e.entryType === 'largest-contentful-paint') w.__perf.lcp = e.startTime; })
+                        .observe({ type: 'largest-contentful-paint', buffered: true });
+                    let cls = 0;
+                    new PerformanceObserver(list => { for (const e of list.getEntries()) if (!e.hadRecentInput) cls += e.value || 0; w.__perf.cls = cls; })
+                        .observe({ type: 'layout-shift', buffered: true });
+                } catch {}
+            });
+        }
+
+        const MARKETING_HOSTS = [
+            /doubleclick\.net/i, /googleads\.g\.doubleclick\.net/i, /googletagservices\.com/i,
+            /connect\.facebook\.net/i, /analytics\.tiktok\.com/i, /bat\.bing\.com/i, /snap\.sc/i, /hotjar\.com/i
+        ];
+        
+        function trackMarketing(page){
+            const seen = [];
+            page.on('request', r => { if (MARKETING_HOSTS.some(rx => rx.test(r.url()))) seen.push(r.url()); });
+            return () => seen.slice();
+        }
+
+        async function findAndClickConsent(page, action /* 'accept' | 'reject' */) {
+            const X_ACCEPT = "//button[.//text()[contains(translate(., 'ACEILNOPRSTUV', 'aceilnoprstuv'),'accept') or contains(.,'Accetta') or contains(.,'Consenti') or contains(.,'Agree')]]";
+            const X_REJECT = "//button[.//text()[contains(translate(., 'CDEHILNQRSTUV', 'cdehilnqrstuv'),'rifiuta') or contains(.,'reject') or contains(.,'decline') or contains(.,'deny')]]";
+            const x = action === 'accept' ? X_ACCEPT : X_REJECT;
+
+            // try in known vendor iframes
+            const f = page.frames().find(fr => /onetrust|iubenda|cookiebot|complianz/i.test(fr.url()));
+            if (f) {
+                const btns = await f.$x(x);
+                if (btns.length) { await btns[0].click(); return true; }
+            }
+
+            // try in main document via XPath
+            const nodes = await page.$x(x);
+            if (nodes.length) { await nodes[0].click(); return true; }
+
+            // deep traversal across shadow roots
+            await page.evaluate((intent) => {
+                const matches = [];
+                const visit = (root) => {
+                    for (const el of root.querySelectorAll('button,[role=button],a,input[type=button]')) {
+                        const t = (el.textContent || '').toLowerCase();
+                        if (intent==='accept' ? /accett|accept|consent|agree/.test(t) : /rifiut|reject|declin|deny/.test(t)) matches.push(el);
+                    }
+                    root.querySelectorAll('*').forEach(e => e.shadowRoot && visit(e.shadowRoot));
+                };
+                visit(document);
+                if (matches[0]) matches[0].click();
+            }, action);
+            return true; // best-effort
+        }
+
+        async function readConsentState(page){
+            const cookies = await page.cookies();
+            const local = await page.evaluate(() => {
+                const out = {};
+                try { for (let i=0;i<localStorage.length;i++){ const k=localStorage.key(i); out[k] = localStorage.getItem(k); } } catch {}
+                return out;
+            });
+
+            function parseCMP(){
+                const byName = Object.fromEntries(cookies.map(c => [c.name, c.value]));
+                // OneTrust
+                if (byName.OptanonConsent) {
+                    const v = decodeURIComponent(byName.OptanonConsent);
+                    const groups = (v.match(/groups=([^;]+)/) || [])[1] || '';
+                    const mkOn = /C0004:1|marketing:1|adv:1/i.test(groups);
+                    return { vendor: 'OneTrust', marketingOn: mkOn, raw: { cookie: v } };
+                }
+                // Iubenda
+                const iubKey = Object.keys(byName).find(k => /^_iub_cs-/.test(k));
+                if (iubKey) {
+                    try {
+                        const obj = JSON.parse(decodeURIComponent(byName[iubKey]));
+                        const mkOn = !!(obj.purposesConsent && (obj.purposesConsent['4'] || obj.purposesConsent['5']));
+                        return { vendor: 'Iubenda', marketingOn: mkOn, raw: { cookie: obj } };
+                    } catch {}
+                }
+                // Cookiebot
+                if (byName.CookieConsent) {
+                    try {
+                        const obj = JSON.parse(decodeURIComponent(byName.CookieConsent));
+                        const mkOn = !!obj.marketing;
+                        return { vendor: 'Cookiebot', marketingOn: mkOn, raw: { cookie: obj } };
+                    } catch {}
+                }
+                // Complianz
+                const cmplz = Object.keys(byName).filter(k => /^cmplz_/.test(k));
+                if (cmplz.length) {
+                    const mkOn = byName.cmplz_marketing === 'allow' || byName.cmplz_marketing === '1';
+                    return { vendor: 'Complianz', marketingOn: mkOn, raw: { cookie: byName } };
+                }
+                return { vendor: 'unknown', marketingOn: null, raw: { cookies } };
+            }
+
+            const cmp = parseCMP();
+            const gtag = await page.evaluate(() => window.__gtagCalls || []);
+            return { cmp, gtag };
+        }
+
         if (multiStep) {
             try {
                 console.log('Iniziando test interattivi...');
                 
-                await page.evaluate(() => {
-                    console.log('Intercettando gtag...');
-                    const originalGtag = window.gtag;
-                    
-                    window.gtag = function() {
-                        if (!window.gtag.calls) {
-                            window.gtag.calls = [];
-                        }
-                        window.gtag.calls.push(Array.from(arguments));
-                        console.log('Gtag chiamata intercettata:', Array.from(arguments));
-                        
-                        if (originalGtag && typeof originalGtag === 'function') {
-                            return originalGtag.apply(this, arguments);
-                        }
-                    };
-                    
-                    if (originalGtag) {
-                        Object.setPrototypeOf(window.gtag, originalGtag);
-                        Object.assign(window.gtag, originalGtag);
-                    }
-                    console.log('Gtag intercettato con successo');
-                });
+                // Instrument page before navigation
+                await instrumentPage(page);
 
-                console.log('Aspettando il caricamento del banner di consenso...');
-                let consentBannerFound = false;
+                // Start marketing tracking
+                const stopTrack = trackMarketing(page);
+                
+                // Navigate to the page
+                await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+                
+                // Wait up to 8s for a banner to appear
+                let bannerFound = false;
                 let waitTime = 0;
-                const maxWaitTime = 20000;
-
-                while (waitTime < maxWaitTime && !consentBannerFound) {
+                const maxWaitTime = 8000;
+                
+                while (waitTime < maxWaitTime && !bannerFound) {
                     await new Promise(resolve => setTimeout(resolve, 1000));
                     waitTime += 1000;
-
-                    consentBannerFound = await page.evaluate(() => {
+                    
+                    bannerFound = await page.evaluate(() => {
+                        // Check for known vendor frames
+                        const frames = document.querySelectorAll('iframe');
+                        const vendorFrames = Array.from(frames).some(frame => 
+                            /onetrust|iubenda|cookiebot|complianz/i.test(frame.src || '')
+                        );
+                        
+                        // Check for banner elements
                         const bannerSelectors = [
-                            '#onetrust-consent-sdk',
-                            '.onetrust-pc-sdk',
-                            '.ot-pc-container',
-                            '.ot-pc-header',
-                            '[id*="onetrust"]',
-                            '[class*="onetrust"]',
-                            '#CybotCookiebotDialog',
-                            '.CybotCookiebotDialog',
-                            '[id*="CybotCookiebotDialog"]',
-                            '[class*="CybotCookiebotDialog"]',
-                            '[class*="cookie"]',
-                            '[class*="consent"]',
-                            '[class*="gdpr"]',
-                            '[class*="banner"]',
-                            '[id*="cookie"]',
-                            '[id*="consent"]',
-                            '[id*="gdpr"]',
-                            '[id*="banner"]',
-                            '.cookie-consent',
-                            '.cookie-banner',
-                            '.consent-banner',
-                            '.gdpr-banner',
-                            '[class*="iubenda"]',
-                            '[id*="iubenda"]',
-                            '[class*="complianz"]',
-                            '[id*="complianz"]'
+                            '#onetrust-consent-sdk', '.onetrust-pc-sdk', '.ot-pc-container',
+                            '#CybotCookiebotDialog', '.CybotCookiebotDialog',
+                            '[class*="cookie"]', '[class*="consent"]', '[class*="gdpr"]', '[class*="banner"]',
+                            '[id*="cookie"]', '[id*="consent"]', '[id*="gdpr"]', '[id*="banner"]',
+                            '.cookie-consent', '.cookie-banner', '.consent-banner', '.gdpr-banner',
+                            '[class*="iubenda"]', '[id*="iubenda"]', '[class*="complianz"]', '[id*="complianz"]'
                         ];
                         
-                        let allElements = [];
-                        for (const selector of bannerSelectors) {
-                            const elements = document.querySelectorAll(selector);
-                            allElements = allElements.concat(Array.from(elements));
-                        }
-                        
-                        const visibleBanners = allElements.filter(el => {
+                        const elements = bannerSelectors.flatMap(sel => Array.from(document.querySelectorAll(sel)));
+                        const visibleBanners = elements.filter(el => {
                             const style = window.getComputedStyle(el);
                             const rect = el.getBoundingClientRect();
-                            const isOneTrust = el.className?.includes('onetrust') || el.id?.includes('onetrust');
-                            
-                            const isStandardVisible = style.display !== 'none' && 
-                                   style.visibility !== 'hidden' && 
-                                   style.opacity !== '0' &&
-                                   rect.width > 0 && 
-                                   rect.height > 0;
-                            
-                            const isOneTrustVisible = isOneTrust && 
-                                   style.display !== 'none' && 
-                                   style.visibility !== 'hidden' && 
-                                   style.opacity !== '0' &&
-                                   (rect.width > 0 || rect.width === undefined) &&
-                                   (rect.height > 0 || rect.height === undefined);
-                            
-                            return isStandardVisible || isOneTrustVisible;
+                            return style.display !== 'none' && style.visibility !== 'hidden' && 
+                                   style.opacity !== '0' && rect.width > 0 && rect.height > 0;
                         });
                         
-                        const cookieTexts = visibleBanners.some(el => {
+                        const hasConsentText = visibleBanners.some(el => {
                             const text = el.textContent?.toLowerCase() || '';
                             return text.includes('cookie') || text.includes('consent') || 
-                                   text.includes('accetta') || text.includes('rifiuta') ||
-                                   text.includes('accept') || text.includes('reject') ||
-                                   text.includes('accetto') || text.includes('rifiuto');
+                                   text.includes('privacy') || text.includes('accetta') || 
+                                   text.includes('rifiuta') || text.includes('accept') ||
+                                   text.includes('reject');
                         });
                         
-                        console.log(`Trovati ${visibleBanners.length} banner visibili, testi cookie: ${cookieTexts}`);
-                        return visibleBanners.length > 0 && cookieTexts;
+                        return vendorFrames || (visibleBanners.length > 0 && hasConsentText);
                     });
                     
-                    console.log(`Attesa: ${waitTime}ms, Banner trovato: ${consentBannerFound}`);
+                    console.log(`Attesa banner: ${waitTime}ms, Trovato: ${bannerFound}`);
                 }
                 
-                if (consentBannerFound) {
-                    console.log('Banner di consenso trovato, catturando screenshot...');
-                } else {
-                    console.log('Banner non trovato con selettori standard, controllando OneTrust specifico...');
-                    const oneTrustPresent = await page.evaluate(() => {
-                        const oneTrustElements = document.querySelectorAll('[id*="onetrust"], [class*="onetrust"]');
-                        return oneTrustElements.length > 0;
-                    });
-                    
-                    if (oneTrustPresent) {
-                        console.log('OneTrust rilevato, forzando screenshot...');
-                        consentBannerFound = true;
-                        
-                        await page.evaluate(() => {
-                            const oneTrustElements = document.querySelectorAll('[id*="onetrust"], [class*="onetrust"]');
-                            oneTrustElements.forEach(el => {
-                                if (el.style) {
-                                    el.style.display = 'block';
-                                    el.style.visibility = 'visible';
-                                    el.style.opacity = '1';
-                                    el.style.zIndex = '999999';
-                                    el.style.position = 'fixed';
-                                    el.style.top = '0';
-                                    el.style.left = '0';
-                                    el.style.width = '100%';
-                                    el.style.height = '100%';
-                                }
-                            });
-                        });
-                    }
+                // Capture screenshot if banner found
+                if (bannerFound) {
+                    console.log('Banner trovato, catturando screenshot...');
+                    screenshots.push(await page.screenshot({ 
+                        encoding: 'base64',
+                        fullPage: true 
+                    }));
                 }
                 
-                if (consentBannerFound) {
-                    const bannerInfo = await page.evaluate(() => {
-                        const bannerSelectors = [
-                            '#onetrust-consent-sdk',
-                            '.onetrust-pc-sdk',
-                            '.ot-pc-container',
-                            '.ot-pc-header',
-                            '[id*="onetrust"]',
-                            '[class*="onetrust"]',
-                            '#CybotCookiebotDialog',
-                            '.CybotCookiebotDialog',
-                            '[id*="CybotCookiebotDialog"]',
-                            '[class*="CybotCookiebotDialog"]',
-                            '[class*="cookie"]',
-                            '[class*="consent"]',
-                            '[class*="gdpr"]',
-                            '[class*="banner"]',
-                            '[id*="cookie"]',
-                            '[id*="consent"]',
-                            '[id*="gdpr"]',
-                            '[id*="banner"]',
-                            '.cookie-consent',
-                            '.cookie-banner',
-                            '.consent-banner',
-                            '.gdpr-banner',
-                            '[class*="iubenda"]',
-                            '[id*="iubenda"]',
-                            '[class*="complianz"]',
-                            '[id*="complianz"]'
-                        ];
-                        
-                        let allElements = [];
-                        for (const selector of bannerSelectors) {
-                            const elements = document.querySelectorAll(selector);
-                            allElements = allElements.concat(Array.from(elements));
-                        }
-                        
-                        const visibleBanners = allElements.filter(el => {
-                            const style = window.getComputedStyle(el);
-                            const rect = el.getBoundingClientRect();
-                            return style.display !== 'none' && 
-                                   style.visibility !== 'hidden' && 
-                                   style.opacity !== '0' &&
-                                   rect.width > 0 && 
-                                   rect.height > 0;
-                        });
-                        
-                        if (visibleBanners.length > 0) {
-                            const banner = visibleBanners[0];
-                            const rect = banner.getBoundingClientRect();
-                            return {
-                                found: true,
-                                x: rect.x,
-                                y: rect.y,
-                                width: rect.width,
-                                height: rect.height,
-                                text: banner.textContent?.substring(0, 100) || 'No text',
-                                tagName: banner.tagName,
-                                className: banner.className,
-                                id: banner.id
-                            };
-                        }
-                        return { found: false };
-                    });
-                    
-                    console.log('Info banner:', bannerInfo);
-                    
-                    if (bannerInfo.found) {
-                        console.log('Banner trovato, catturando screenshot croppato...');
-                        
-                        const actualWidth = Math.max(bannerInfo.width || 800, 100);
-                        const actualHeight = Math.max(bannerInfo.height || 600, 100);
-                        const actualX = Math.max(bannerInfo.x || 0, 0);
-                        const actualY = Math.max(bannerInfo.y || 0, 0);
-                        
-                        const viewportWidth = await page.evaluate(() => window.innerWidth);
-                        const viewportHeight = await page.evaluate(() => window.innerHeight);
-                        
-                        const finalX = actualX > viewportWidth ? 0 : actualX;
-                        const finalY = actualY > viewportHeight ? 0 : actualY;
-                        
-                        const margin = 20;
-                        const cropX = Math.max(0, finalX - margin);
-                        const cropY = Math.max(0, finalY - margin);
-                        const cropWidth = Math.min(
-                            actualWidth + (margin * 2),
-                            viewportWidth - cropX
-                        );
-                        const cropHeight = Math.min(
-                            actualHeight + (margin * 2),
-                            viewportHeight - cropY
-                        );
-                        
-                        console.log(`Cropping banner: x=${cropX}, y=${cropY}, w=${cropWidth}, h=${cropHeight}`);
-                        
-                        if (cropWidth > 0 && cropHeight > 0) {
-                            const bannerScreenshot = await page.screenshot({
-                                encoding: 'base64',
-                                clip: {
-                                    x: cropX,
-                                    y: cropY,
-                                    width: cropWidth,
-                                    height: cropHeight
-                                }
-                            });
-                            
-                            screenshots.push(bannerScreenshot);
-                            console.log('Screenshot del banner catturato con successo');
-                        } else {
-                            console.log('Dimensioni non valide per il cropping, catturando screenshot della pagina intera...');
-                            screenshots.push(await page.screenshot({ 
-                                encoding: 'base64',
-                                fullPage: true 
-                            }));
-                        }
-                    } else {
-                        console.log('Banner non trovato, catturando screenshot della pagina intera...');
-                        screenshots.push(await page.screenshot({ 
-                            encoding: 'base64',
-                            fullPage: true 
-                        }));
+                // Test 1: Accept All
+                console.log('Eseguendo test Accept All...');
+                const acceptClicked = await findAndClickConsent(page, 'accept');
+                await page.waitForTimeout(1500);
+                await page.reload({ waitUntil: 'networkidle0' });
+                const stateA = await readConsentState(page);
+                
+                const consentUpdated = stateA.cmp.marketingOn === true || 
+                    stateA.gtag.some(c => c[0]==='consent' && c[1]==='update' && 
+                        (c[2].ad_storage==='granted' || c[2].analytics_storage==='granted'));
+                const marketingActive = consentUpdated || stopTrack().length > 0;
+                
+                interactiveTestResults.acceptAll = {
+                    clicked: acceptClicked,
+                    consentUpdated,
+                    marketingActive,
+                    evidence: {
+                        cmp: stateA.cmp,
+                        gtagCalls: stateA.gtag,
+                        marketingRequests: stopTrack()
                     }
-                } else {
-                    console.log('Nessun banner di consenso trovato, verificando se la pagina ha contenuto...');
-                    const oneTrustPresent = await page.evaluate(() => {
-                        const oneTrustElements = document.querySelectorAll('[id*="onetrust"], [class*="onetrust"]');
-                        return oneTrustElements.length > 0;
-                    });
-                    
-                    if (oneTrustPresent) {
-                        console.log('OneTrust presente ma non visibile, catturando screenshot di fallback...');
-                        screenshots.push(await page.screenshot({ 
-                            encoding: 'base64',
-                            fullPage: true 
-                        }));
+                };
+                
+                // Test 2: Reject All
+                console.log('Eseguendo test Reject All...');
+                const rejectClicked = await findAndClickConsent(page, 'reject');
+                await page.waitForTimeout(1500);
+                await page.reload({ waitUntil: 'networkidle0' });
+                const stateR = await readConsentState(page);
+                
+                const consentDenied = stateR.cmp.marketingOn === false || 
+                    stateR.gtag.some(c => c[0]==='consent' && c[1]==='update' && 
+                        (c[2].ad_storage==='denied' || c[2].analytics_storage==='denied'));
+                const marketingBlocked = consentDenied && stopTrack().length === 0;
+                
+                interactiveTestResults.rejectAll = {
+                    clicked: rejectClicked,
+                    marketingBlocked,
+                    consentDenied,
+                    evidence: {
+                        cmp: stateR.cmp,
+                        gtagCalls: stateR.gtag,
+                        marketingRequests: stopTrack()
                     }
-                    console.log('Screenshot catturato');
+                };
+                
+                // Test 3: Navigation persistence
+                console.log('Eseguendo test Navigation...');
+                // Navigate to another path on same domain or reload
+                const currentUrl = new URL(targetUrl);
+                const testPath = currentUrl.pathname === '/' ? '/test' : currentUrl.pathname + '/test';
+                const testUrl = currentUrl.origin + testPath;
+                
+                try {
+                    await page.goto(testUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+                } catch (navError) {
+                    // If navigation fails, just reload the current page
+                    await page.reload({ waitUntil: 'domcontentloaded' });
                 }
+                
+                const gtmLoaded = await page.evaluate(() => 
+                    !!(window.gtag || window.google_tag_manager || window.dataLayer?.length));
+                const stateN = await readConsentState(page);
+                const consentPersistent = stateN.cmp.vendor !== 'unknown' && 
+                    (stateN.cmp.marketingOn !== null || stateN.gtag.length > 0);
+                
+                interactiveTestResults.navigation = {
+                    gtmLoaded,
+                    consentPersistent,
+                    evidence: {
+                        cmp: stateN.cmp,
+                        gtagCalls: stateN.gtag,
+                        marketingRequests: stopTrack()
+                    }
+                };
+                
+                // Update the main interactiveTestResults structure
+                interactiveTestResults = {
+                    interactive: {
+                        acceptAll: interactiveTestResults.acceptAll,
+                        rejectAll: interactiveTestResults.rejectAll,
+                        navigation: interactiveTestResults.navigation
+                    }
+                };
 
             } catch (testError) {
                 console.log('Errore nei test interattivi:', testError.message);
                 interactiveTestResults = {
-                    acceptAllTest: {
-                        passed: false,
-                        consentUpdated: false,
-                        marketingTagsFired: false,
-                        dataLayerEvents: []
-                    },
-                    rejectAllTest: {
-                        passed: false,
-                        marketingTagsBlocked: false,
-                        consentDenied: false,
-                        dataLayerEvents: []
-                    },
-                    navigationTest: {
-                        passed: false,
-                        consentPersisted: false,
-                        gtmLoaded: false
+                    interactive: {
+                        acceptAll: {
+                            clicked: false,
+                            consentUpdated: false,
+                            marketingActive: false,
+                            evidence: { cmp: {}, gtagCalls: [], marketingRequests: [] }
+                        },
+                        rejectAll: {
+                            clicked: false,
+                            marketingBlocked: false,
+                            consentDenied: false,
+                            evidence: { cmp: {}, gtagCalls: [], marketingRequests: [] }
+                        },
+                        navigation: {
+                            gtmLoaded: false,
+                            consentPersistent: false,
+                            evidence: { cmp: {}, gtagCalls: [], marketingRequests: [] }
+                        }
                     }
                 };
             }

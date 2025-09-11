@@ -496,19 +496,19 @@ function generateTechnicalSummary(params: {
 
   // Interactive Tests
   lines.push("#### 🧪 Test Interattivi");
-  if (interactiveTestResults?.acceptAllTest?.passed) {
+  if (interactiveTestResults?.interactive?.acceptAll?.clicked && interactiveTestResults?.interactive?.acceptAll?.consentUpdated) {
     lines.push("✅ **Test 'Accetta Tutti'**: Superato");
   } else {
     lines.push("❌ **Test 'Accetta Tutti'**: Fallito");
   }
   
-  if (interactiveTestResults?.rejectAllTest?.passed) {
+  if (interactiveTestResults?.interactive?.rejectAll?.clicked && interactiveTestResults?.interactive?.rejectAll?.consentDenied) {
     lines.push("✅ **Test 'Rifiuta Tutti'**: Superato");
   } else {
     lines.push("❌ **Test 'Rifiuta Tutti'**: Fallito");
   }
   
-  if (interactiveTestResults?.navigationTest?.passed) {
+  if (interactiveTestResults?.interactive?.navigation?.consentPersistent) {
     lines.push("✅ **Test Navigazione**: Superato");
   } else {
     lines.push("❌ **Test Navigazione**: Fallito");

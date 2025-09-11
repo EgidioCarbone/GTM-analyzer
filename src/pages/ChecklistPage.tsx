@@ -520,101 +520,117 @@ export default function ChecklistPage() {
             )}
 
             {/* Interactive Test Results */}
-            {result.extra?.interactiveTestResults && (
+            {result.extra?.interactiveTestResults?.interactive && (
               <div className="rounded-xl bg-white/60 p-6 shadow-inner backdrop-blur-md dark:bg-gray-900/40">
                 <h3 className="mb-4 text-lg font-medium">🧪 Test Interattivi</h3>
                 <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
                   Questi test verificano automaticamente il funzionamento del sistema di consenso cookie
                 </p>
                 <div className="space-y-4">
-                  {result.extra.interactiveTestResults.acceptAllTest && (
+                  {result.extra.interactiveTestResults.interactive.acceptAll && (
                     <div className="p-4 bg-gray-50/60 dark:bg-gray-800/40 rounded-lg">
                       <div className="flex items-center justify-between mb-3">
                         <h4 className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-2">
                           ✅ Test "Accetta Tutti"
                         </h4>
                         <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                          result.extra.interactiveTestResults.acceptAllTest.passed 
+                          result.extra.interactiveTestResults.interactive.acceptAll.clicked && 
+                          result.extra.interactiveTestResults.interactive.acceptAll.consentUpdated
                             ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
                             : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
                         }`}>
-                          {result.extra.interactiveTestResults.acceptAllTest.passed ? 'SUPERATO' : 'FALLITO'}
+                          {result.extra.interactiveTestResults.interactive.acceptAll.clicked && 
+                           result.extra.interactiveTestResults.interactive.acceptAll.consentUpdated ? 'SUPERATO' : 'FALLITO'}
                         </span>
                       </div>
                       <div className="space-y-2 text-xs text-gray-600 dark:text-gray-300">
                         <div className="flex items-center gap-2">
                           <span className={`w-2 h-2 rounded-full ${
-                            result.extra.interactiveTestResults.acceptAllTest.consentUpdated ? 'bg-green-500' : 'bg-red-500'
+                            result.extra.interactiveTestResults.interactive.acceptAll.clicked ? 'bg-green-500' : 'bg-red-500'
                           }`}></span>
-                          <span>Consenso aggiornato: {result.extra.interactiveTestResults.acceptAllTest.consentUpdated ? 'Sì' : 'No'}</span>
+                          <span>Pulsante cliccato: {result.extra.interactiveTestResults.interactive.acceptAll.clicked ? 'Sì' : 'No'}</span>
                         </div>
                         <div className="flex items-center gap-2">
                           <span className={`w-2 h-2 rounded-full ${
-                            result.extra.interactiveTestResults.acceptAllTest.marketingTagsFired ? 'bg-green-500' : 'bg-red-500'
+                            result.extra.interactiveTestResults.interactive.acceptAll.consentUpdated ? 'bg-green-500' : 'bg-red-500'
                           }`}></span>
-                          <span>Tag marketing attivati: {result.extra.interactiveTestResults.acceptAllTest.marketingTagsFired ? 'Sì' : 'No'}</span>
+                          <span>Consenso aggiornato: {result.extra.interactiveTestResults.interactive.acceptAll.consentUpdated ? 'Sì' : 'No'}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className={`w-2 h-2 rounded-full ${
+                            result.extra.interactiveTestResults.interactive.acceptAll.marketingActive ? 'bg-green-500' : 'bg-red-500'
+                          }`}></span>
+                          <span>Marketing attivo: {result.extra.interactiveTestResults.interactive.acceptAll.marketingActive ? 'Sì' : 'No'}</span>
                         </div>
                       </div>
                     </div>
                   )}
 
-                  {result.extra.interactiveTestResults.rejectAllTest && (
+                  {result.extra.interactiveTestResults.interactive.rejectAll && (
                     <div className="p-4 bg-gray-50/60 dark:bg-gray-800/40 rounded-lg">
                       <div className="flex items-center justify-between mb-3">
                         <h4 className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-2">
                           ❌ Test "Rifiuta Tutti"
                         </h4>
                         <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                          result.extra.interactiveTestResults.rejectAllTest.passed 
+                          result.extra.interactiveTestResults.interactive.rejectAll.clicked && 
+                          result.extra.interactiveTestResults.interactive.rejectAll.consentDenied
                             ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
                             : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
                         }`}>
-                          {result.extra.interactiveTestResults.rejectAllTest.passed ? 'SUPERATO' : 'FALLITO'}
+                          {result.extra.interactiveTestResults.interactive.rejectAll.clicked && 
+                           result.extra.interactiveTestResults.interactive.rejectAll.consentDenied ? 'SUPERATO' : 'FALLITO'}
                         </span>
                       </div>
                       <div className="space-y-2 text-xs text-gray-600 dark:text-gray-300">
                         <div className="flex items-center gap-2">
                           <span className={`w-2 h-2 rounded-full ${
-                            result.extra.interactiveTestResults.rejectAllTest.marketingTagsBlocked ? 'bg-green-500' : 'bg-red-500'
+                            result.extra.interactiveTestResults.interactive.rejectAll.clicked ? 'bg-green-500' : 'bg-red-500'
                           }`}></span>
-                          <span>Tag marketing bloccati: {result.extra.interactiveTestResults.rejectAllTest.marketingTagsBlocked ? 'Sì' : 'No'}</span>
+                          <span>Pulsante cliccato: {result.extra.interactiveTestResults.interactive.rejectAll.clicked ? 'Sì' : 'No'}</span>
                         </div>
                         <div className="flex items-center gap-2">
                           <span className={`w-2 h-2 rounded-full ${
-                            result.extra.interactiveTestResults.rejectAllTest.consentDenied ? 'bg-green-500' : 'bg-red-500'
+                            result.extra.interactiveTestResults.interactive.rejectAll.consentDenied ? 'bg-green-500' : 'bg-red-500'
                           }`}></span>
-                          <span>Consenso negato: {result.extra.interactiveTestResults.rejectAllTest.consentDenied ? 'Sì' : 'No'}</span>
+                          <span>Consenso negato: {result.extra.interactiveTestResults.interactive.rejectAll.consentDenied ? 'Sì' : 'No'}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className={`w-2 h-2 rounded-full ${
+                            result.extra.interactiveTestResults.interactive.rejectAll.marketingBlocked ? 'bg-green-500' : 'bg-red-500'
+                          }`}></span>
+                          <span>Marketing bloccato: {result.extra.interactiveTestResults.interactive.rejectAll.marketingBlocked ? 'Sì' : 'No'}</span>
                         </div>
                       </div>
                     </div>
                   )}
 
-                  {result.extra.interactiveTestResults.navigationTest && (
+                  {result.extra.interactiveTestResults.interactive.navigation && (
                     <div className="p-4 bg-gray-50/60 dark:bg-gray-800/40 rounded-lg">
                       <div className="flex items-center justify-between mb-3">
                         <h4 className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-2">
                           🔄 Test Navigazione
                         </h4>
                         <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                          result.extra.interactiveTestResults.navigationTest.passed 
+                          result.extra.interactiveTestResults.interactive.navigation.consentPersistent
                             ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
                             : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
                         }`}>
-                          {result.extra.interactiveTestResults.navigationTest.passed ? 'SUPERATO' : 'FALLITO'}
+                          {result.extra.interactiveTestResults.interactive.navigation.consentPersistent ? 'SUPERATO' : 'FALLITO'}
                         </span>
                       </div>
                       <div className="space-y-2 text-xs text-gray-600 dark:text-gray-300">
                         <div className="flex items-center gap-2">
                           <span className={`w-2 h-2 rounded-full ${
-                            result.extra.interactiveTestResults.navigationTest.gtmLoaded ? 'bg-green-500' : 'bg-red-500'
+                            result.extra.interactiveTestResults.interactive.navigation.gtmLoaded ? 'bg-green-500' : 'bg-red-500'
                           }`}></span>
-                          <span>GTM caricato: {result.extra.interactiveTestResults.navigationTest.gtmLoaded ? 'Sì' : 'No'}</span>
+                          <span>GTM caricato: {result.extra.interactiveTestResults.interactive.navigation.gtmLoaded ? 'Sì' : 'No'}</span>
                         </div>
                         <div className="flex items-center gap-2">
                           <span className={`w-2 h-2 rounded-full ${
-                            result.extra.interactiveTestResults.navigationTest.consentPersisted ? 'bg-green-500' : 'bg-red-500'
+                            result.extra.interactiveTestResults.interactive.navigation.consentPersistent ? 'bg-green-500' : 'bg-red-500'
                           }`}></span>
-                          <span>Consenso persistente: {result.extra.interactiveTestResults.navigationTest.consentPersisted ? 'Sì' : 'No'}</span>
+                          <span>Consenso persistente: {result.extra.interactiveTestResults.interactive.navigation.consentPersistent ? 'Sì' : 'No'}</span>
                         </div>
                       </div>
                     </div>
