@@ -727,10 +727,25 @@ app.get('/api/fetchHtmlPuppeteer', async (req, res) => {
                 // Capture screenshot if banner found
                 if (bannerFound) {
                     console.log('Banner trovato, catturando screenshot...');
-                    screenshots.push(await page.screenshot({ 
-                        encoding: 'base64',
-                        fullPage: true 
-                    }));
+                    try {
+                        // Try to find and screenshot the cookie banner specifically
+                        const bannerElement = await page.$('#onetrust-consent-sdk, .onetrust-pc-sdk, .ot-pc-container, #CybotCookiebotDialog, .CybotCookiebotDialog, [class*="cookie"], [class*="consent"], [class*="gdpr"], [class*="banner"]');
+                        if (bannerElement) {
+                            screenshots.push(await bannerElement.screenshot({ 
+                                encoding: 'base64'
+                            }));
+                        } else {
+                            // Fallback to viewport screenshot
+                            screenshots.push(await page.screenshot({ 
+                                encoding: 'base64'
+                            }));
+                        }
+                    } catch (e) {
+                        // Fallback to viewport screenshot
+                        screenshots.push(await page.screenshot({ 
+                            encoding: 'base64'
+                        }));
+                    }
                 }
                 
                 // Test 1: Accept All
