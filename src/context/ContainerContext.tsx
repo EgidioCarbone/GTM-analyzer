@@ -25,11 +25,24 @@ export function ContainerProvider({ children }: { children: ReactNode }) {
   // ✅ Ripristino automatico dal localStorage
   useEffect(() => {
     const saved = localStorage.getItem("gtmContainer"); // ✅ chiave corretta
+    const savedAnalysis = localStorage.getItem("gtmAnalysis");
+    
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
         console.log("✅ Container ripristinato da LocalStorage:", parsed);
         setContainer(parsed);
+        
+        // Ripristina anche l'analysis se disponibile
+        if (savedAnalysis) {
+          try {
+            const parsedAnalysis = JSON.parse(savedAnalysis);
+            console.log("✅ Analysis ripristinata da LocalStorage:", parsedAnalysis);
+            setAnalysis(parsedAnalysis);
+          } catch (err) {
+            console.error("❌ Errore nel parsing dell'analysis salvata:", err);
+          }
+        }
       } catch (err) {
         console.error("❌ Errore nel parsing del container salvato:", err);
       }
@@ -40,9 +53,17 @@ export function ContainerProvider({ children }: { children: ReactNode }) {
 
   // ✅ Calcolo automatico delle analisi quando cambia il container
   useEffect(() => {
-    if (container) {
-      setAnalysis(calculateGtmMetrics(container));
-    } else {
+    if (!container) {
+      setAnalysis(null);
+      return;
+    }
+    
+    try {
+      const metrics = calculateGtmMetrics(container);
+      setAnalysis(metrics);
+      console.log("✅ Analysis calcolata e salvata:", metrics.score.total);
+    } catch (err) {
+      console.error("❌ Errore nel calcolo dell'analysis:", err);
       setAnalysis(null);
     }
   }, [container]);
@@ -62,9 +83,18 @@ export function ContainerProvider({ children }: { children: ReactNode }) {
       }
     } else {
       localStorage.removeItem("gtmContainer");
-      console.log("🧹 Container rimosso da localStorage");
+      localStorage.removeItem("gtmAnalysis");
+      console.log("🧹 Container e analysis rimossi da localStorage");
     }
   }, [container]);
+
+  // ✅ Salvataggio automatico dell'analysis
+  useEffect(() => {
+    if (analysis) {
+      localStorage.setItem("gtmAnalysis", JSON.stringify(analysis));
+      console.log("💾 Analysis salvata su localStorage:", analysis.score.total);
+    }
+  }, [analysis]);
 
   return (
     <ContainerContext.Provider value={{ container, setContainer, analysis, setAnalysis }}>

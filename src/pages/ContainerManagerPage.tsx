@@ -29,6 +29,7 @@ import { calculateContainerQuality, QualityMetrics } from "../services/container
 import { typeIcons } from "../utils/iconMap";
 import { typeLabels } from "../utils/typeLabels";
 import { getUsedVariableNames } from "../utils/getUsedVariableNames";
+import type { GtmMetrics } from "../services/gtm-metrics";
 import { 
   getItemsWithIssues, 
   canApplyBulkFix, 
@@ -631,6 +632,21 @@ function DetailsModal({
   );
 }
 
+// Funzione per convertire GtmMetrics in QualityMetrics
+const fromAnalysisToQuality = (m: GtmMetrics): QualityMetrics => ({
+  overallScore: Math.round(m.score.total),
+  pausedItems: m.kpi.paused,
+  unusedItems: m.kpi.unused.total,
+  uaItems: m.kpi.uaObsolete,
+  namingIssues: m.kpi.namingIssues.total,
+  totalItems: (m.counts.tags ?? 0) + (m.counts.triggers ?? 0) + (m.counts.variables ?? 0),
+  qualityBreakdown: {
+    tags: { score: m.quality.tags },
+    triggers: { score: m.quality.triggers },
+    variables: { score: m.quality.variables },
+  },
+});
+
 export default function ContainerManagerPage({}: ContainerManagerPageProps) {
   const { container, setContainer, analysis } = useContainer();
   const location = useLocation();
@@ -806,14 +822,60 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
 
   // Calcola la qualità del container quando cambia
   useEffect(() => {
-    if (container) {
-      const currentQuality = calculateContainerQuality(container);
-      setQualityMetrics(currentQuality);
+    if (!container) return;
+    
+    let currentQuality: QualityMetrics;
+    
+    // Single source of truth: usa analysis se disponibile, altrimenti fallback
+    if (analysis) {
+      currentQuality = fromAnalysisToQuality(analysis);
+      console.log("✅ Qualità calcolata da analysis:", currentQuality.overallScore);
+    } else {
+      currentQuality = calculateContainerQuality(container);
+      console.log("⚠️ Qualità calcolata da fallback:", currentQuality.overallScore);
+    }
+    
+    setQualityMetrics(currentQuality);
+    
+    // Salva la qualità iniziale se è la prima volta
+    if (qualityHistory.length === 0) {
+      setInitialQuality(currentQuality);
+      setQualityHistory([{
+        timestamp: new Date(),
+        score: currentQuality.overallScore,
+        metrics: {
+          pausedItems: currentQuality.pausedItems,
+          unusedItems: currentQuality.unusedItems,
+          uaItems: currentQuality.uaItems,
+          namingIssues: currentQuality.namingIssues
+        },
+        action: 'Container caricato'
+      }]);
+    }
+    
+    // Mostra miglioramento se la qualità è aumentata
+    if (previousQuality > 0 && currentQuality.overallScore > previousQuality) {
+      setShowQualityImprovement(true);
+      setTimeout(() => setShowQualityImprovement(false), 3000);
+    }
+  }, [container, analysis, previousQuality, qualityHistory.length]);
+
+  // Salva la qualità precedente per il confronto
+  useEffect(() => {
+    if (qualityMetrics) {
+      setPreviousQuality(qualityMetrics.overallScore);
+    }
+  }, [qualityMetrics]);
+
+  // Traccia i cambiamenti di qualità quando l'analysis cambia
+  useEffect(() => {
+    if (analysis && qualityHistory.length > 0) {
+      const currentQuality = fromAnalysisToQuality(analysis);
+      const lastEntry = qualityHistory[qualityHistory.length - 1];
       
-      // Salva la qualità iniziale se è la prima volta
-      if (qualityHistory.length === 0) {
-        setInitialQuality(currentQuality);
-        setQualityHistory([{
+      // Solo se il punteggio è cambiato, aggiungi una nuova entry
+      if (lastEntry.score !== currentQuality.overallScore) {
+        setQualityHistory(prev => [...prev, {
           timestamp: new Date(),
           score: currentQuality.overallScore,
           metrics: {
@@ -822,24 +884,11 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
             uaItems: currentQuality.uaItems,
             namingIssues: currentQuality.namingIssues
           },
-          action: 'Container caricato'
+          action: 'Container modificato'
         }]);
       }
-      
-      // Mostra miglioramento se la qualità è aumentata
-      if (previousQuality > 0 && currentQuality.overallScore > previousQuality) {
-        setShowQualityImprovement(true);
-        setTimeout(() => setShowQualityImprovement(false), 3000);
-      }
     }
-  }, [container, previousQuality, qualityHistory.length]);
-
-  // Salva la qualità precedente per il confronto
-  useEffect(() => {
-    if (qualityMetrics) {
-      setPreviousQuality(qualityMetrics.overallScore);
-    }
-  }, [qualityMetrics]);
+  }, [analysis, qualityHistory.length]);
 
   if (!container) {
     return (
@@ -1080,20 +1129,9 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
       newContainer[itemType] = newContainer[itemType]!.filter(item => item.name !== itemName);
       setContainer(newContainer);
       
-      // Registra la modifica nella cronologia
-      const newQuality = calculateContainerQuality(newContainer);
-      setQualityHistory(prev => [...prev, {
-        timestamp: new Date(),
-        score: newQuality.overallScore,
-        metrics: {
-          pausedItems: newQuality.pausedItems,
-          unusedItems: newQuality.unusedItems,
-          uaItems: newQuality.uaItems,
-          namingIssues: newQuality.namingIssues
-        },
-        action: 'Elemento eliminato',
-        itemName: itemName
-      }]);
+        // Registra la modifica nella cronologia
+        // Il ricalcolo dell'analysis avverrà automaticamente nel ContainerContext
+        // quando setContainer viene chiamato, quindi non dobbiamo ricalcolare qui
     }
     
     // Chiudi la modale
@@ -1121,20 +1159,8 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
         // Aggiorna il container
         setContainer(newContainer);
 
-        // Registra la modifica nella cronologia
-        const newQuality = calculateContainerQuality(newContainer);
-        setQualityHistory(prev => [...prev, {
-          timestamp: new Date(),
-          score: newQuality.overallScore,
-          metrics: {
-            pausedItems: newQuality.pausedItems,
-            unusedItems: newQuality.unusedItems,
-            uaItems: newQuality.uaItems,
-            namingIssues: newQuality.namingIssues
-          },
-          action: 'Elemento rinominato',
-          itemName: `${oldName} → ${newName}`
-        }]);
+        // Il ricalcolo dell'analysis avverrà automaticamente nel ContainerContext
+        // quando setContainer viene chiamato, quindi non dobbiamo ricalcolare qui
       }
     }
 
@@ -1195,20 +1221,8 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
         item.paused = !item.paused;
         setContainer(newContainer);
         
-        // Registra la modifica nella cronologia
-        const newQuality = calculateContainerQuality(newContainer);
-        setQualityHistory(prev => [...prev, {
-          timestamp: new Date(),
-          score: newQuality.overallScore,
-          metrics: {
-            pausedItems: newQuality.pausedItems,
-            unusedItems: newQuality.unusedItems,
-            uaItems: newQuality.uaItems,
-            namingIssues: newQuality.namingIssues
-          },
-          action: item.paused ? 'Elemento messo in pausa' : 'Elemento ripreso',
-          itemName: itemId
-        }]);
+        // Il ricalcolo dell'analysis avverrà automaticamente nel ContainerContext
+        // quando setContainer viene chiamato, quindi non dobbiamo ricalcolare qui
       }
     }
 

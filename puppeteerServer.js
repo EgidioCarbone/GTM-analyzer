@@ -352,7 +352,7 @@ app.get('/api/fetchHtmlPuppeteer', async (req, res) => {
             page.on('request', listener);
             return {
                 get: () => seen.slice(),
-                cleanup: () => page.removeListener('request', listener)
+                cleanup: () => page.off('request', listener)
             };
         }
 

@@ -26,9 +26,8 @@ ChartJS.register(
 );
 
 const Dashboard = () => {
-  const { container } = useContainer();
+  const { container, analysis, setAnalysis } = useContainer();
   const navigate = useNavigate();
-  const [gtmMetrics, setGtmMetrics] = useState<GtmMetrics | null>(null);
 
   // Utility function to safely render values
   const safeRender = (value: any): string => {
@@ -47,27 +46,29 @@ const Dashboard = () => {
   const triggers = container?.trigger ?? [];
   const variables = container?.variable ?? [];
 
-  // Calcola le metriche GTM quando cambia il container
+  // Usa analysis dal context, calcola solo se manca
   useEffect(() => {
-    if (container) {
-      try {
-        console.log('🔍 Container data:', container);
-        console.log('🔍 Container tags:', container.tag);
-        console.log('🔍 Container triggers:', container.trigger);
-        console.log('🔍 Container variables:', container.variable);
-        
-        const metrics = calculateGtmMetrics(container);
-        console.log('✅ GTM Metrics calculated:', metrics);
-        console.log('✅ Score breakdown:', metrics.score?.breakdown);
-        setGtmMetrics(metrics);
-      } catch (error) {
-        console.error('Errore nel calcolo delle metriche GTM:', error);
-        setGtmMetrics(null);
-      }
+    if (!container) return;
+    
+    if (analysis) {
+      console.log('✅ Dashboard usa analysis dal context:', analysis.score.total);
+      return;
     }
-  }, [container]);
+    
+    // Fallback: calcola se analysis non è disponibile
+    try {
+      console.log('⚠️ Dashboard calcola analysis (fallback)');
+      const metrics = calculateGtmMetrics(container);
+      setAnalysis(metrics);
+    } catch (error) {
+      console.error('Errore nel calcolo delle metriche GTM:', error);
+    }
+  }, [container, analysis, setAnalysis]);
 
 
+
+  // Usa analysis invece di gtmMetrics
+  const gtmMetrics = analysis;
 
   // Funzione per controllare se ci sono alert da mostrare
   const getAlerts = () => {
