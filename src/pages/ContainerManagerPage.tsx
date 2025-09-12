@@ -399,179 +399,1022 @@ function DetailsModal({
   item: any;
   itemType: 'tag' | 'trigger' | 'variable';
 }) {
+  const { container, analysis } = useContainer();
+  const [activeTab, setActiveTab] = useState<'overview' | 'configuration' | 'dependencies' | 'issues'>('overview');
+
   if (!isOpen || !item) return null;
 
+  // Trova le dipendenze e relazioni
+  const getDependencies = () => {
+    if (!container) return { dependencies: [], dependents: [] };
+    
+    const dependencies: any[] = [];
+    const dependents: any[] = [];
+    
+    if (itemType === 'tag') {
+      // Trova i trigger collegati
+      if (item.firingTriggerId) {
+        const triggerIds = Array.isArray(item.firingTriggerId) ? item.firingTriggerId : [item.firingTriggerId];
+        triggerIds.forEach(id => {
+          const trigger = container.trigger?.find(t => t.triggerId === id);
+          if (trigger) dependencies.push({ type: 'trigger', item: trigger, relationship: 'Firing Trigger' });
+        });
+      }
+      
+      // Trova i tag che usano questo trigger
+      container.tag?.forEach(tag => {
+        if (tag.firingTriggerId && Array.isArray(tag.firingTriggerId) && tag.firingTriggerId.includes(item.tagId)) {
+          dependents.push({ type: 'tag', item: tag, relationship: 'Uses this trigger' });
+        }
+      });
+    }
+    
+    if (itemType === 'trigger') {
+      // Trova i tag che usano questo trigger
+      container.tag?.forEach(tag => {
+        if (tag.firingTriggerId && Array.isArray(tag.firingTriggerId) && tag.firingTriggerId.includes(item.triggerId)) {
+          dependents.push({ type: 'tag', item: tag, relationship: 'Firing Tag' });
+        }
+      });
+    }
+    
+    if (itemType === 'variable') {
+      // Trova dove viene usata questa variabile
+      container.tag?.forEach(tag => {
+        if (tag.parameter?.some((p: any) => p.value?.includes(item.name))) {
+          dependents.push({ type: 'tag', item: tag, relationship: 'Uses this variable' });
+        }
+      });
+      container.trigger?.forEach(trigger => {
+        if (trigger.parameter?.some((p: any) => p.value?.includes(item.name))) {
+          dependents.push({ type: 'trigger', item: trigger, relationship: 'Uses this variable' });
+        }
+      });
+    }
+    
+    return { dependencies, dependents };
+  };
+
+  // Trova le issues per questo elemento
+  const getIssues = () => {
+    if (!analysis) return [];
+    const itemId = item.tagId || item.triggerId || item.variableId || item.name;
+    return analysis.issuesIndex?.byId?.[itemId] || [];
+  };
+
+  const { dependencies, dependents } = getDependencies();
+  const issues = getIssues();
+
   const renderTagDetails = (tag: GTMTag) => (
-    <div className="space-y-4">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div>
-          <h4 className="font-semibold text-gray-900 dark:text-white mb-2">Informazioni Base</h4>
-          <div className="space-y-2 text-sm">
-            <div><span className="font-medium">Nome:</span> {tag?.name || 'N/A'}</div>
-            <div><span className="font-medium">Tipo:</span> {tag?.type || 'N/A'}</div>
-            <div><span className="font-medium">ID:</span> {tag?.tagId || 'N/A'}</div>
-            <div><span className="font-medium">Stato:</span> 
-              <span className={`ml-2 px-2 py-1 rounded text-xs ${
-                tag?.paused 
-                  ? 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200' 
-                  : 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-              }`}>
-                {tag?.paused ? 'Pausato' : 'Attivo'}
-              </span>
+    <div className="space-y-6">
+      {/* Overview Tab */}
+      {activeTab === 'overview' && (
+        <div className="space-y-6">
+          {/* Header con stato e priorità */}
+          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-lg p-4 border border-blue-200 dark:border-blue-800">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 bg-blue-100 dark:bg-blue-900 rounded-lg flex items-center justify-center">
+                  <Tag className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{tag.name}</h3>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">Tag ID: {tag.tagId}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+                  tag.paused 
+                    ? 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200' 
+                    : 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                }`}>
+                  {tag.paused ? '⏸️ Pausato' : '✅ Attivo'}
+                </span>
+                {tag.priority && (
+                  <span className="px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded text-sm">
+                    Priorità: {tag.priority}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
-        </div>
-        
-        <div>
-          <h4 className="font-semibold text-gray-900 dark:text-white mb-2">Configurazione</h4>
-          <div className="space-y-2 text-sm">
-            {tag?.firingTriggerId && Array.isArray(tag.firingTriggerId) && tag.firingTriggerId.length > 0 && (
-              <div><span className="font-medium">Trigger:</span> {tag.firingTriggerId.join(', ')}</div>
-            )}
-            {tag?.blockingTriggerId && Array.isArray(tag.blockingTriggerId) && tag.blockingTriggerId.length > 0 && (
-              <div><span className="font-medium">Blocking Triggers:</span> {tag.blockingTriggerId.join(', ')}</div>
-            )}
-            {tag?.priority && (
-              <div><span className="font-medium">Priorità:</span> {tag.priority}</div>
-            )}
-          </div>
-        </div>
-      </div>
 
-      {tag?.parameter && Array.isArray(tag.parameter) && tag.parameter.length > 0 && (
-        <div>
-          <h4 className="font-semibold text-gray-900 dark:text-white mb-2">Parametri</h4>
-          <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-3">
-            <div className="space-y-2 text-sm">
-              {tag.parameter.map((param, index) => (
-                <div key={index} className="flex justify-between">
-                  <span className="font-medium text-gray-700 dark:text-gray-300">{param?.key || 'N/A'}:</span>
-                  <span className="text-gray-600 dark:text-gray-400 max-w-xs truncate" title={param?.value || ''}>
-                    {param?.value || 'N/A'}
-                  </span>
+          {/* Informazioni principali */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-4">
+              <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+                <h4 className="font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
+                  <span className="text-blue-500">📋</span> Informazioni Base
+                </h4>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="font-medium text-gray-600 dark:text-gray-400">Tipo:</span>
+                    <span className="text-gray-900 dark:text-white font-mono">{tag.type}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="font-medium text-gray-600 dark:text-gray-400">Template:</span>
+                    <span className="text-gray-900 dark:text-white">{tag.templateId || 'N/A'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="font-medium text-gray-600 dark:text-gray-400">Firing Triggers:</span>
+                    <span className="text-gray-900 dark:text-white">{tag.firingTriggerId?.length || 0}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="font-medium text-gray-600 dark:text-gray-400">Blocking Triggers:</span>
+                    <span className="text-gray-900 dark:text-white">{tag.blockingTriggerId?.length || 0}</span>
+                  </div>
                 </div>
-              ))}
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+                <h4 className="font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
+                  <span className="text-green-500">⚙️</span> Configurazione
+                </h4>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="font-medium text-gray-600 dark:text-gray-400">Parametri:</span>
+                    <span className="text-gray-900 dark:text-white">{tag.parameter?.length || 0}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="font-medium text-gray-600 dark:text-gray-400">HTML Custom:</span>
+                    <span className="text-gray-900 dark:text-white">{tag.html ? 'Sì' : 'No'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="font-medium text-gray-600 dark:text-gray-400">Built-in:</span>
+                    <span className="text-gray-900 dark:text-white">{tag.enableBuiltInVariable ? 'Sì' : 'No'}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Issues se presenti */}
+          {issues.length > 0 && (
+            <div className="bg-red-50 dark:bg-red-900/20 rounded-lg p-4 border border-red-200 dark:border-red-800">
+              <h4 className="font-semibold text-red-900 dark:text-red-200 mb-3 flex items-center gap-2">
+                <span className="text-red-500">⚠️</span> Problemi Rilevati ({issues.length})
+              </h4>
+              <div className="space-y-2">
+                {issues.slice(0, 3).map((issue, index) => (
+                  <div key={index} className="text-sm">
+                    <span className={`px-2 py-1 rounded text-xs font-medium ${
+                      issue.severity === 'critical' ? 'bg-red-100 text-red-800' :
+                      issue.severity === 'major' ? 'bg-orange-100 text-orange-800' :
+                      'bg-yellow-100 text-yellow-800'
+                    }`}>
+                      {issue.severity?.toUpperCase()}
+                    </span>
+                    <span className="ml-2 text-red-700 dark:text-red-300">{issue.reason}</span>
+                  </div>
+                ))}
+                {issues.length > 3 && (
+                  <p className="text-xs text-red-600 dark:text-red-400">... e altri {issues.length - 3} problemi</p>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Configuration Tab */}
+      {activeTab === 'configuration' && (
+        <div className="space-y-6">
+          {/* Parametri */}
+          {tag.parameter && Array.isArray(tag.parameter) && tag.parameter.length > 0 && (
+            <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+              <h4 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+                <span className="text-purple-500">🔧</span> Parametri di Configurazione
+              </h4>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-200 dark:border-gray-700">
+                      <th className="text-left py-2 font-medium text-gray-600 dark:text-gray-400">Chiave</th>
+                      <th className="text-left py-2 font-medium text-gray-600 dark:text-gray-400">Valore</th>
+                      <th className="text-left py-2 font-medium text-gray-600 dark:text-gray-400">Tipo</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tag.parameter.map((param, index) => (
+                      <tr key={index} className="border-b border-gray-100 dark:border-gray-800">
+                        <td className="py-2 font-mono text-gray-900 dark:text-white">{param.key}</td>
+                        <td className="py-2">
+                          <span className="text-gray-700 dark:text-gray-300 break-all" title={param.value}>
+                            {param.value}
+                          </span>
+                        </td>
+                        <td className="py-2 text-gray-500 dark:text-gray-400">{param.type || 'string'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* HTML Code */}
+          {tag.html && (
+            <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+              <h4 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+                <span className="text-orange-500">💻</span> HTML Code
+              </h4>
+              <div className="bg-gray-900 rounded-lg p-4 overflow-x-auto">
+                <pre className="text-green-400 text-xs whitespace-pre-wrap font-mono">
+                  {tag.html}
+                </pre>
+              </div>
+            </div>
+          )}
+
+          {/* Trigger Configuration */}
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+            <h4 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+              <span className="text-yellow-500">⚡</span> Configurazione Trigger
+            </h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <h5 className="font-medium text-gray-700 dark:text-gray-300 mb-2">Firing Triggers</h5>
+                {tag.firingTriggerId && Array.isArray(tag.firingTriggerId) && tag.firingTriggerId.length > 0 ? (
+                  <div className="space-y-1">
+                    {tag.firingTriggerId.map((id, index) => (
+                      <div key={index} className="text-sm bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-200 px-2 py-1 rounded">
+                        {id}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Nessun firing trigger</p>
+                )}
+              </div>
+              <div>
+                <h5 className="font-medium text-gray-700 dark:text-gray-300 mb-2">Blocking Triggers</h5>
+                {tag.blockingTriggerId && Array.isArray(tag.blockingTriggerId) && tag.blockingTriggerId.length > 0 ? (
+                  <div className="space-y-1">
+                    {tag.blockingTriggerId.map((id, index) => (
+                      <div key={index} className="text-sm bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-200 px-2 py-1 rounded">
+                        {id}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Nessun blocking trigger</p>
+                )}
+              </div>
             </div>
           </div>
         </div>
       )}
 
-      {tag?.html && (
-        <div>
-          <h4 className="font-semibold text-gray-900 dark:text-white mb-2">HTML Code</h4>
-          <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-3">
-            <pre className="text-xs text-gray-600 dark:text-gray-400 whitespace-pre-wrap overflow-x-auto">
-              {tag.html}
-            </pre>
-          </div>
+      {/* Dependencies Tab */}
+      {activeTab === 'dependencies' && (
+        <div className="space-y-6">
+          {/* Dipendenze */}
+          {dependencies.length > 0 && (
+            <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+              <h4 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+                <span className="text-blue-500">🔗</span> Dipendenze ({dependencies.length})
+              </h4>
+              <div className="space-y-3">
+                {dependencies.map((dep, index) => (
+                  <div key={index} className="flex items-center gap-3 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                    <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900 rounded-lg flex items-center justify-center">
+                      {dep.type === 'trigger' && <Zap className="w-4 h-4 text-blue-600" />}
+                      {dep.type === 'tag' && <Tag className="w-4 h-4 text-blue-600" />}
+                      {dep.type === 'variable' && <Variable className="w-4 h-4 text-blue-600" />}
+                    </div>
+                    <div className="flex-1">
+                      <p className="font-medium text-gray-900 dark:text-white">{dep.item.name}</p>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">{dep.relationship}</p>
+                    </div>
+                    <span className="text-xs text-blue-600 dark:text-blue-400 font-medium">
+                      {dep.type.toUpperCase()}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Dipendenti */}
+          {dependents.length > 0 && (
+            <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+              <h4 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+                <span className="text-green-500">🎯</span> Elementi che Dipendono ({dependents.length})
+              </h4>
+              <div className="space-y-3">
+                {dependents.map((dep, index) => (
+                  <div key={index} className="flex items-center gap-3 p-3 bg-green-50 dark:bg-green-900/20 rounded-lg">
+                    <div className="w-8 h-8 bg-green-100 dark:bg-green-900 rounded-lg flex items-center justify-center">
+                      {dep.type === 'trigger' && <Zap className="w-4 h-4 text-green-600" />}
+                      {dep.type === 'tag' && <Tag className="w-4 h-4 text-green-600" />}
+                      {dep.type === 'variable' && <Variable className="w-4 h-4 text-green-600" />}
+                    </div>
+                    <div className="flex-1">
+                      <p className="font-medium text-gray-900 dark:text-white">{dep.item.name}</p>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">{dep.relationship}</p>
+                    </div>
+                    <span className="text-xs text-green-600 dark:text-green-400 font-medium">
+                      {dep.type.toUpperCase()}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {dependencies.length === 0 && dependents.length === 0 && (
+            <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+              <div className="w-16 h-16 bg-gray-100 dark:bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-4">
+                <span className="text-2xl">🔗</span>
+              </div>
+              <p>Nessuna dipendenza rilevata</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Issues Tab */}
+      {activeTab === 'issues' && (
+        <div className="space-y-6">
+          {issues.length > 0 ? (
+            <div className="space-y-4">
+              {issues.map((issue, index) => (
+                <div key={index} className={`rounded-lg p-4 border-l-4 ${
+                  issue.severity === 'critical' ? 'bg-red-50 dark:bg-red-900/20 border-red-500' :
+                  issue.severity === 'major' ? 'bg-orange-50 dark:bg-orange-900/20 border-orange-500' :
+                  'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-500'
+                }`}>
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className={`px-2 py-1 rounded text-xs font-bold ${
+                          issue.severity === 'critical' ? 'bg-red-100 text-red-800' :
+                          issue.severity === 'major' ? 'bg-orange-100 text-orange-800' :
+                          'bg-yellow-100 text-yellow-800'
+                        }`}>
+                          {issue.severity?.toUpperCase()}
+                        </span>
+                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                          {issue.categories.join(', ').replace(/_/g, ' ')}
+                        </span>
+                      </div>
+                      <p className="text-gray-900 dark:text-white mb-2">{issue.reason}</p>
+                      {issue.suggestion && (
+                        <div className="bg-white dark:bg-gray-800 rounded p-3 mt-2">
+                          <p className="text-sm text-gray-600 dark:text-gray-400">
+                            <span className="font-medium">💡 Suggerimento:</span> {issue.suggestion}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+              <div className="w-16 h-16 bg-green-100 dark:bg-green-900 rounded-full flex items-center justify-center mx-auto mb-4">
+                <span className="text-2xl">✅</span>
+              </div>
+              <p>Nessun problema rilevato per questo elemento</p>
+            </div>
+          )}
         </div>
       )}
     </div>
   );
 
   const renderTriggerDetails = (trigger: GTMTrigger) => (
-    <div className="space-y-4">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div>
-          <h4 className="font-semibold text-gray-900 dark:text-white mb-2">Informazioni Base</h4>
-          <div className="space-y-2 text-sm">
-            <div><span className="font-medium">Nome:</span> {trigger?.name || 'N/A'}</div>
-            <div><span className="font-medium">Tipo:</span> {trigger?.type || 'N/A'}</div>
-            <div><span className="font-medium">ID:</span> {trigger?.triggerId || 'N/A'}</div>
-            <div><span className="font-medium">Stato:</span> 
-              <span className={`ml-2 px-2 py-1 rounded text-xs ${
-                trigger?.paused 
-                  ? 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200' 
-                  : 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-              }`}>
-                {trigger?.paused ? 'Pausato' : 'Attivo'}
-              </span>
+    <div className="space-y-6">
+      {/* Overview Tab */}
+      {activeTab === 'overview' && (
+        <div className="space-y-6">
+          {/* Header con stato */}
+          <div className="bg-gradient-to-r from-yellow-50 to-orange-50 dark:from-yellow-900/20 dark:to-orange-900/20 rounded-lg p-4 border border-yellow-200 dark:border-yellow-800">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 bg-yellow-100 dark:bg-yellow-900 rounded-lg flex items-center justify-center">
+                  <Zap className="w-6 h-6 text-yellow-600 dark:text-yellow-400" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{trigger.name}</h3>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">Trigger ID: {trigger.triggerId}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+                  trigger.paused 
+                    ? 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200' 
+                    : 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                }`}>
+                  {trigger.paused ? '⏸️ Pausato' : '✅ Attivo'}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Informazioni principali */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-4">
+              <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+                <h4 className="font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
+                  <span className="text-yellow-500">📋</span> Informazioni Base
+                </h4>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="font-medium text-gray-600 dark:text-gray-400">Tipo:</span>
+                    <span className="text-gray-900 dark:text-white font-mono">{trigger.type}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="font-medium text-gray-600 dark:text-gray-400">Auto Event Filters:</span>
+                    <span className="text-gray-900 dark:text-white">{trigger.autoEventFilter?.length || 0}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="font-medium text-gray-600 dark:text-gray-400">Custom Event Filters:</span>
+                    <span className="text-gray-900 dark:text-white">{trigger.customEventFilter?.length || 0}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="font-medium text-gray-600 dark:text-gray-400">Parametri:</span>
+                    <span className="text-gray-900 dark:text-white">{trigger.parameter?.length || 0}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+                <h4 className="font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
+                  <span className="text-green-500">⚙️</span> Configurazione
+                </h4>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="font-medium text-gray-600 dark:text-gray-400">Event Name:</span>
+                    <span className="text-gray-900 dark:text-white">{trigger.eventName || 'N/A'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="font-medium text-gray-600 dark:text-gray-400">Wait for Tags:</span>
+                    <span className="text-gray-900 dark:text-white">{trigger.waitForTags ? 'Sì' : 'No'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="font-medium text-gray-600 dark:text-gray-400">Check Validation:</span>
+                    <span className="text-gray-900 dark:text-white">{trigger.checkValidation ? 'Sì' : 'No'}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Issues se presenti */}
+          {issues.length > 0 && (
+            <div className="bg-red-50 dark:bg-red-900/20 rounded-lg p-4 border border-red-200 dark:border-red-800">
+              <h4 className="font-semibold text-red-900 dark:text-red-200 mb-3 flex items-center gap-2">
+                <span className="text-red-500">⚠️</span> Problemi Rilevati ({issues.length})
+              </h4>
+              <div className="space-y-2">
+                {issues.slice(0, 3).map((issue, index) => (
+                  <div key={index} className="text-sm">
+                    <span className={`px-2 py-1 rounded text-xs font-medium ${
+                      issue.severity === 'critical' ? 'bg-red-100 text-red-800' :
+                      issue.severity === 'major' ? 'bg-orange-100 text-orange-800' :
+                      'bg-yellow-100 text-yellow-800'
+                    }`}>
+                      {issue.severity?.toUpperCase()}
+                    </span>
+                    <span className="ml-2 text-red-700 dark:text-red-300">{issue.reason}</span>
+                  </div>
+                ))}
+                {issues.length > 3 && (
+                  <p className="text-xs text-red-600 dark:text-red-400">... e altri {issues.length - 3} problemi</p>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Configuration Tab */}
+      {activeTab === 'configuration' && (
+        <div className="space-y-6">
+          {/* Parametri */}
+          {trigger.parameter && Array.isArray(trigger.parameter) && trigger.parameter.length > 0 && (
+            <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+              <h4 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+                <span className="text-purple-500">🔧</span> Parametri di Configurazione
+              </h4>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-200 dark:border-gray-700">
+                      <th className="text-left py-2 font-medium text-gray-600 dark:text-gray-400">Chiave</th>
+                      <th className="text-left py-2 font-medium text-gray-600 dark:text-gray-400">Valore</th>
+                      <th className="text-left py-2 font-medium text-gray-600 dark:text-gray-400">Tipo</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {trigger.parameter.map((param, index) => (
+                      <tr key={index} className="border-b border-gray-100 dark:border-gray-800">
+                        <td className="py-2 font-mono text-gray-900 dark:text-white">{param.key}</td>
+                        <td className="py-2">
+                          <span className="text-gray-700 dark:text-gray-300 break-all" title={param.value}>
+                            {param.value}
+                          </span>
+                        </td>
+                        <td className="py-2 text-gray-500 dark:text-gray-400">{param.type || 'string'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Event Filters */}
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+            <h4 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+              <span className="text-blue-500">🔍</span> Event Filters
+            </h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <h5 className="font-medium text-gray-700 dark:text-gray-300 mb-2">Auto Event Filters ({trigger.autoEventFilter?.length || 0})</h5>
+                {trigger.autoEventFilter && Array.isArray(trigger.autoEventFilter) && trigger.autoEventFilter.length > 0 ? (
+                  <div className="space-y-2">
+                    {trigger.autoEventFilter.map((filter, index) => (
+                      <div key={index} className="text-sm bg-blue-50 dark:bg-blue-900/20 text-blue-800 dark:text-blue-200 p-2 rounded">
+                        {JSON.stringify(filter, null, 2)}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Nessun auto event filter</p>
+                )}
+              </div>
+              <div>
+                <h5 className="font-medium text-gray-700 dark:text-gray-300 mb-2">Custom Event Filters ({trigger.customEventFilter?.length || 0})</h5>
+                {trigger.customEventFilter && Array.isArray(trigger.customEventFilter) && trigger.customEventFilter.length > 0 ? (
+                  <div className="space-y-2">
+                    {trigger.customEventFilter.map((filter, index) => (
+                      <div key={index} className="text-sm bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-200 p-2 rounded">
+                        {JSON.stringify(filter, null, 2)}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Nessun custom event filter</p>
+                )}
+              </div>
             </div>
           </div>
         </div>
-        
-        <div>
-          <h4 className="font-semibold text-gray-900 dark:text-white mb-2">Configurazione</h4>
-          <div className="space-y-2 text-sm">
-            {trigger?.autoEventFilter && Array.isArray(trigger.autoEventFilter) && trigger.autoEventFilter.length > 0 && (
-              <div><span className="font-medium">Auto Event Filters:</span> {trigger.autoEventFilter.length}</div>
-            )}
-            {trigger?.customEventFilter && Array.isArray(trigger.customEventFilter) && trigger.customEventFilter.length > 0 && (
-              <div><span className="font-medium">Custom Event Filters:</span> {trigger.customEventFilter.length}</div>
-            )}
-          </div>
-        </div>
-      </div>
+      )}
 
-      {trigger?.parameter && Array.isArray(trigger.parameter) && trigger.parameter.length > 0 && (
-        <div>
-          <h4 className="font-semibold text-gray-900 dark:text-white mb-2">Parametri</h4>
-          <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-3">
-            <div className="space-y-2 text-sm">
-              {trigger.parameter.map((param, index) => (
-                <div key={index} className="flex justify-between">
-                  <span className="font-medium text-gray-700 dark:text-gray-300">{param?.key || 'N/A'}:</span>
-                  <span className="text-gray-600 dark:text-gray-400 max-w-xs truncate" title={param?.value || ''}>
-                    {param?.value || 'N/A'}
-                  </span>
+      {/* Dependencies Tab */}
+      {activeTab === 'dependencies' && (
+        <div className="space-y-6">
+          {/* Dipendenze */}
+          {dependencies.length > 0 && (
+            <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+              <h4 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+                <span className="text-blue-500">🔗</span> Dipendenze ({dependencies.length})
+              </h4>
+              <div className="space-y-3">
+                {dependencies.map((dep, index) => (
+                  <div key={index} className="flex items-center gap-3 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                    <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900 rounded-lg flex items-center justify-center">
+                      {dep.type === 'trigger' && <Zap className="w-4 h-4 text-blue-600" />}
+                      {dep.type === 'tag' && <Tag className="w-4 h-4 text-blue-600" />}
+                      {dep.type === 'variable' && <Variable className="w-4 h-4 text-blue-600" />}
+                    </div>
+                    <div className="flex-1">
+                      <p className="font-medium text-gray-900 dark:text-white">{dep.item.name}</p>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">{dep.relationship}</p>
+                    </div>
+                    <span className="text-xs text-blue-600 dark:text-blue-400 font-medium">
+                      {dep.type.toUpperCase()}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Dipendenti */}
+          {dependents.length > 0 && (
+            <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+              <h4 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+                <span className="text-green-500">🎯</span> Elementi che Dipendono ({dependents.length})
+              </h4>
+              <div className="space-y-3">
+                {dependents.map((dep, index) => (
+                  <div key={index} className="flex items-center gap-3 p-3 bg-green-50 dark:bg-green-900/20 rounded-lg">
+                    <div className="w-8 h-8 bg-green-100 dark:bg-green-900 rounded-lg flex items-center justify-center">
+                      {dep.type === 'trigger' && <Zap className="w-4 h-4 text-green-600" />}
+                      {dep.type === 'tag' && <Tag className="w-4 h-4 text-green-600" />}
+                      {dep.type === 'variable' && <Variable className="w-4 h-4 text-green-600" />}
+                    </div>
+                    <div className="flex-1">
+                      <p className="font-medium text-gray-900 dark:text-white">{dep.item.name}</p>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">{dep.relationship}</p>
+                    </div>
+                    <span className="text-xs text-green-600 dark:text-green-400 font-medium">
+                      {dep.type.toUpperCase()}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {dependencies.length === 0 && dependents.length === 0 && (
+            <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+              <div className="w-16 h-16 bg-gray-100 dark:bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-4">
+                <span className="text-2xl">🔗</span>
+              </div>
+              <p>Nessuna dipendenza rilevata</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Issues Tab */}
+      {activeTab === 'issues' && (
+        <div className="space-y-6">
+          {issues.length > 0 ? (
+            <div className="space-y-4">
+              {issues.map((issue, index) => (
+                <div key={index} className={`rounded-lg p-4 border-l-4 ${
+                  issue.severity === 'critical' ? 'bg-red-50 dark:bg-red-900/20 border-red-500' :
+                  issue.severity === 'major' ? 'bg-orange-50 dark:bg-orange-900/20 border-orange-500' :
+                  'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-500'
+                }`}>
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className={`px-2 py-1 rounded text-xs font-bold ${
+                          issue.severity === 'critical' ? 'bg-red-100 text-red-800' :
+                          issue.severity === 'major' ? 'bg-orange-100 text-orange-800' :
+                          'bg-yellow-100 text-yellow-800'
+                        }`}>
+                          {issue.severity?.toUpperCase()}
+                        </span>
+                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                          {issue.categories.join(', ').replace(/_/g, ' ')}
+                        </span>
+                      </div>
+                      <p className="text-gray-900 dark:text-white mb-2">{issue.reason}</p>
+                      {issue.suggestion && (
+                        <div className="bg-white dark:bg-gray-800 rounded p-3 mt-2">
+                          <p className="text-sm text-gray-600 dark:text-gray-400">
+                            <span className="font-medium">💡 Suggerimento:</span> {issue.suggestion}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
               ))}
             </div>
-          </div>
+          ) : (
+            <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+              <div className="w-16 h-16 bg-green-100 dark:bg-green-900 rounded-full flex items-center justify-center mx-auto mb-4">
+                <span className="text-2xl">✅</span>
+              </div>
+              <p>Nessun problema rilevato per questo elemento</p>
+            </div>
+          )}
         </div>
       )}
     </div>
   );
 
   const renderVariableDetails = (variable: GTMVariable) => (
-    <div className="space-y-4">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div>
-          <h4 className="font-semibold text-gray-900 dark:text-white mb-2">Informazioni Base</h4>
-          <div className="space-y-2 text-sm">
-            <div><span className="font-medium">Nome:</span> {variable?.name || 'N/A'}</div>
-            <div><span className="font-medium">Tipo:</span> {variable?.type || 'N/A'}</div>
-            <div><span className="font-medium">ID:</span> {variable?.variableId || 'N/A'}</div>
-            <div><span className="font-medium">Stato:</span> 
-              <span className={`ml-2 px-2 py-1 rounded text-xs ${
-                variable?.paused 
-                  ? 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200' 
-                  : 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-              }`}>
-                {variable?.paused ? 'Pausato' : 'Attivo'}
-              </span>
+    <div className="space-y-6">
+      {/* Overview Tab */}
+      {activeTab === 'overview' && (
+        <div className="space-y-6">
+          {/* Header con stato */}
+          <div className="bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 rounded-lg p-4 border border-green-200 dark:border-green-800">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 bg-green-100 dark:bg-green-900 rounded-lg flex items-center justify-center">
+                  <Variable className="w-6 h-6 text-green-600 dark:text-green-400" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{variable.name}</h3>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">Variable ID: {variable.variableId}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+                  variable.paused 
+                    ? 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200' 
+                    : 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                }`}>
+                  {variable.paused ? '⏸️ Pausato' : '✅ Attivo'}
+                </span>
+                {variable.enableBuiltInVariable && (
+                  <span className="px-2 py-1 bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 rounded text-sm">
+                    Built-in
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Informazioni principali */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-4">
+              <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+                <h4 className="font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
+                  <span className="text-green-500">📋</span> Informazioni Base
+                </h4>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="font-medium text-gray-600 dark:text-gray-400">Tipo:</span>
+                    <span className="text-gray-900 dark:text-white font-mono">{variable.type}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="font-medium text-gray-600 dark:text-gray-400">Formato:</span>
+                    <span className="text-gray-900 dark:text-white">{variable.format || 'N/A'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="font-medium text-gray-600 dark:text-gray-400">Built-in:</span>
+                    <span className="text-gray-900 dark:text-white">{variable.enableBuiltInVariable ? 'Sì' : 'No'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="font-medium text-gray-600 dark:text-gray-400">Parametri:</span>
+                    <span className="text-gray-900 dark:text-white">{variable.parameter?.length || 0}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+                <h4 className="font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
+                  <span className="text-blue-500">⚙️</span> Configurazione
+                </h4>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="font-medium text-gray-600 dark:text-gray-400">Data Layer Variable:</span>
+                    <span className="text-gray-900 dark:text-white">{variable.dataLayerVariable || 'N/A'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="font-medium text-gray-600 dark:text-gray-400">Default Value:</span>
+                    <span className="text-gray-900 dark:text-white">{variable.defaultValue || 'N/A'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="font-medium text-gray-600 dark:text-gray-400">Lookup Table:</span>
+                    <span className="text-gray-900 dark:text-white">{variable.lookupTable?.length || 0} entries</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Issues se presenti */}
+          {issues.length > 0 && (
+            <div className="bg-red-50 dark:bg-red-900/20 rounded-lg p-4 border border-red-200 dark:border-red-800">
+              <h4 className="font-semibold text-red-900 dark:text-red-200 mb-3 flex items-center gap-2">
+                <span className="text-red-500">⚠️</span> Problemi Rilevati ({issues.length})
+              </h4>
+              <div className="space-y-2">
+                {issues.slice(0, 3).map((issue, index) => (
+                  <div key={index} className="text-sm">
+                    <span className={`px-2 py-1 rounded text-xs font-medium ${
+                      issue.severity === 'critical' ? 'bg-red-100 text-red-800' :
+                      issue.severity === 'major' ? 'bg-orange-100 text-orange-800' :
+                      'bg-yellow-100 text-yellow-800'
+                    }`}>
+                      {issue.severity?.toUpperCase()}
+                    </span>
+                    <span className="ml-2 text-red-700 dark:text-red-300">{issue.reason}</span>
+                  </div>
+                ))}
+                {issues.length > 3 && (
+                  <p className="text-xs text-red-600 dark:text-red-400">... e altri {issues.length - 3} problemi</p>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Configuration Tab */}
+      {activeTab === 'configuration' && (
+        <div className="space-y-6">
+          {/* Parametri */}
+          {variable.parameter && Array.isArray(variable.parameter) && variable.parameter.length > 0 && (
+            <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+              <h4 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+                <span className="text-purple-500">🔧</span> Parametri di Configurazione
+              </h4>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-200 dark:border-gray-700">
+                      <th className="text-left py-2 font-medium text-gray-600 dark:text-gray-400">Chiave</th>
+                      <th className="text-left py-2 font-medium text-gray-600 dark:text-gray-400">Valore</th>
+                      <th className="text-left py-2 font-medium text-gray-600 dark:text-gray-400">Tipo</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {variable.parameter.map((param, index) => (
+                      <tr key={index} className="border-b border-gray-100 dark:border-gray-800">
+                        <td className="py-2 font-mono text-gray-900 dark:text-white">{param.key}</td>
+                        <td className="py-2">
+                          <span className="text-gray-700 dark:text-gray-300 break-all" title={param.value}>
+                            {param.value}
+                          </span>
+                        </td>
+                        <td className="py-2 text-gray-500 dark:text-gray-400">{param.type || 'string'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Lookup Table */}
+          {variable.lookupTable && Array.isArray(variable.lookupTable) && variable.lookupTable.length > 0 && (
+            <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+              <h4 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+                <span className="text-indigo-500">🔍</span> Lookup Table ({variable.lookupTable.length} entries)
+              </h4>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-200 dark:border-gray-700">
+                      <th className="text-left py-2 font-medium text-gray-600 dark:text-gray-400">Input</th>
+                      <th className="text-left py-2 font-medium text-gray-600 dark:text-gray-400">Output</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {variable.lookupTable.map((entry, index) => (
+                      <tr key={index} className="border-b border-gray-100 dark:border-gray-800">
+                        <td className="py-2 font-mono text-gray-900 dark:text-white">{entry.input || 'N/A'}</td>
+                        <td className="py-2 text-gray-700 dark:text-gray-300">{entry.output || 'N/A'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Configurazione specifica per tipo */}
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+            <h4 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+              <span className="text-cyan-500">⚙️</span> Configurazione Specifica
+            </h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <h5 className="font-medium text-gray-700 dark:text-gray-300 mb-2">Data Layer</h5>
+                <div className="space-y-1 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600 dark:text-gray-400">Variable:</span>
+                    <span className="text-gray-900 dark:text-white font-mono">{variable.dataLayerVariable || 'N/A'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600 dark:text-gray-400">Default Value:</span>
+                    <span className="text-gray-900 dark:text-white">{variable.defaultValue || 'N/A'}</span>
+                  </div>
+                </div>
+              </div>
+              <div>
+                <h5 className="font-medium text-gray-700 dark:text-gray-300 mb-2">Regex</h5>
+                <div className="space-y-1 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600 dark:text-gray-400">Pattern:</span>
+                    <span className="text-gray-900 dark:text-white font-mono text-xs">{variable.regexPattern || 'N/A'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600 dark:text-gray-400">Group:</span>
+                    <span className="text-gray-900 dark:text-white">{variable.regexGroup || 'N/A'}</span>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
-        
-        <div>
-          <h4 className="font-semibold text-gray-900 dark:text-white mb-2">Configurazione</h4>
-          <div className="space-y-2 text-sm">
-            {variable?.format && (
-              <div><span className="font-medium">Formato:</span> {variable.format}</div>
-            )}
-            {variable?.enableBuiltInVariable && (
-              <div><span className="font-medium">Built-in:</span> Sì</div>
-            )}
-          </div>
-        </div>
-      </div>
+      )}
 
-      {variable?.parameter && Array.isArray(variable.parameter) && variable.parameter.length > 0 && (
-        <div>
-          <h4 className="font-semibold text-gray-900 dark:text-white mb-2">Parametri</h4>
-          <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-3">
-            <div className="space-y-2 text-sm">
-              {variable.parameter.map((param, index) => (
-                <div key={index} className="flex justify-between">
-                  <span className="font-medium text-gray-700 dark:text-gray-300">{param?.key || 'N/A'}:</span>
-                  <span className="text-gray-600 dark:text-gray-400 max-w-xs truncate" title={param?.value || ''}>
-                    {param?.value || 'N/A'}
-                  </span>
+      {/* Dependencies Tab */}
+      {activeTab === 'dependencies' && (
+        <div className="space-y-6">
+          {/* Dipendenze */}
+          {dependencies.length > 0 && (
+            <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+              <h4 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+                <span className="text-blue-500">🔗</span> Dipendenze ({dependencies.length})
+              </h4>
+              <div className="space-y-3">
+                {dependencies.map((dep, index) => (
+                  <div key={index} className="flex items-center gap-3 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                    <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900 rounded-lg flex items-center justify-center">
+                      {dep.type === 'trigger' && <Zap className="w-4 h-4 text-blue-600" />}
+                      {dep.type === 'tag' && <Tag className="w-4 h-4 text-blue-600" />}
+                      {dep.type === 'variable' && <Variable className="w-4 h-4 text-blue-600" />}
+                    </div>
+                    <div className="flex-1">
+                      <p className="font-medium text-gray-900 dark:text-white">{dep.item.name}</p>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">{dep.relationship}</p>
+                    </div>
+                    <span className="text-xs text-blue-600 dark:text-blue-400 font-medium">
+                      {dep.type.toUpperCase()}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Dipendenti */}
+          {dependents.length > 0 && (
+            <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+              <h4 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+                <span className="text-green-500">🎯</span> Elementi che Dipendono ({dependents.length})
+              </h4>
+              <div className="space-y-3">
+                {dependents.map((dep, index) => (
+                  <div key={index} className="flex items-center gap-3 p-3 bg-green-50 dark:bg-green-900/20 rounded-lg">
+                    <div className="w-8 h-8 bg-green-100 dark:bg-green-900 rounded-lg flex items-center justify-center">
+                      {dep.type === 'trigger' && <Zap className="w-4 h-4 text-green-600" />}
+                      {dep.type === 'tag' && <Tag className="w-4 h-4 text-green-600" />}
+                      {dep.type === 'variable' && <Variable className="w-4 h-4 text-green-600" />}
+                    </div>
+                    <div className="flex-1">
+                      <p className="font-medium text-gray-900 dark:text-white">{dep.item.name}</p>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">{dep.relationship}</p>
+                    </div>
+                    <span className="text-xs text-green-600 dark:text-green-400 font-medium">
+                      {dep.type.toUpperCase()}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {dependencies.length === 0 && dependents.length === 0 && (
+            <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+              <div className="w-16 h-16 bg-gray-100 dark:bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-4">
+                <span className="text-2xl">🔗</span>
+              </div>
+              <p>Nessuna dipendenza rilevata</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Issues Tab */}
+      {activeTab === 'issues' && (
+        <div className="space-y-6">
+          {issues.length > 0 ? (
+            <div className="space-y-4">
+              {issues.map((issue, index) => (
+                <div key={index} className={`rounded-lg p-4 border-l-4 ${
+                  issue.severity === 'critical' ? 'bg-red-50 dark:bg-red-900/20 border-red-500' :
+                  issue.severity === 'major' ? 'bg-orange-50 dark:bg-orange-900/20 border-orange-500' :
+                  'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-500'
+                }`}>
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className={`px-2 py-1 rounded text-xs font-bold ${
+                          issue.severity === 'critical' ? 'bg-red-100 text-red-800' :
+                          issue.severity === 'major' ? 'bg-orange-100 text-orange-800' :
+                          'bg-yellow-100 text-yellow-800'
+                        }`}>
+                          {issue.severity?.toUpperCase()}
+                        </span>
+                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                          {issue.categories.join(', ').replace(/_/g, ' ')}
+                        </span>
+                      </div>
+                      <p className="text-gray-900 dark:text-white mb-2">{issue.reason}</p>
+                      {issue.suggestion && (
+                        <div className="bg-white dark:bg-gray-800 rounded p-3 mt-2">
+                          <p className="text-sm text-gray-600 dark:text-gray-400">
+                            <span className="font-medium">💡 Suggerimento:</span> {issue.suggestion}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
               ))}
             </div>
-          </div>
+          ) : (
+            <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+              <div className="w-16 h-16 bg-green-100 dark:bg-green-900 rounded-full flex items-center justify-center mx-auto mb-4">
+                <span className="text-2xl">✅</span>
+              </div>
+              <p>Nessun problema rilevato per questo elemento</p>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -586,40 +1429,71 @@ function DetailsModal({
     }
   };
 
+  const tabs = [
+    { id: 'overview', label: 'Panoramica', icon: '📊' },
+    { id: 'configuration', label: 'Configurazione', icon: '⚙️' },
+    { id: 'dependencies', label: 'Dipendenze', icon: '🔗' },
+    { id: 'issues', label: 'Problemi', icon: '⚠️' }
+  ];
+
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
         exit={{ opacity: 0, scale: 0.95 }}
-        className="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-4xl w-full mx-4 shadow-xl max-h-[90vh] overflow-y-auto"
+        className="bg-white dark:bg-gray-800 rounded-lg max-w-6xl w-full mx-4 shadow-xl max-h-[90vh] overflow-hidden"
       >
-        <div className="flex items-center justify-between mb-6">
+        {/* Header */}
+        <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
           <div className="flex items-center gap-3">
             {itemType === 'tag' && <Tag className="w-6 h-6 text-blue-600" />}
             {itemType === 'trigger' && <Zap className="w-6 h-6 text-yellow-600" />}
             {itemType === 'variable' && <Variable className="w-6 h-6 text-green-600" />}
-            <h3 className="text-xl font-semibold text-gray-900 dark:text-white">
-              Dettagli {getItemTypeLabel()}
-            </h3>
+            <div>
+              <h3 className="text-xl font-semibold text-gray-900 dark:text-white">
+                Dettagli {getItemTypeLabel()}
+              </h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400">{item?.name || 'Elemento senza nome'}</p>
+            </div>
           </div>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+            className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
           >
-            <X className="w-6 h-6" />
+            <X className="w-5 h-5" />
           </button>
         </div>
 
-        <div className="border-b border-gray-200 dark:border-gray-700 pb-4 mb-6">
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{item?.name || 'Elemento senza nome'}</h2>
+        {/* Tab Navigation */}
+        <div className="border-b border-gray-200 dark:border-gray-700">
+          <nav className="flex space-x-8 px-6">
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id as any)}
+                className={`py-4 px-1 border-b-2 font-medium text-sm flex items-center gap-2 transition-colors ${
+                  activeTab === tab.id
+                    ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+                }`}
+              >
+                <span className="text-lg">{tab.icon}</span>
+                {tab.label}
+              </button>
+            ))}
+          </nav>
         </div>
 
-        {itemType === 'tag' && item && renderTagDetails(item)}
-        {itemType === 'trigger' && item && renderTriggerDetails(item)}
-        {itemType === 'variable' && item && renderVariableDetails(item)}
+        {/* Content */}
+        <div className="p-6 overflow-y-auto max-h-[calc(90vh-140px)]">
+          {itemType === 'tag' && item && renderTagDetails(item)}
+          {itemType === 'trigger' && item && renderTriggerDetails(item)}
+          {itemType === 'variable' && item && renderVariableDetails(item)}
+        </div>
 
-        <div className="flex justify-end mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
+        {/* Footer */}
+        <div className="flex justify-end p-6 pt-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50">
           <button
             onClick={onClose}
             className="px-6 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition-colors"
@@ -1442,7 +2316,11 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
         {/* Metriche di qualità con confronto */}
         {analysis && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="text-center p-3 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800">
+            <div 
+              className="text-center p-3 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800 cursor-pointer hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
+              onClick={() => setShowPaused(true)}
+              title="Clicca per filtrare gli elementi in pausa"
+            >
               <div className="text-2xl font-bold text-red-600 dark:text-red-400">
                 {analysis.kpi.paused}
               </div>
@@ -1459,7 +2337,11 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
                 </div>
               )}
             </div>
-            <div className="text-center p-3 bg-orange-50 dark:bg-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-800">
+            <div 
+              className="text-center p-3 bg-orange-50 dark:bg-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-800 cursor-pointer hover:bg-orange-100 dark:hover:bg-orange-900/30 transition-colors"
+              onClick={() => setShowUnused(true)}
+              title="Clicca per filtrare gli elementi non utilizzati"
+            >
               <div className="text-2xl font-bold text-orange-600 dark:text-orange-400">
                 {analysis.kpi.unused.total}
               </div>
@@ -1476,7 +2358,11 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
                 </div>
               )}
             </div>
-            <div className="text-center p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg border border-yellow-200 dark:border-yellow-800">
+            <div 
+              className="text-center p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg border border-yellow-200 dark:border-yellow-800 cursor-pointer hover:bg-yellow-100 dark:hover:bg-yellow-900/30 transition-colors"
+              onClick={() => setShowUA(true)}
+              title="Clicca per filtrare i tag UA obsoleti"
+            >
               <div className="text-2xl font-bold text-yellow-600 dark:text-yellow-400">
                 {analysis.kpi.uaObsolete}
               </div>
@@ -1493,7 +2379,11 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
                 </div>
               )}
             </div>
-            <div className="text-center p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+            <div 
+              className="text-center p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800 cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors"
+              onClick={() => setShowNaming(true)}
+              title="Clicca per filtrare gli elementi con problemi di naming"
+            >
               <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
                 {analysis.kpi.namingIssues.total}
               </div>
