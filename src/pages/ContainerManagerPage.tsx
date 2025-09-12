@@ -25,7 +25,7 @@ import {
 } from "lucide-react";
 import { useContainer } from "../context/ContainerContext";
 import { GTMTag, GTMTrigger, GTMVariable, IssueCategory } from "../types/gtm";
-import { calculateContainerQuality, QualityMetrics } from "../services/containerQualityService";
+import { QualityMetrics } from "../services/containerQualityService";
 import { typeIcons } from "../utils/iconMap";
 import { typeLabels } from "../utils/typeLabels";
 import { getUsedVariableNames } from "../utils/getUsedVariableNames";
@@ -1515,9 +1515,30 @@ const fromAnalysisToQuality = (m: GtmMetrics): QualityMetrics => ({
   namingIssues: m.kpi.namingIssues.total,
   totalItems: (m.counts.tags ?? 0) + (m.counts.triggers ?? 0) + (m.counts.variables ?? 0),
   qualityBreakdown: {
-    tags: { score: m.quality.tags },
-    triggers: { score: m.quality.triggers },
-    variables: { score: m.quality.variables },
+    tags: { 
+      score: m.quality.tags,
+      total: m.counts.tags,
+      paused: m.kpi.paused,
+      unused: 0, // Not directly available in GtmMetrics
+      ua: m.kpi.uaObsolete,
+      namingIssues: m.kpi.namingIssues.tags
+    },
+    triggers: { 
+      score: m.quality.triggers,
+      total: m.counts.triggers,
+      paused: 0, // Not directly available in GtmMetrics
+      unused: m.kpi.unused.triggers,
+      ua: 0, // Not applicable for triggers
+      namingIssues: m.kpi.namingIssues.triggers
+    },
+    variables: { 
+      score: m.quality.variables,
+      total: m.counts.variables,
+      paused: 0, // Not directly available in GtmMetrics
+      unused: m.kpi.unused.variables,
+      ua: 0, // Not applicable for variables
+      namingIssues: m.kpi.namingIssues.variables
+    },
   },
 });
 
@@ -1707,18 +1728,11 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
 
   // Calcola la qualità del container quando cambia
   useEffect(() => {
-    if (!container) return;
+    if (!container || !analysis) return;
     
-    let currentQuality: QualityMetrics;
-    
-    // Single source of truth: usa analysis se disponibile, altrimenti fallback
-    if (analysis) {
-      currentQuality = fromAnalysisToQuality(analysis);
-      console.log("✅ Qualità calcolata da analysis:", currentQuality.overallScore);
-    } else {
-      currentQuality = calculateContainerQuality(container);
-      console.log("⚠️ Qualità calcolata da fallback:", currentQuality.overallScore);
-    }
+    // Single source of truth: usa analysis dal context
+    const currentQuality = fromAnalysisToQuality(analysis);
+    console.log("✅ Qualità calcolata da analysis:", currentQuality.overallScore);
     
     setQualityMetrics(currentQuality);
     
@@ -2303,7 +2317,7 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
                     <div className="flex-1 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
                       <div 
                         className="bg-green-500 h-2 rounded-full transition-all duration-500"
-                        style={{ width: `${qualityMetrics.overallScore}%` }}
+                        style={{ width: `${(analysis?.score.total ?? 0)}%` }}
                       />
                     </div>
                   </div>

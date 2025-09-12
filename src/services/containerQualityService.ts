@@ -1,3 +1,5 @@
+// TODO: legacy – usare GtmMetrics da gtm-metrics.ts per scoring
+// Questo servizio è deprecato per il calcolo della qualità, utilizzare calculateGtmMetrics invece
 import { GenerateDocInput, GTMTag, GTMTrigger, GTMVariable } from "../types/gtm";
 
 export interface QualityMetrics {
@@ -24,6 +26,7 @@ export interface ItemQuality {
 }
 
 /**
+ * @deprecated Utilizzare calculateGtmMetrics da gtm-metrics.ts per il calcolo della qualità
  * Calcola la qualità complessiva del container GTM
  */
 export function calculateContainerQuality(container: GenerateDocInput): QualityMetrics {

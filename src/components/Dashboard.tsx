@@ -46,24 +46,12 @@ const Dashboard = () => {
   const triggers = container?.trigger ?? [];
   const variables = container?.variable ?? [];
 
-  // Usa analysis dal context, calcola solo se manca
+  // L'analysis viene calcolata automaticamente dal context quando cambia il container
   useEffect(() => {
-    if (!container) return;
-    
     if (analysis) {
       console.log('✅ Dashboard usa analysis dal context:', analysis.score.total);
-      return;
     }
-    
-    // Fallback: calcola se analysis non è disponibile
-    try {
-      console.log('⚠️ Dashboard calcola analysis (fallback)');
-      const metrics = calculateGtmMetrics(container);
-      setAnalysis(metrics);
-    } catch (error) {
-      console.error('Errore nel calcolo delle metriche GTM:', error);
-    }
-  }, [container, analysis, setAnalysis]);
+  }, [analysis]);
 
 
 

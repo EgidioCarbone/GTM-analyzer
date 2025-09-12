@@ -91,6 +91,7 @@ export function ContainerProvider({ children }: { children: ReactNode }) {
     try {
       const metrics = calculateGtmMetrics(container);
       setAnalysis(metrics);
+      localStorage.setItem('gtmAnalysis', JSON.stringify(metrics));
       console.log("✅ Analysis calcolata e salvata:", metrics.score.total);
     } catch (err) {
       console.error("❌ Errore nel calcolo dell'analysis:", err);
