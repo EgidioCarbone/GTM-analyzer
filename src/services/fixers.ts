@@ -37,7 +37,7 @@ function normalize(s: string): string {
 // NAMING FIXERS
 // ============================================================================
 
-export function suggestName(itemType: 'tag' | 'trigger' | 'variable', name: string): string {
+export function suggestName(itemType: 'tag' | 'trigger' | 'variable', name: string, tagType?: string): string {
   const normalized = normalize(name);
   
   if (itemType === 'trigger') {
@@ -52,19 +52,57 @@ export function suggestName(itemType: 'tag' | 'trigger' | 'variable', name: stri
     return 'DLV_' + cleanName;
   }
   
-  // Per i tag, determina il tipo corretto e crea un nome più breve
-  const cleanName = normalized.replace(/^(html_|ua_|ga4_|gtag_|tag_)/i, '');
+  // Per i tag, determina il tipo corretto basato sul tagType o sul nome
+  const cleanName = normalized.replace(/^(html_|ua_|ga4_|gtag_|tag_|gaawe_|gaawc_)/i, '');
   
-  // Determina il tipo di tag basato sul contenuto
-  if (cleanName.toLowerCase().includes('purchase') || cleanName.toLowerCase().includes('conversion')) {
-    return 'HTML_PURCHASE_' + cleanName.substring(0, 20);
-  } else if (cleanName.toLowerCase().includes('facebook') || cleanName.toLowerCase().includes('fb')) {
-    return 'HTML_FB_' + cleanName.substring(0, 15);
-  } else if (cleanName.toLowerCase().includes('google') || cleanName.toLowerCase().includes('ga')) {
-    return 'HTML_GA_' + cleanName.substring(0, 15);
-  } else {
-    return 'HTML_' + cleanName.substring(0, 25);
+  // Usa il tagType se disponibile, altrimenti cerca di indovinare dal nome
+  const detectedType = tagType || detectTagTypeFromName(name);
+  
+  switch (detectedType?.toLowerCase()) {
+    case 'gaawe':
+    case 'ga4_event':
+      return 'GA4_EVENT_' + cleanName.substring(0, 20);
+    case 'gaawc':
+    case 'ga4_config':
+      return 'GA4_CONFIG_' + cleanName.substring(0, 20);
+    case 'ua':
+    case 'universal_analytics':
+      return 'UA_' + cleanName.substring(0, 20);
+    case 'gtag':
+      return 'GTAG_' + cleanName.substring(0, 20);
+    case 'html':
+    case 'custom_html':
+      return 'HTML_' + cleanName.substring(0, 20);
+    default:
+      // Fallback: cerca di indovinare dal contenuto del nome
+      if (cleanName.toLowerCase().includes('purchase') || cleanName.toLowerCase().includes('conversion')) {
+        return 'GA4_EVENT_PURCHASE_' + cleanName.substring(0, 15);
+      } else if (cleanName.toLowerCase().includes('facebook') || cleanName.toLowerCase().includes('fb')) {
+        return 'HTML_FB_' + cleanName.substring(0, 15);
+      } else if (cleanName.toLowerCase().includes('google') || cleanName.toLowerCase().includes('ga')) {
+        return 'GA4_EVENT_' + cleanName.substring(0, 15);
+      } else {
+        return 'GA4_EVENT_' + cleanName.substring(0, 20);
+      }
   }
+}
+
+function detectTagTypeFromName(name: string): string {
+  const lowerName = name.toLowerCase();
+  
+  if (lowerName.includes('ga4') || lowerName.includes('gaawe') || lowerName.includes('event')) {
+    return 'gaawe';
+  } else if (lowerName.includes('config') || lowerName.includes('gaawc')) {
+    return 'gaawc';
+  } else if (lowerName.includes('ua') || lowerName.includes('universal')) {
+    return 'ua';
+  } else if (lowerName.includes('gtag')) {
+    return 'gtag';
+  } else if (lowerName.includes('html') || lowerName.includes('custom')) {
+    return 'html';
+  }
+  
+  return 'gaawe'; // Default per GA4
 }
 
 export function fixNaming(item: GTMTag | GTMTrigger | GTMVariable, itemType: 'tag' | 'trigger' | 'variable'): void {

@@ -244,7 +244,7 @@ export const HtmlSecurityCard: React.FC<HtmlSecurityCardProps> = ({
         <div className="mb-4 text-xs text-gray-600 dark:text-gray-400">
           <div className="flex justify-between">
             <span>Score sicurezza:</span>
-            <span className="font-medium">{Math.round(html_security.score * 100)}%</span>
+            <span className="font-medium">{(html_security.score * 100).toFixed(1)}%</span>
           </div>
           <div className="flex justify-between">
             <span>Domini terzi totali:</span>

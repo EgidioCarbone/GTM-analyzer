@@ -28,7 +28,7 @@ export const QualityOfContainer: React.FC<QualityOfContainerProps> = ({
   };
 
   // Usa il nuovo score trasparente
-  const overallScore = gtmMetrics?.score?.total ? Number(gtmMetrics.score.total) : 0;
+  const overallScore = gtmMetrics?.score?.total ? Number(gtmMetrics.score.total.toFixed(1)) : 0;
   const qualityStatus = getQualityStatus(overallScore);
 
   // Utility function to safely render values

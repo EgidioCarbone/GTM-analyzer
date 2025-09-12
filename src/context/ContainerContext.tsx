@@ -9,11 +9,25 @@ import React, {
 import { GenerateDocInput } from "../types/gtm"; // ✅ importa i tipi
 import { GtmMetrics, calculateGtmMetrics } from "../services/gtm-metrics";
 
+export type ActivityEntry = {
+  id: string;
+  ts: number;
+  action: string; // es. DELETE_TAG, PAUSE_TAG, RENAME_VARIABLE
+  entity: { type: 'tag'|'trigger'|'variable'; id: string; name?: string };
+  deltaScore?: number; // after - before
+};
+
 type ContainerContextType = {
   container: GenerateDocInput | null;
   setContainer: (data: GenerateDocInput | null) => void;
   analysis: GtmMetrics | null;
   setAnalysis: (m: GtmMetrics | null) => void;
+  activity: ActivityEntry[];
+  applyContainerChange: (
+    action: string,
+    entity: { type:'tag'|'trigger'|'variable'; id:string; name?:string },
+    mutator: (draft: GenerateDocInput) => void
+  ) => void;
 };
 
 const ContainerContext = createContext<ContainerContextType | undefined>(undefined);
@@ -21,11 +35,13 @@ const ContainerContext = createContext<ContainerContextType | undefined>(undefin
 export function ContainerProvider({ children }: { children: ReactNode }) {
   const [container, setContainer] = useState<GenerateDocInput | null>(null);
   const [analysis, setAnalysis] = useState<GtmMetrics | null>(null);
+  const [activity, setActivity] = useState<ActivityEntry[]>([]);
 
   // ✅ Ripristino automatico dal localStorage
   useEffect(() => {
     const saved = localStorage.getItem("gtmContainer"); // ✅ chiave corretta
     const savedAnalysis = localStorage.getItem("gtmAnalysis");
+    const savedActivity = localStorage.getItem("gtmActivity");
     
     if (saved) {
       try {
@@ -43,6 +59,17 @@ export function ContainerProvider({ children }: { children: ReactNode }) {
             console.error("❌ Errore nel parsing dell'analysis salvata:", err);
           }
         }
+
+        // Ripristina anche l'activity se disponibile
+        if (savedActivity) {
+          try {
+            const parsedActivity = JSON.parse(savedActivity);
+            console.log("✅ Activity ripristinata da LocalStorage:", parsedActivity);
+            setActivity(parsedActivity);
+          } catch (err) {
+            console.error("❌ Errore nel parsing dell'activity salvata:", err);
+          }
+        }
       } catch (err) {
         console.error("❌ Errore nel parsing del container salvato:", err);
       }
@@ -54,6 +81,9 @@ export function ContainerProvider({ children }: { children: ReactNode }) {
   // ✅ Calcolo automatico delle analisi quando cambia il container
   useEffect(() => {
     if (!container) {
+      localStorage.removeItem('gtmContainer');
+      localStorage.removeItem('gtmAnalysis');
+      localStorage.removeItem('gtmActivity');
       setAnalysis(null);
       return;
     }
@@ -96,8 +126,55 @@ export function ContainerProvider({ children }: { children: ReactNode }) {
     }
   }, [analysis]);
 
+  // ✅ Salvataggio automatico dell'activity
+  useEffect(() => {
+    if (activity.length > 0) {
+      localStorage.setItem("gtmActivity", JSON.stringify(activity));
+      console.log("💾 Activity salvata su localStorage:", activity.length, "entries");
+    }
+  }, [activity]);
+
+  function recordActivity(e: ActivityEntry) {
+    setActivity(prev => {
+      const next = [e, ...prev].slice(0, 200);
+      try { localStorage.setItem('gtmActivity', JSON.stringify(next)); } catch {}
+      return next;
+    });
+  }
+
+  function applyContainerChange(
+    action: string,
+    entity: { type:'tag'|'trigger'|'variable'; id:string; name?:string },
+    mutator: (draft: GenerateDocInput) => void
+  ) {
+    if (!container) return;
+    const before = structuredClone(container);
+    const beforeM = analysis ?? calculateGtmMetrics(before);
+    const draft = structuredClone(container);
+    mutator(draft);
+    const afterM = calculateGtmMetrics(draft);
+    
+    // Calcola il delta prima dell'arrotondamento
+    const beforeScore = beforeM.score.total;
+    const afterScore = afterM.score.total;
+    const delta = Number((afterScore - beforeScore).toFixed(1));
+    
+    // Log per debug
+    console.log(`🔄 ${action}: ${beforeScore}% → ${afterScore}% (Δ${delta}%)`);
+    
+    setContainer(draft);
+    setAnalysis(afterM);
+    recordActivity({
+      id: (globalThis.crypto?.randomUUID?.() ?? '') || String(Date.now()),
+      ts: Date.now(),
+      action,
+      entity,
+      deltaScore: delta,
+    });
+  }
+
   return (
-    <ContainerContext.Provider value={{ container, setContainer, analysis, setAnalysis }}>
+    <ContainerContext.Provider value={{ container, setContainer, analysis, setAnalysis, activity, applyContainerChange }}>
       {children}
     </ContainerContext.Provider>
   );

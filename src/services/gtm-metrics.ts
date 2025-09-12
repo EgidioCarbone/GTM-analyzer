@@ -11,13 +11,14 @@
 // ============================================================================
 
 export const SCORE_WEIGHTS = {
-  tags: 0.18,
+  tags: 0.20,
   triggers: 0.18, 
   variables: 0.14,
   consent: 0.14, // 14% per consent mode
   triggerQuality: 0.14, // 14% per trigger quality
   variableQuality: 0.14, // 14% per variable quality
   htmlSecurity: 0.08, // 8% per HTML security
+  naming: 0.02, // 2% per naming issues (ridotto)
 };
 
 // ============================================================================
@@ -108,9 +109,12 @@ function calculateUnusedItems(cv: GTMContainerVersion) {
   const triggers = cv.trigger || [];
   const variables = cv.variable || [];
 
-  // Trigger usati
+  // Considera solo i tag attivi (non in pausa) per calcolare l'utilizzo
+  const activeTags = tags.filter(t => !t.paused);
+
+  // Trigger usati (solo da tag attivi)
   const firingRefs = new Set<string>();
-  tags.forEach(t => {
+  activeTags.forEach(t => {
     if (Array.isArray(t.firingTriggerId)) {
       t.firingTriggerId.forEach((id: string) => firingRefs.add(id));
     } else if (t.firingTriggerId) {
@@ -120,9 +124,9 @@ function calculateUnusedItems(cv: GTMContainerVersion) {
   const usedTrigIds = new Set([...firingRefs]);
   const unusedTriggers = triggers.filter(tr => !usedTrigIds.has(tr.triggerId || ''));
 
-  // Variabili usate: in tag, trigger e variabili (riferimenti annidati)
+  // Variabili usate: in tag attivi, trigger e variabili (riferimenti annidati)
   const varRefs = new Set<string>();
-  tags.forEach(t => extractVarRefsFromAny(t).forEach(n => varRefs.add(n)));
+  activeTags.forEach(t => extractVarRefsFromAny(t).forEach(n => varRefs.add(n)));
   triggers.forEach(tr => extractVarRefsFromAny(tr).forEach(n => varRefs.add(n)));
   variables.forEach(v => extractVarRefsFromAny(v).forEach(n => varRefs.add(n)));
   const usedVarNames = varRefs;
@@ -355,16 +359,26 @@ function calculateDistribution(cv: GTMContainerVersion) {
 function calculateTagQuality(cv: GTMContainerVersion) {
   const tags = cv.tag || [];
   const active = tags.filter(t => t.paused !== true);
+  const paused = tags.filter(t => t.paused === true);
   const valid = active.filter(t => {
     if (Array.isArray(t.firingTriggerId)) {
       return t.firingTriggerId.length > 0;
     }
     return !!t.firingTriggerId;
   });
-  const score = active.length ? Math.round(100 * valid.length / active.length) : 100;
+  
+  // Calcola score considerando anche i tag in pausa come penalità
+  let score = 100;
+  if (tags.length > 0) {
+    // Base score: percentuale di tag attivi con trigger
+    const activeScore = active.length ? (valid.length / active.length) * 100 : 100;
+    // Penalità per tag in pausa: -2 punti per ogni tag in pausa
+    const pausedPenalty = (paused.length / tags.length) * 100 * 2;
+    score = Math.max(0, activeScore - pausedPenalty);
+  }
   
   return {
-    score,
+    score: Math.round(score),
     active: active.length,
     valid: valid.length,
     total: tags.length
@@ -376,9 +390,12 @@ function calculateTriggerQuality(cv: GTMContainerVersion) {
   const triggers = cv.trigger || [];
   const tags = cv.tag || [];
   
-  // Trigger usati
+  // Considera solo i tag attivi per calcolare l'utilizzo
+  const activeTags = tags.filter(t => !t.paused);
+  
+  // Trigger usati (solo da tag attivi)
   const usedTrigIds = new Set<string>();
-  tags.forEach(t => {
+  activeTags.forEach(t => {
     if (Array.isArray(t.firingTriggerId)) {
       t.firingTriggerId.forEach((id: string) => usedTrigIds.add(id));
     } else if (t.firingTriggerId) {
@@ -387,10 +404,19 @@ function calculateTriggerQuality(cv: GTMContainerVersion) {
   });
   
   const usedTr = triggers.filter(tr => usedTrigIds.has(tr.triggerId || '')).length;
-  const score = triggers.length ? Math.round(100 * usedTr / triggers.length) : 100;
+  const unusedTr = triggers.length - usedTr;
+  
+  // Calcola score con penalità per trigger non usati
+  let score = 100;
+  if (triggers.length > 0) {
+    const baseScore = (usedTr / triggers.length) * 100;
+    // Penalità per trigger non usati: -1.5 punti per ogni trigger non usato
+    const unusedPenalty = (unusedTr / triggers.length) * 100 * 1.5;
+    score = Math.max(0, baseScore - unusedPenalty);
+  }
   
   return {
-    score,
+    score: Math.round(score),
     used: usedTr,
     total: triggers.length
   };
@@ -402,17 +428,29 @@ function calculateVariableQuality(cv: GTMContainerVersion) {
   const tags = cv.tag || [];
   const triggers = cv.trigger || [];
   
-  // Variabili usate
+  // Considera solo i tag attivi per calcolare l'utilizzo
+  const activeTags = tags.filter(t => !t.paused);
+  
+  // Variabili usate (solo da tag attivi)
   const varRefs = new Set<string>();
-  tags.forEach(t => extractVarRefsFromAny(t).forEach(n => varRefs.add(n)));
+  activeTags.forEach(t => extractVarRefsFromAny(t).forEach(n => varRefs.add(n)));
   triggers.forEach(tr => extractVarRefsFromAny(tr).forEach(n => varRefs.add(n)));
   variables.forEach(v => extractVarRefsFromAny(v).forEach(n => varRefs.add(n)));
   
   const usedV = variables.filter(v => varRefs.has(String(v.name))).length;
-  const score = variables.length ? Math.round(100 * usedV / variables.length) : 100;
+  const unusedV = variables.length - usedV;
+  
+  // Calcola score con penalità per variabili non usate
+  let score = 100;
+  if (variables.length > 0) {
+    const baseScore = (usedV / variables.length) * 100;
+    // Penalità per variabili non usate: -1 punto per ogni variabile non usata
+    const unusedPenalty = (unusedV / variables.length) * 100 * 1;
+    score = Math.max(0, baseScore - unusedPenalty);
+  }
   
   return {
-    score,
+    score: Math.round(score),
     used: usedV,
     total: variables.length
   };
@@ -603,7 +641,7 @@ export type GtmMetrics = {
     other: number;
     chartData: Array<{ family: string; count: number }>;
   };
-  quality: { tags: number; triggers: number; variables: number; consent: number; triggerQuality: number; variableQuality: number; htmlSecurity: number }; // 0–100
+  quality: { tags: number; triggers: number; variables: number; consent: number; triggerQuality: number; variableQuality: number; htmlSecurity: number; naming: number }; // 0–100
   score: {
     total: number;
     breakdown: Array<{
@@ -779,6 +817,11 @@ export function calculateGtmMetrics(cv: GTMContainerVersion): GtmMetrics {
     const variableQualityScore = Math.round(variableQualityAnalysis.variable_quality.score * 100);
     const htmlSecurityScore = Math.round(htmlSecurityAnalysis.html_security.score * 100);
     
+    // Calcola naming quality (100 - rate of naming issues)
+    const totalItems = counts.tags + counts.triggers + counts.variables;
+    const namingRate = totalItems > 0 ? namingIssues.total / totalItems : 0;
+    const namingQuality = Math.round((1 - namingRate) * 100);
+    
     // Genera piano d'azione
     const actionPlan = generateActionPlan({
       uaObsolete: uaObsolete.count,
@@ -797,7 +840,7 @@ export function calculateGtmMetrics(cv: GTMContainerVersion): GtmMetrics {
       paused: counts.tags > 0 ? Math.round((paused.count / counts.tags) * 100) : 0,
       unused: counts.tags > 0 ? Math.round((unused.total / counts.tags) * 100) : 0,
       uaObsolete: counts.tags > 0 ? Math.round((uaObsolete.count / counts.tags) * 100) : 0,
-      namingIssues: counts.tags > 0 ? Math.round((namingIssues.total / counts.tags) * 100) : 0
+      namingIssues: totalItems > 0 ? Math.round((namingIssues.total / totalItems) * 100) : 0
     };
     
     // Calcola score trasparente
@@ -808,7 +851,8 @@ export function calculateGtmMetrics(cv: GTMContainerVersion): GtmMetrics {
       consent: consentQuality,
       triggerQuality: triggerQualityScore,
       variableQuality: variableQualityScore,
-      htmlSecurity: htmlSecurityScore
+      htmlSecurity: htmlSecurityScore,
+      naming: namingQuality
     });
 
     // Build issues index
@@ -863,7 +907,8 @@ export function calculateGtmMetrics(cv: GTMContainerVersion): GtmMetrics {
         consent: consentQuality,
         triggerQuality: triggerQualityScore,
         variableQuality: variableQualityScore,
-        htmlSecurity: htmlSecurityScore
+        htmlSecurity: htmlSecurityScore,
+        naming: namingQuality
       },
       score,
       actionPlan,
@@ -898,7 +943,7 @@ export function calculateGtmMetrics(cv: GTMContainerVersion): GtmMetrics {
 // 10. CALCOLO SCORE TRASPARENTE E STIMA IMPATTO
 // ============================================================================
 
-function calculateTransparentScore(quality: { tags: number; triggers: number; variables: number; consent: number; triggerQuality: number; variableQuality: number; htmlSecurity: number }) {
+function calculateTransparentScore(quality: { tags: number; triggers: number; variables: number; consent: number; triggerQuality: number; variableQuality: number; htmlSecurity: number; naming: number }) {
   const breakdown = [
     {
       label: 'Pulizia tag',
@@ -941,18 +986,25 @@ function calculateTransparentScore(quality: { tags: number; triggers: number; va
       value: quality.htmlSecurity,
       weight: SCORE_WEIGHTS.htmlSecurity,
       percentage: Math.round(quality.htmlSecurity * SCORE_WEIGHTS.htmlSecurity)
+    },
+    {
+      label: 'Naming Convention',
+      value: quality.naming,
+      weight: SCORE_WEIGHTS.naming,
+      percentage: Math.round(quality.naming * SCORE_WEIGHTS.naming)
     }
   ];
   
-  const total = Math.round(
+  const total = Number((
     quality.tags * SCORE_WEIGHTS.tags +
     quality.triggers * SCORE_WEIGHTS.triggers +
     quality.variables * SCORE_WEIGHTS.variables +
     quality.consent * SCORE_WEIGHTS.consent +
     quality.triggerQuality * SCORE_WEIGHTS.triggerQuality +
     quality.variableQuality * SCORE_WEIGHTS.variableQuality +
-    quality.htmlSecurity * SCORE_WEIGHTS.htmlSecurity
-  );
+    quality.htmlSecurity * SCORE_WEIGHTS.htmlSecurity +
+    quality.naming * SCORE_WEIGHTS.naming
+  ).toFixed(1));
   
   return { total, breakdown };
 }

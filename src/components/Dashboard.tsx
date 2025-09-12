@@ -162,7 +162,7 @@ const Dashboard = () => {
     
     const report = `# Report GTM Container - ${new Date().toLocaleDateString()}
 
-## Score Qualità: ${safeRender(gtmMetrics.score.total)}%
+## Score Qualità: ${safeRender(gtmMetrics.score.total.toFixed(1))}%
 
 ### Piano d'Azione Prioritario:
 ${gtmMetrics.actionPlan.map(item => {
