@@ -51,11 +51,18 @@ export default function SSDTestPage() {
       const response = await fetch('http://localhost:4000/api/ssd/ingest', {
         method: 'POST',
         body: formData,
+        signal: AbortSignal.timeout(120000), // 2 minute timeout
       });
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.error || 'Failed to process PDF');
+        if (response.status === 422) {
+          throw new Error(`Validation Error: ${error.error}`);
+        } else if (response.status === 429) {
+          throw new Error('Rate limit exceeded. Please try again later.');
+        } else {
+          throw new Error(error.error || `Server error (${response.status})`);
+        }
       }
 
       const result = await response.json();
@@ -129,11 +136,18 @@ export default function SSDTestPage() {
             consent: 'both',
           },
         }),
+        signal: AbortSignal.timeout(300000), // 5 minute timeout
       });
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.error || 'Failed to run tests');
+        if (response.status === 422) {
+          throw new Error(`Test execution error: ${error.error}`);
+        } else if (response.status === 429) {
+          throw new Error('Rate limit exceeded. Please try again later.');
+        } else {
+          throw new Error(error.error || `Server error (${response.status})`);
+        }
       }
 
       const result = await response.json();
@@ -500,12 +514,24 @@ export default function SSDTestPage() {
                     )}
 
                     {/* Evidence */}
-                    <div className="mt-3 space-y-2">
+                    <div className="mt-3 space-y-3">
                       {result.evidence.dataLayerEvents.length > 0 && (
                         <div>
                           <p className="text-sm font-medium text-gray-700">DataLayer Events:</p>
-                          <div className="bg-gray-100 rounded p-2 text-xs font-mono">
-                            {result.evidence.dataLayerEvents.length} events captured
+                          <div className="bg-gray-100 rounded p-3 text-xs font-mono max-h-32 overflow-y-auto">
+                            {result.evidence.dataLayerEvents.map((event, eventIndex) => (
+                              <div key={eventIndex} className="mb-2 p-2 bg-white rounded border">
+                                <div className="text-blue-600 font-semibold">
+                                  {event.payload?.event || 'Unknown Event'}
+                                </div>
+                                <div className="text-gray-600 mt-1">
+                                  {new Date(event.timestamp).toLocaleTimeString()}
+                                </div>
+                                <div className="text-gray-800 mt-1">
+                                  {JSON.stringify(event.payload, null, 2)}
+                                </div>
+                              </div>
+                            ))}
                           </div>
                         </div>
                       )}
@@ -513,8 +539,56 @@ export default function SSDTestPage() {
                       {result.evidence.trackingHits.length > 0 && (
                         <div>
                           <p className="text-sm font-medium text-gray-700">Tracking Hits:</p>
-                          <div className="bg-gray-100 rounded p-2 text-xs font-mono">
-                            {result.evidence.trackingHits.length} network requests captured
+                          <div className="bg-gray-100 rounded p-3 text-xs font-mono max-h-32 overflow-y-auto">
+                            {result.evidence.trackingHits.map((hit, hitIndex) => (
+                              <div key={hitIndex} className="mb-2 p-2 bg-white rounded border">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-green-600 font-semibold">{hit.domain}</span>
+                                  <span className="text-gray-500">{hit.method}</span>
+                                </div>
+                                <div className="text-gray-600 mt-1">
+                                  {new Date(hit.timestamp).toLocaleTimeString()}
+                                </div>
+                                <div className="text-gray-800 mt-1 truncate">
+                                  {hit.url}
+                                </div>
+                                {hit.status && (
+                                  <div className={`text-xs mt-1 ${
+                                    hit.status >= 200 && hit.status < 300 ? 'text-green-600' : 'text-red-600'
+                                  }`}>
+                                    Status: {hit.status}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {result.evidence.screenshotPathOrB64 && (
+                        <div>
+                          <p className="text-sm font-medium text-gray-700">Screenshot:</p>
+                          <div className="mt-2">
+                            <img
+                              src={`data:image/png;base64,${result.evidence.screenshotPathOrB64}`}
+                              alt={`Screenshot for ${result.section} step ${result.stepIndex}`}
+                              className="max-w-full h-auto rounded border shadow-sm cursor-pointer hover:shadow-md transition-shadow"
+                              onClick={() => {
+                                // Open screenshot in new tab
+                                const newWindow = window.open();
+                                if (newWindow) {
+                                  newWindow.document.write(`
+                                    <html>
+                                      <head><title>Screenshot - ${result.section} Step ${result.stepIndex}</title></head>
+                                      <body style="margin:0; padding:20px; background:#f5f5f5;">
+                                        <img src="data:image/png;base64,${result.evidence.screenshotPathOrB64}" 
+                                             style="max-width:100%; height:auto; border-radius:8px; box-shadow:0 4px 8px rgba(0,0,0,0.1);" />
+                                      </body>
+                                    </html>
+                                  `);
+                                }
+                              }}
+                            />
                           </div>
                         </div>
                       )}

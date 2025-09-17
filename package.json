@@ -5,7 +5,7 @@
   "private": true,
   "scripts": {
     "frontend": "vite",
-    "backend": "node server-ssd.js",
+    "backend": "npx tsx server-ssd.ts",
     "puppeteer": "node puppeteerServer.js",
     "dev": "concurrently \"npm:backend\" \"npm:puppeteer\" \"npm:frontend\"",
     "build": "vite build",

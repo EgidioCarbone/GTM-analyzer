@@ -1,20 +1,21 @@
-// SSD Puppeteer Runner Service
+// SSD Puppeteer Runner
+// Main test runner with dataLayer tracking, network monitoring, and SPA detection
 // ============================================================================
 
 import puppeteer, { Browser, Page } from 'puppeteer';
 import { TestSpec, TestResult, DataLayerEvent, TrackingHit } from '../types/ssd';
-import { isUrlAllowed } from './ssdValidation';
+import { SSDTargetResolver } from './ssdTargetResolver';
+import { SSDExpectationMatcher, ExpectationContext } from './ssdExpectationMatcher';
+import { SSDConsentHandler } from './ssdConsentHandler';
 
-export interface RunnerConfig {
-  headless: boolean;
-  stepTimeoutMs: number;
-  navTimeoutMs: number;
-  allowedHosts: string[];
-  screenshotDir: string;
-  consentProfiles: string[];
+export interface RunOptions {
+  headless?: boolean;
+  consent?: 'accept' | 'reject' | 'both';
+  timeout?: number;
+  screenshotDir?: string;
 }
 
-export interface RunnerResult {
+export interface RunResult {
   summary: {
     steps: number;
     passed: number;
@@ -29,123 +30,183 @@ export interface RunnerResult {
   };
 }
 
+export class SSDRunnerError extends Error {
+  constructor(message: string, public stepIndex?: number) {
+    super(message);
+    this.name = 'SSDRunnerError';
+  }
+}
+
 export class SSDPuppeteerRunner {
-  private config: RunnerConfig;
   private browser: Browser | null = null;
+  private page: Page | null = null;
   private dataLayerEvents: DataLayerEvent[] = [];
   private trackingHits: TrackingHit[] = [];
-  private screenshotCounter = 0;
+  private screenshotDir: string;
+  private timeout: number;
 
-  constructor(config: RunnerConfig) {
-    this.config = config;
+  constructor(options: { screenshotDir?: string; timeout?: number } = {}) {
+    this.screenshotDir = options.screenshotDir || 'screenshots';
+    this.timeout = options.timeout || 30000;
   }
 
-  async runTests(testSpec: TestSpec): Promise<RunnerResult> {
+  /**
+   * Run the complete test specification
+   */
+  async runTests(testSpec: TestSpec, options: RunOptions = {}): Promise<RunResult> {
     const startTime = Date.now();
     let results: TestResult[] = [];
-    let passed = 0;
-    let failed = 0;
+    let consentProfiles: string[] = [];
 
     try {
-      // Launch browser
-      this.browser = await puppeteer.launch({
-        headless: this.config.headless,
-        args: [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
-          '--disable-accelerated-2d-canvas',
-          '--no-first-run',
-          '--no-zygote',
-          '--disable-gpu',
-          '--window-size=1920,1080',
-        ],
-      });
+      // Initialize browser and page
+      await this.initializeBrowser(options);
 
-      // Process each consent profile
-      for (const consentProfile of this.config.consentProfiles) {
-        const page = await this.browser.newPage();
-        
-        try {
-          // Set up monitoring
-          await this.setupMonitoring(page);
-          
-          // Navigate to the site
-          await page.goto(testSpec.site, { 
-            waitUntil: 'networkidle2',
-            timeout: this.config.navTimeoutMs 
-          });
-
-          // Handle consent if needed
-          if (consentProfile !== 'accept') {
-            await this.handleConsent(page, consentProfile);
-          }
-
-          // Run tests for this consent profile
-          const profileResults = await this.runTestsForProfile(
-            page, 
-            testSpec, 
-            consentProfile
-          );
-          
-          results.push(...profileResults);
-          passed += profileResults.filter(r => r.status === 'PASS').length;
-          failed += profileResults.filter(r => r.status === 'FAIL').length;
-
-        } finally {
-          await page.close();
-        }
+      // Determine consent profiles to run
+      if (options.consent === 'both') {
+        consentProfiles = ['accept', 'reject'];
+      } else if (options.consent) {
+        consentProfiles = [options.consent];
+      } else {
+        consentProfiles = testSpec.consent || ['accept'];
       }
 
-      const duration = Date.now() - startTime;
+      // Run tests for each consent profile
+      for (const profile of consentProfiles) {
+        const profileResults = await this.runTestsForProfile(testSpec, profile, options);
+        results = results.concat(profileResults);
+      }
+
+      const endTime = Date.now();
+      const duration = endTime - startTime;
 
       return {
         summary: {
           steps: results.length,
-          passed,
-          failed,
+          passed: results.filter(r => r.status === 'PASS').length,
+          failed: results.filter(r => r.status === 'FAIL').length,
           duration,
-          consentProfiles: this.config.consentProfiles,
+          consentProfiles,
         },
         results,
         artifacts: {
-          screenshotsFolder: this.config.screenshotDir,
-          rawLogsPath: `${this.config.screenshotDir}/raw-logs.json`,
+          screenshotsFolder: this.screenshotDir,
+          rawLogsPath: `${this.screenshotDir}/raw-logs.json`,
         },
       };
 
     } finally {
-      if (this.browser) {
-        await this.browser.close();
-      }
+      await this.cleanup();
     }
   }
 
-  private async setupMonitoring(page: Page): Promise<void> {
-    // Monitor dataLayer pushes
-    await page.evaluateOnNewDocument(() => {
-      const originalPush = window.dataLayer?.push;
-      if (originalPush) {
+  /**
+   * Initialize browser and page
+   */
+  private async initializeBrowser(options: RunOptions): Promise<void> {
+    this.browser = await puppeteer.launch({
+      headless: options.headless !== false,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--no-first-run',
+        '--no-zygote',
+        '--disable-gpu',
+      ],
+    });
+
+    this.page = await this.browser.newPage();
+
+    // Set up dataLayer tracking
+    await this.setupDataLayerTracking();
+
+    // Set up network monitoring
+    await this.setupNetworkMonitoring();
+
+    // Set up SPA detection
+    await this.setupSPADetection();
+
+    // Set viewport and user agent
+    await this.page.setViewport({ width: 1280, height: 720 });
+    await this.page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36');
+
+    // Set up navigation allowlist
+    if (this.page) {
+      await this.page.setRequestInterception(true);
+      this.page.on('request', (request) => {
+        const url = new URL(request.url());
+        const allowedHosts = [new URL(request.url()).hostname];
+        
+        // Allow requests to the main site and allowed hosts
+        if (allowedHosts.includes(url.hostname)) {
+          request.continue();
+        } else {
+          request.abort();
+        }
+      });
+    }
+  }
+
+  /**
+   * Set up dataLayer tracking
+   */
+  private async setupDataLayerTracking(): Promise<void> {
+    if (!this.page) return;
+
+    await this.page.evaluateOnNewDocument(() => {
+      // Override dataLayer.push to capture events
+      if (window.dataLayer) {
+        const originalPush = window.dataLayer.push;
         window.dataLayer.push = function(...args: any[]) {
           const result = originalPush.apply(this, args);
-          // Store the event for later retrieval
-          (window as any).__ssdDataLayerEvents = (window as any).__ssdDataLayerEvents || [];
-          (window as any).__ssdDataLayerEvents.push({
-            timestamp: Date.now(),
-            payload: args[0]
-          });
+          
+          // Emit custom event for our tracking
+          window.dispatchEvent(new CustomEvent('dataLayerPush', {
+            detail: {
+              timestamp: Date.now(),
+              payload: args[0],
+            }
+          }));
+          
           return result;
+        };
+      } else {
+        // Initialize dataLayer if it doesn't exist
+        window.dataLayer = [];
+        window.dataLayer.push = function(...args: any[]) {
+          window.dataLayer.push.apply(this, args);
+          
+          window.dispatchEvent(new CustomEvent('dataLayerPush', {
+            detail: {
+              timestamp: Date.now(),
+              payload: args[0],
+            }
+          }));
         };
       }
     });
 
-    // Monitor network requests
-    await page.setRequestInterception(true);
-    page.on('request', (request) => {
+    // Listen for dataLayer events
+    this.page.on('console', (msg) => {
+      if (msg.type() === 'log' && msg.text().includes('dataLayer')) {
+        // Handle console-based dataLayer events if needed
+      }
+    });
+  }
+
+  /**
+   * Set up network monitoring
+   */
+  private async setupNetworkMonitoring(): Promise<void> {
+    if (!this.page) return;
+
+    this.page.on('request', (request) => {
       const url = request.url();
       const domain = new URL(url).hostname;
       
-      // Track common tracking domains
+      // Track requests to common analytics domains
       const trackingDomains = [
         'google-analytics.com',
         'googletagmanager.com',
@@ -164,513 +225,422 @@ export class SSDPuppeteerRunner {
           domain,
         });
       }
-
-      request.continue();
     });
 
-    // Monitor SPA navigation
-    await page.evaluateOnNewDocument(() => {
+    this.page.on('response', (response) => {
+      const url = response.url();
+      const domain = new URL(url).hostname;
+      
+      const trackingDomains = [
+        'google-analytics.com',
+        'googletagmanager.com',
+        'g.doubleclick.net',
+        'facebook.com',
+        'connect.facebook.net',
+        'analytics.google.com',
+        'www.google-analytics.com',
+      ];
+
+      if (trackingDomains.some(d => domain.includes(d))) {
+        // Update existing tracking hit with status
+        const existingHit = this.trackingHits.find(hit => hit.url === url && !hit.status);
+        if (existingHit) {
+          existingHit.status = response.status();
+        }
+      }
+    });
+  }
+
+  /**
+   * Set up SPA detection
+   */
+  private async setupSPADetection(): Promise<void> {
+    if (!this.page) return;
+
+    await this.page.evaluateOnNewDocument(() => {
+      // Patch history methods to detect route changes
       const originalPushState = history.pushState;
       const originalReplaceState = history.replaceState;
-      
-      history.pushState = function(...args) {
-        (window as any).__ssdNavigationEvents = (window as any).__ssdNavigationEvents || [];
-        (window as any).__ssdNavigationEvents.push({
-          type: 'pushState',
-          timestamp: Date.now(),
-          url: args[2]
-        });
-        return originalPushState.apply(this, args);
+
+      history.pushState = function(...args: any[]) {
+        const result = originalPushState.apply(this, args);
+        window.dispatchEvent(new CustomEvent('spaRouteChange', {
+          detail: {
+            type: 'pushState',
+            url: args[2] || location.href,
+            timestamp: Date.now(),
+          }
+        }));
+        return result;
       };
-      
-      history.replaceState = function(...args) {
-        (window as any).__ssdNavigationEvents = (window as any).__ssdNavigationEvents || [];
-        (window as any).__ssdNavigationEvents.push({
-          type: 'replaceState',
-          timestamp: Date.now(),
-          url: args[2]
-        });
-        return originalReplaceState.apply(this, args);
+
+      history.replaceState = function(...args: any[]) {
+        const result = originalReplaceState.apply(this, args);
+        window.dispatchEvent(new CustomEvent('spaRouteChange', {
+          detail: {
+            type: 'replaceState',
+            url: args[2] || location.href,
+            timestamp: Date.now(),
+          }
+        }));
+        return result;
       };
+
+      // Listen for popstate events
+      window.addEventListener('popstate', () => {
+        window.dispatchEvent(new CustomEvent('spaRouteChange', {
+          detail: {
+            type: 'popstate',
+            url: location.href,
+            timestamp: Date.now(),
+          }
+        }));
+      });
     });
   }
 
-  private async handleConsent(page: Page, consentProfile: string): Promise<void> {
-    if (consentProfile === 'reject') {
-      // Try to find and click "Reject All" or similar buttons
-      const rejectSelectors = [
-        'button[data-testid*="reject"]',
-        'button[class*="reject"]',
-        'button:contains("Reject")',
-        'button:contains("Decline")',
-        'button:contains("No thanks")',
-        '[data-consent="reject"]',
-        '.consent-reject',
-        '#reject-all',
-      ];
-
-      for (const selector of rejectSelectors) {
-        try {
-          const element = await page.$(selector);
-          if (element) {
-            await element.click();
-            await page.waitForTimeout(1000);
-            break;
-          }
-        } catch (error) {
-          // Continue trying other selectors
-        }
-      }
-    } else if (consentProfile === 'accept') {
-      // Try to find and click "Accept All" or similar buttons
-      const acceptSelectors = [
-        'button[data-testid*="accept"]',
-        'button[class*="accept"]',
-        'button:contains("Accept")',
-        'button:contains("Allow")',
-        'button:contains("I agree")',
-        '[data-consent="accept"]',
-        '.consent-accept',
-        '#accept-all',
-      ];
-
-      for (const selector of acceptSelectors) {
-        try {
-          const element = await page.$(selector);
-          if (element) {
-            await element.click();
-            await page.waitForTimeout(1000);
-            break;
-          }
-        } catch (error) {
-          // Continue trying other selectors
-        }
-      }
-    }
-  }
-
+  /**
+   * Run tests for a specific consent profile
+   */
   private async runTestsForProfile(
-    page: Page, 
-    testSpec: TestSpec, 
-    consentProfile: string
+    testSpec: TestSpec,
+    consentProfile: string,
+    options: RunOptions
   ): Promise<TestResult[]> {
+    if (!this.page) throw new SSDRunnerError('Page not initialized');
+
     const results: TestResult[] = [];
 
-    for (const test of testSpec.tests) {
-      for (let stepIndex = 0; stepIndex < test.steps.length; stepIndex++) {
-        const step = test.steps[stepIndex];
-        const stepStartTime = Date.now();
+    try {
+      // Navigate to the site
+      await this.page.goto(testSpec.site, { waitUntil: 'networkidle2', timeout: this.timeout });
 
-        try {
-          // Execute the step
-          await this.executeStep(page, step, testSpec);
-          
-          // Verify expectations
-          const expectationsMet = await this.verifyExpectations(page, step);
-          
-          // Take screenshot
-          const screenshotPath = await this.takeScreenshot(page, test.section, stepIndex);
+      // Apply consent profile
+      if (consentProfile === 'accept' || consentProfile === 'reject') {
+        const consentHandler = new SSDConsentHandler(this.page);
+        await consentHandler.applyConsentProfile(consentProfile);
+      }
 
-          // Get captured events
-          const dataLayerEvents = await this.getDataLayerEvents(page);
-          const trackingHits = this.getTrackingHits();
+      // Run each test section
+      for (const test of testSpec.tests) {
+        const testResults = await this.runTestSection(test, testSpec, options);
+        results.push(...testResults);
+      }
 
-          const stepEndTime = Date.now();
-          const duration = stepEndTime - stepStartTime;
+    } catch (error) {
+      console.error(`Error running tests for consent profile ${consentProfile}:`, error);
+    }
 
-          results.push({
-            section: test.section,
-            stepIndex,
-            description: step.description,
-            status: expectationsMet ? 'PASS' : 'FAIL',
-            reasons: expectationsMet ? [] : ['Expectations not met'],
-            evidence: {
-              screenshotPathOrB64: screenshotPath,
-              dataLayerEvents,
-              trackingHits,
-            },
-            timings: {
-              startTime: stepStartTime,
-              endTime: stepEndTime,
-              duration,
-            },
-          });
+    return results;
+  }
 
-          if (expectationsMet) {
-            // Increment passed counter
-          } else {
-            // Increment failed counter
+  /**
+   * Run a single test section
+   */
+  private async runTestSection(
+    test: any,
+    testSpec: TestSpec,
+    options: RunOptions
+  ): Promise<TestResult[]> {
+    if (!this.page) throw new SSDRunnerError('Page not initialized');
+
+    const results: TestResult[] = [];
+    const targetResolver = new SSDTargetResolver(this.page, this.timeout);
+    const expectationMatcher = new SSDExpectationMatcher(this.page);
+
+    for (let stepIndex = 0; stepIndex < test.steps.length; stepIndex++) {
+      const step = test.steps[stepIndex];
+      const stepStartTime = Date.now();
+
+      try {
+        // Execute the step
+        await this.executeStep(step, targetResolver);
+
+        // Wait for any async operations
+        await this.page.waitForTimeout(1000);
+
+        // Check expectations
+        const expectationContext: ExpectationContext = {
+          dataLayerEvents: this.dataLayerEvents,
+          trackingHits: this.trackingHits,
+          currentUrl: this.page.url(),
+          stepStartTime,
+          stepEndTime: Date.now(),
+        };
+
+        let stepPassed = true;
+        const reasons: string[] = [];
+
+        if (step.expect && step.expect.length > 0) {
+          for (const expectation of step.expect) {
+            const matchResult = await expectationMatcher.matchExpectation(expectation, expectationContext);
+            if (!matchResult.passed) {
+              stepPassed = false;
+              reasons.push(matchResult.reason);
+            }
           }
-
-        } catch (error) {
-          const stepEndTime = Date.now();
-          const duration = stepEndTime - stepStartTime;
-
-          results.push({
-            section: test.section,
-            stepIndex,
-            description: step.description,
-            status: 'FAIL',
-            reasons: [error instanceof Error ? error.message : 'Unknown error'],
-            evidence: {
-              screenshotPathOrB64: await this.takeScreenshot(page, test.section, stepIndex),
-              dataLayerEvents: await this.getDataLayerEvents(page),
-              trackingHits: this.getTrackingHits(),
-            },
-            timings: {
-              startTime: stepStartTime,
-              endTime: stepEndTime,
-              duration,
-            },
-          });
         }
+
+        // Take screenshot
+        const screenshot = await this.takeScreenshot(stepIndex, test.section);
+
+        // Create result
+        const result: TestResult = {
+          section: test.section,
+          stepIndex,
+          description: step.description,
+          status: stepPassed ? 'PASS' : 'FAIL',
+          reasons: reasons.length > 0 ? reasons : undefined,
+          evidence: {
+            screenshotPathOrB64: screenshot,
+            dataLayerEvents: this.dataLayerEvents.filter(e => 
+              e.timestamp >= stepStartTime && e.timestamp <= Date.now()
+            ),
+            trackingHits: this.trackingHits.filter(h => 
+              h.timestamp >= stepStartTime && h.timestamp <= Date.now()
+            ),
+          },
+          timings: {
+            startTime: stepStartTime,
+            endTime: Date.now(),
+            duration: Date.now() - stepStartTime,
+          },
+        };
+
+        results.push(result);
+
+      } catch (error) {
+        // Handle step execution error
+        const screenshot = await this.takeScreenshot(stepIndex, test.section);
+        
+        const result: TestResult = {
+          section: test.section,
+          stepIndex,
+          description: step.description,
+          status: 'FAIL',
+          reasons: [error instanceof Error ? error.message : 'Unknown error'],
+          evidence: {
+            screenshotPathOrB64: screenshot,
+            dataLayerEvents: [],
+            trackingHits: [],
+          },
+          timings: {
+            startTime: stepStartTime,
+            endTime: Date.now(),
+            duration: Date.now() - stepStartTime,
+          },
+        };
+
+        results.push(result);
       }
     }
 
     return results;
   }
 
-  private async executeStep(page: Page, step: any, testSpec: TestSpec): Promise<void> {
-    // Check if navigation is allowed
-    if (step.action === 'navigate' && step.target?.value) {
-      const targetUrl = step.target.value;
-      if (!isUrlAllowed(targetUrl, testSpec.allowed_hosts || [])) {
-        throw new Error(`Navigation to ${targetUrl} is not allowed`);
-      }
-    }
+  /**
+   * Execute a single step
+   */
+  private async executeStep(step: any, targetResolver: SSDTargetResolver): Promise<void> {
+    if (!this.page) throw new SSDRunnerError('Page not initialized');
 
     switch (step.action) {
       case 'click':
-        await this.clickElement(page, step.target);
+        await this.executeClickStep(step, targetResolver);
         break;
       case 'input':
-        await this.inputText(page, step.target, step.value);
+        await this.executeInputStep(step, targetResolver);
         break;
       case 'wait_for_selector':
-        await this.waitForSelector(page, step.target);
+        await this.executeWaitForSelectorStep(step);
         break;
       case 'wait_for_text':
-        await this.waitForText(page, step.target);
+        await this.executeWaitForTextStep(step);
         break;
       case 'navigate':
-        await this.navigate(page, step.target);
+        await this.executeNavigateStep(step);
         break;
       case 'maybe_set_quantity':
-        await this.maybeSetQuantity(page, step.target, step.value);
+        await this.executeMaybeSetQuantityStep(step, targetResolver);
         break;
       case 'choose_payment':
-        await this.choosePayment(page, step.target);
+        await this.executeChoosePaymentStep(step, targetResolver);
         break;
       case 'complete_order':
-        await this.completeOrder(page);
+        await this.executeCompleteOrderStep(step, targetResolver);
         break;
       case 'custom':
-        await this.executeCustomAction(page, step);
+        await this.executeCustomStep(step);
         break;
       default:
-        throw new Error(`Unknown action: ${step.action}`);
+        throw new SSDRunnerError(`Unknown action: ${step.action}`);
     }
   }
 
-  private async clickElement(page: Page, target: any): Promise<void> {
-    if (!target) throw new Error('Target required for click action');
+  /**
+   * Execute click step
+   */
+  private async executeClickStep(step: any, targetResolver: SSDTargetResolver): Promise<void> {
+    if (!step.target) throw new SSDRunnerError('Click step requires target');
 
-    const element = await this.findElement(page, target);
-    if (!element) {
-      throw new Error(`Element not found: ${target.value}`);
+    const resolution = await targetResolver.resolveTarget(step.target);
+    if (!resolution.element) {
+      throw new SSDRunnerError(`Could not resolve target for click: ${resolution.error}`);
     }
 
-    await element.click();
-    await page.waitForTimeout(500); // Wait for any animations
+    await resolution.element.click();
   }
 
-  private async inputText(page: Page, target: any, value: string): Promise<void> {
-    if (!target) throw new Error('Target required for input action');
-    if (!value) throw new Error('Value required for input action');
+  /**
+   * Execute input step
+   */
+  private async executeInputStep(step: any, targetResolver: SSDTargetResolver): Promise<void> {
+    if (!step.target) throw new SSDRunnerError('Input step requires target');
+    if (!step.value) throw new SSDRunnerError('Input step requires value');
 
-    const element = await this.findElement(page, target);
-    if (!element) {
-      throw new Error(`Element not found: ${target.value}`);
+    const resolution = await targetResolver.resolveTarget(step.target);
+    if (!resolution.element) {
+      throw new SSDRunnerError(`Could not resolve target for input: ${resolution.error}`);
     }
 
-    await element.click();
-    await element.type(value);
+    await resolution.element.type(step.value);
   }
 
-  private async waitForSelector(page: Page, target: any): Promise<void> {
-    if (!target) throw new Error('Target required for wait_for_selector action');
+  /**
+   * Execute wait for selector step
+   */
+  private async executeWaitForSelectorStep(step: any): Promise<void> {
+    if (!step.target) throw new SSDRunnerError('Wait for selector step requires target');
 
-    await page.waitForSelector(target.value, { 
-      timeout: this.config.stepTimeoutMs 
-    });
+    await this.page!.waitForSelector(step.target.value, { timeout: this.timeout });
   }
 
-  private async waitForText(page: Page, target: any): Promise<void> {
-    if (!target) throw new Error('Target required for wait_for_text action');
+  /**
+   * Execute wait for text step
+   */
+  private async executeWaitForTextStep(step: any): Promise<void> {
+    if (!step.target) throw new SSDRunnerError('Wait for text step requires target');
 
-    await page.waitForFunction(
-      (text) => document.body.innerText.includes(text),
-      { timeout: this.config.stepTimeoutMs },
-      target.value
-    );
+    await this.page!.waitForSelector(`text=${step.target.value}`, { timeout: this.timeout });
   }
 
-  private async navigate(page: Page, target: any): Promise<void> {
-    if (!target) throw new Error('Target required for navigate action');
+  /**
+   * Execute navigate step
+   */
+  private async executeNavigateStep(step: any): Promise<void> {
+    if (!step.target) throw new SSDRunnerError('Navigate step requires target');
 
-    await page.goto(target.value, { 
-      waitUntil: 'networkidle2',
-      timeout: this.config.navTimeoutMs 
-    });
+    const url = step.target.value;
+    await this.page!.goto(url, { waitUntil: 'networkidle2', timeout: this.timeout });
   }
 
-  private async maybeSetQuantity(page: Page, target: any, value: string): Promise<void> {
-    // Try to find quantity input and set it
-    const quantitySelectors = [
-      'input[name="quantity"]',
-      'input[type="number"]',
-      '.quantity-input',
-      '[data-testid*="quantity"]',
-    ];
+  /**
+   * Execute maybe set quantity step
+   */
+  private async executeMaybeSetQuantityStep(step: any, targetResolver: SSDTargetResolver): Promise<void> {
+    if (!step.target) throw new SSDRunnerError('Maybe set quantity step requires target');
 
-    for (const selector of quantitySelectors) {
-      try {
-        const element = await page.$(selector);
-        if (element) {
-          await element.click();
-          await element.type(value);
-          return;
-        }
-      } catch (error) {
-        // Continue trying other selectors
-      }
+    const resolution = await targetResolver.resolveTarget(step.target);
+    if (!resolution.element) {
+      throw new SSDRunnerError(`Could not resolve target for quantity: ${resolution.error}`);
     }
 
-    // If no quantity input found, try clicking increment/decrement buttons
-    if (target) {
-      await this.clickElement(page, target);
+    // Try to set quantity to 1 if not already set
+    const currentValue = await resolution.element.evaluate((el: any) => el.value);
+    if (!currentValue || currentValue === '0') {
+      await resolution.element.type('1');
     }
   }
 
-  private async choosePayment(page: Page, target: any): Promise<void> {
-    // Try to find and select payment method
-    if (target) {
-      await this.clickElement(page, target);
-    } else {
-      // Try common payment method selectors
-      const paymentSelectors = [
-        'input[name="payment_method"]',
-        '.payment-method',
-        '[data-testid*="payment"]',
-      ];
+  /**
+   * Execute choose payment step
+   */
+  private async executeChoosePaymentStep(step: any, targetResolver: SSDTargetResolver): Promise<void> {
+    if (!step.target) throw new SSDRunnerError('Choose payment step requires target');
 
-      for (const selector of paymentSelectors) {
-        try {
-          const element = await page.$(selector);
-          if (element) {
-            await element.click();
-            break;
-          }
-        } catch (error) {
-          // Continue trying other selectors
-        }
-      }
+    const resolution = await targetResolver.resolveTarget(step.target);
+    if (!resolution.element) {
+      throw new SSDRunnerError(`Could not resolve target for payment: ${resolution.error}`);
     }
+
+    await resolution.element.click();
   }
 
-  private async completeOrder(page: Page): Promise<void> {
-    // Try to find and click order completion button
-    const orderSelectors = [
-      'button[type="submit"]',
-      'button:contains("Place Order")',
+  /**
+   * Execute complete order step
+   */
+  private async executeCompleteOrderStep(step: any, targetResolver: SSDTargetResolver): Promise<void> {
+    // This is a complex step that might involve multiple actions
+    // For now, we'll look for common "complete order" buttons
+    const commonSelectors = [
+      'button[data-testid*="complete"]',
+      'button[data-testid*="submit"]',
+      'button[data-testid*="order"]',
       'button:contains("Complete Order")',
+      'button:contains("Place Order")',
+      'button:contains("Submit Order")',
       'button:contains("Buy Now")',
-      '.order-button',
-      '[data-testid*="order"]',
+      'button:contains("Purchase")',
     ];
 
-    for (const selector of orderSelectors) {
+    for (const selector of commonSelectors) {
       try {
-        const element = await page.$(selector);
+        const element = await this.page!.$(selector);
         if (element) {
-          await element.click();
-          break;
+          const isVisible = await element.isVisible();
+          if (isVisible) {
+            await element.click();
+            return;
+          }
         }
       } catch (error) {
-        // Continue trying other selectors
-      }
-    }
-  }
-
-  private async executeCustomAction(page: Page, step: any): Promise<void> {
-    // Execute custom JavaScript if provided
-    if (step.customScript) {
-      await page.evaluate(step.customScript);
-    } else {
-      throw new Error('Custom action requires customScript property');
-    }
-  }
-
-  private async findElement(page: Page, target: any): Promise<any> {
-    const { kind, value, region } = target;
-
-    switch (kind) {
-      case 'text':
-        return await page.$x(`//*[contains(text(), "${value}")]`).then(elements => elements[0]);
-      case 'selector':
-        return await page.$(value);
-      case 'aria':
-        return await page.$(`[aria-label="${value}"]`);
-      case 'href':
-        return await page.$(`a[href*="${value}"]`);
-      default:
-        throw new Error(`Unknown target kind: ${kind}`);
-    }
-  }
-
-  private async verifyExpectations(page: Page, step: any): Promise<boolean> {
-    if (!step.expect || step.expect.length === 0) {
-      return true; // No expectations to verify
-    }
-
-    for (const expectation of step.expect) {
-      const met = await this.verifyExpectation(page, expectation);
-      if (!met) {
-        return false;
+        // Continue to next selector
+        continue;
       }
     }
 
-    return true;
+    throw new SSDRunnerError('Could not find complete order button');
   }
 
-  private async verifyExpectation(page: Page, expectation: any): Promise<boolean> {
-    switch (expectation.type) {
-      case 'dataLayer':
-        return await this.verifyDataLayerExpectation(expectation);
-      case 'ga4':
-      case 'gtm':
-        return await this.verifyTrackingExpectation(expectation);
-      case 'network':
-        return await this.verifyNetworkExpectation(expectation);
-      case 'navigation':
-        return await this.verifyNavigationExpectation(page, expectation);
-      case 'no_repeat_on_reload':
-        return await this.verifyNoRepeatOnReload(page, expectation);
-      default:
-        return false;
+  /**
+   * Execute custom step
+   */
+  private async executeCustomStep(step: any): Promise<void> {
+    // Custom steps would need to be implemented based on specific requirements
+    throw new SSDRunnerError('Custom steps not yet implemented');
+  }
+
+  /**
+   * Take screenshot of current page
+   */
+  private async takeScreenshot(stepIndex: number, section: string): Promise<string> {
+    if (!this.page) return '';
+
+    try {
+      const filename = `${section.replace(/\s+/g, '_')}_step_${stepIndex}_${Date.now()}.png`;
+      const filepath = `${this.screenshotDir}/${filename}`;
+      
+      await this.page.screenshot({ path: filepath, fullPage: true });
+      
+      // Also return base64 for immediate use
+      const base64 = await this.page.screenshot({ encoding: 'base64' });
+      return base64;
+    } catch (error) {
+      console.error('Failed to take screenshot:', error);
+      return '';
     }
   }
 
-  private async verifyDataLayerExpectation(expectation: any): Promise<boolean> {
-    const events = this.dataLayerEvents;
-    
-    if (expectation.event) {
-      const matchingEvents = events.filter(e => e.payload?.event === expectation.event);
-      if (matchingEvents.length === 0) return false;
-
-      if (expectation.params_subset) {
-        return matchingEvents.some(e => 
-          this.isSubset(expectation.params_subset, e.payload)
-        );
-      }
+  /**
+   * Clean up browser resources
+   */
+  private async cleanup(): Promise<void> {
+    if (this.browser) {
+      await this.browser.close();
+      this.browser = null;
     }
-
-    if (expectation.contains && expectation.near_previous_n) {
-      const recentEvents = events.slice(-expectation.near_previous_n);
-      return recentEvents.some(e => 
-        this.isSubset(expectation.contains, e.payload)
-      );
-    }
-
-    return true;
+    this.page = null;
+    this.dataLayerEvents = [];
+    this.trackingHits = [];
   }
-
-  private async verifyTrackingExpectation(expectation: any): Promise<boolean> {
-    const hits = this.trackingHits;
-    
-    if (expectation.url_contains) {
-      return hits.some(hit => hit.url.includes(expectation.url_contains));
-    }
-
-    return true;
-  }
-
-  private async verifyNetworkExpectation(expectation: any): Promise<boolean> {
-    return await this.verifyTrackingExpectation(expectation);
-  }
-
-  private async verifyNavigationExpectation(page: Page, expectation: any): Promise<boolean> {
-    const currentUrl = page.url();
-    
-    if (expectation.url_matches) {
-      const regex = new RegExp(expectation.url_matches);
-      return regex.test(currentUrl);
-    }
-
-    if (expectation.url_contains) {
-      return currentUrl.includes(expectation.url_contains);
-    }
-
-    return true;
-  }
-
-  private async verifyNoRepeatOnReload(page: Page, expectation: any): Promise<boolean> {
-    const beforeReload = this.dataLayerEvents.length;
-    await page.reload({ waitUntil: 'networkidle2' });
-    const afterReload = this.dataLayerEvents.length;
-    
-    // Check if the specific event fired again
-    if (expectation.for_event) {
-      const newEvents = this.dataLayerEvents.slice(beforeReload);
-      return !newEvents.some(e => e.payload?.event === expectation.for_event);
-    }
-
-    return true;
-  }
-
-  private isSubset(subset: any, obj: any): boolean {
-    if (typeof subset !== 'object' || subset === null) {
-      return subset === obj;
-    }
-
-    if (typeof obj !== 'object' || obj === null) {
-      return false;
-    }
-
-    for (const key in subset) {
-      if (!(key in obj) || !this.isSubset(subset[key], obj[key])) {
-        return false;
-      }
-    }
-
-    return true;
-  }
-
-  private async takeScreenshot(page: Page, section: string, stepIndex: number): Promise<string> {
-    this.screenshotCounter++;
-    const filename = `screenshot-${section}-${stepIndex}-${this.screenshotCounter}.png`;
-    const filepath = `${this.config.screenshotDir}/${filename}`;
-    
-    await page.screenshot({ 
-      path: filepath,
-      fullPage: true 
-    });
-    
-    return filepath;
-  }
-
-  private async getDataLayerEvents(page: Page): Promise<DataLayerEvent[]> {
-    return await page.evaluate(() => {
-      return (window as any).__ssdDataLayerEvents || [];
-    });
-  }
-
-  private getTrackingHits(): TrackingHit[] {
-    return [...this.trackingHits];
-  }
-}
-
-// Factory function
-export function createSSDPuppeteerRunner(config: RunnerConfig): SSDPuppeteerRunner {
-  return new SSDPuppeteerRunner(config);
 }
