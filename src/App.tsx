@@ -11,6 +11,7 @@ import MigrationPage from "./pages/MigrationPage";
 import { useContainer } from "./context/ContainerContext";
 import { Toaster, toast } from "react-hot-toast";
 import ChecklistPage from "./pages/ChecklistPage";
+import SSDTestPage from "./pages/SSDTestPage";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { DashboardErrorBoundary, ContainerManagerErrorBoundary } from "./components/ErrorBoundaries";
 
@@ -63,6 +64,7 @@ export default function App() {
                   </ContainerManagerErrorBoundary>
                 } />
                 <Route path="/plan" element={<PlanPage />} />
+                <Route path="/ssd-test" element={<SSDTestPage />} />
                 <Route path="/testing" element={<TestingPage />} />
                 <Route path="/migration" element={<MigrationPage />} />
                 <Route path="/checklist" element={<ChecklistPage />} />

@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
-import { Upload, Download, Moon, Sun, Brain, Settings, LayoutDashboard, Target, Shield, ChevronDown, ChevronUp } from "lucide-react";
+import { Upload, Download, Moon, Sun, Brain, Settings, LayoutDashboard, Target, Shield, ChevronDown, ChevronUp, TestTube } from "lucide-react";
 import useDarkMode from "../hooks/useDarkMode";
 import { useContainer } from "../context/ContainerContext";
 
@@ -11,6 +11,7 @@ export default function Sidebar() {
     { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
     { to: "/container-manager", label: "Container Manager", icon: Settings },
     { to: "/plan", label: "AI Plan", icon: Target },
+    { to: "/ssd-test", label: "SSD Test", icon: TestTube },
     // { to: "/testing", label: "Testing" },
     // { to: "/migration", label: "UA → GA4" },
     { to: "/checklist", label: "AI Sentinel", icon: Shield },
