@@ -55,7 +55,7 @@ export class SSDExpectationMatcher {
         case 'navigation':
           return this.matchNavigationExpectation(expectation, context);
         case 'no_repeat_on_reload':
-          return this.matchNoRepeatExpectation(expectation, context);
+          return await this.matchNoRepeatExpectation(expectation, context);
         default:
           return {
             passed: false,
@@ -368,10 +368,10 @@ export class SSDExpectationMatcher {
   /**
    * Match no-repeat expectation (requires page reload)
    */
-  private matchNoRepeatExpectation(
+  private async matchNoRepeatExpectation(
     expectation: Expectation,
     context: ExpectationContext
-  ): ExpectationMatchResult {
+  ): Promise<ExpectationMatchResult> {
     if (!expectation.for_event) {
       return {
         passed: false,
@@ -379,28 +379,56 @@ export class SSDExpectationMatcher {
       };
     }
 
-    // This expectation requires a page reload to test
-    // For now, we'll mark it as passed if the event was found initially
-    // In a full implementation, this would trigger a reload and verify the event doesn't repeat
+    // First, verify the event was found initially
     const relevantEvents = context.dataLayerEvents.filter(event => 
       event.timestamp >= context.stepStartTime && 
       event.timestamp <= context.stepEndTime &&
       event.payload?.event === expectation.for_event
     );
 
-    if (relevantEvents.length > 0) {
+    if (relevantEvents.length === 0) {
       return {
-        passed: true,
-        reason: `Found event '${expectation.for_event}' - no-repeat test requires page reload`,
-        evidence: relevantEvents[0],
-        timestamp: relevantEvents[0].timestamp,
+        passed: false,
+        reason: `Event '${expectation.for_event}' not found for no-repeat test`,
       };
     }
 
-    return {
-      passed: false,
-      reason: `Event '${expectation.for_event}' not found for no-repeat test`,
-    };
+    // Perform page reload and check if event repeats
+    try {
+      const currentUrl = this.page.url();
+      await this.page.reload({ waitUntil: 'networkidle2' });
+      
+      // Wait a bit for any potential events to fire
+      await this.page.waitForTimeout(2000);
+      
+      // Check if the event fired again after reload
+      const postReloadEvents = await this.page.evaluate(() => {
+        return window.dataLayer ? window.dataLayer.filter((event: any) => 
+          event.event === expectation.for_event
+        ) : [];
+      });
+
+      if (postReloadEvents.length > 0) {
+        return {
+          passed: false,
+          reason: `Event '${expectation.for_event}' repeated after page reload`,
+          evidence: postReloadEvents[0],
+        };
+      }
+
+      return {
+        passed: true,
+        reason: `Event '${expectation.for_event}' did not repeat after page reload`,
+        evidence: relevantEvents[0],
+        timestamp: relevantEvents[0].timestamp,
+      };
+
+    } catch (error) {
+      return {
+        passed: false,
+        reason: `Failed to test no-repeat: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      };
+    }
   }
 
   /**
@@ -410,8 +438,17 @@ export class SSDExpectationMatcher {
     expectation: Expectation,
     context: ExpectationContext
   ): ExpectationMatchResult {
+    if (!expectation.near_previous_n || !expectation.contains) {
+      return {
+        passed: false,
+        reason: 'Sequence expectation requires both near_previous_n and contains parameters',
+      };
+    }
+
+    // Get recent events within the specified time window
+    const timeWindow = expectation.near_previous_n * 1000; // Convert to milliseconds
     const recentEvents = context.dataLayerEvents
-      .filter(event => event.timestamp >= context.stepStartTime - (expectation.near_previous_n! * 1000))
+      .filter(event => event.timestamp >= context.stepStartTime - timeWindow)
       .sort((a, b) => b.timestamp - a.timestamp);
 
     // Look for the expected sequence pattern
@@ -422,7 +459,7 @@ export class SSDExpectationMatcher {
     if (matchingEvents.length === 0) {
       return {
         passed: false,
-        reason: `Expected sequence pattern not found in last ${expectation.near_previous_n} seconds`,
+        reason: `Expected sequence pattern not found in last ${expectation.near_previous_n} dataLayer pushes`,
       };
     }
 

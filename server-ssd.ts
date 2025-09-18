@@ -14,9 +14,12 @@ import { dirname, join } from 'path';
 import fs from 'fs/promises';
 
 // Import our SSD services
-import { extractPDFText, validatePDFFile, PDFExtractionError } from './src/services/ssdPdfExtractionService.js';
-import { SSDOpenAIService, OpenAIError } from './src/services/ssdOpenAIService.js';
+import { extractPDFText, extractPDFTextFromBuffer, validatePDFFile, PDFExtractionError } from './src/services/pdfTextExtraction.js';
+import { OpenAISpecService, OpenAIError } from './src/services/openaiSpecService.js';
+import { validateTestSpec, SpecValidationError } from './src/services/specValidation.js';
+import { z } from 'zod';
 import { SSDPuppeteerRunner, SSDRunnerError } from './src/services/ssdPuppeteerRunner.js';
+import { normalizeOrigin, isValidUrl } from './src/utils/url.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -104,17 +107,42 @@ app.use((req, res, next) => {
   next();
 });
 
-// Multer configuration for file uploads
+// Multer configuration for file uploads - using memory storage
+const MAX_UPLOAD_MB = parseInt(process.env.MAX_UPLOAD_MB || '10');
+const MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024;
+
 const upload = multer({
-  dest: 'uploads/',
+  storage: multer.memoryStorage(), // Use memory storage to avoid disk temp issues
   limits: {
-    fileSize: parseInt(process.env.MAX_UPLOAD_MB || '10') * 1024 * 1024, // Convert MB to bytes
+    fileSize: MAX_UPLOAD_BYTES,
   },
   fileFilter: (req, file, cb) => {
-    if (file.mimetype === 'application/pdf') {
+    // Accept common PDF mimetypes - do not reject at fileFilter solely by mimetype
+    const isPdfMimeType = /pdf|octet-stream|x-pdf/i.test(file.mimetype || '');
+    
+    console.log('File validation (multer):', {
+      originalname: file.originalname,
+      mimetype: file.mimetype,
+      isPdfMimeType,
+      willAccept: isPdfMimeType
+    });
+    
+    // Accept and verify after upload with magic number check
+    if (isPdfMimeType) {
       cb(null, true);
     } else {
-      cb(new Error('Only PDF files are allowed'), false);
+      // Provide helpful error message for common file types
+      let errorMessage = `File type not supported. `;
+      if (file.mimetype.startsWith('image/')) {
+        errorMessage += `This appears to be an image file (${file.mimetype}). Please convert to PDF first.`;
+      } else if (file.mimetype.includes('word') || file.mimetype.includes('powerpoint') || file.mimetype.includes('presentation')) {
+        errorMessage += `This appears to be a Microsoft Office document (${file.mimetype}). Please export as PDF from the original application.`;
+      } else if (file.mimetype.includes('zip') || file.mimetype.includes('compressed')) {
+        errorMessage += `This appears to be a compressed file (${file.mimetype}). Please extract and convert to PDF.`;
+      } else {
+        errorMessage += `Received: ${file.mimetype}. Only PDF files are allowed.`;
+      }
+      cb(new Error(errorMessage), false);
     }
   },
 });
@@ -123,11 +151,20 @@ const upload = multer({
 await fs.mkdir('uploads', { recursive: true });
 await fs.mkdir('screenshots', { recursive: true });
 
+// PDF Magic Number Validation
+function isPdfBuffer(buf: Buffer): boolean {
+  if (!buf || buf.length < 5) return false;
+  return buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46 && buf[4] === 0x2D; // %PDF-
+}
+
 // Environment configuration
 const config = {
   openaiApiKey: process.env.OPENAI_API_KEY,
   openaiModel: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+  openaiTimeoutMs: parseInt(process.env.OPENAI_TIMEOUT_MS || '60000'),
   puppeteerOriginAllowlist: (process.env.PUPPETEER_ORIGIN_ALLOWLIST || '').split(',').filter(Boolean),
+  puppeteerAllowedTracking: (process.env.PUPPETEER_ALLOWED_TRACKING || 'google-analytics.com,googletagmanager.com,g.doubleclick.net,facebook.com/tr').split(',').filter(Boolean),
+  puppeteerAllowedCDNs: (process.env.PUPPETEER_ALLOWED_CDNS || 'cdnjs.cloudflare.com,unpkg.com,jsdelivr.net,fonts.googleapis.com,fonts.gstatic.com').split(',').filter(Boolean),
   runnerStepTimeoutMs: parseInt(process.env.RUNNER_STEP_TIMEOUT_MS || '30000'),
   runnerNavTimeoutMs: parseInt(process.env.RUNNER_NAV_TIMEOUT_MS || '60000'),
   maxFileSize: parseInt(process.env.MAX_UPLOAD_MB || '10') * 1024 * 1024, // Convert MB to bytes
@@ -136,7 +173,7 @@ const config = {
 };
 
 // Initialize services
-const openaiService = new SSDOpenAIService(config.openaiApiKey, config.openaiModel);
+const openaiService = new OpenAISpecService(config.openaiApiKey, config.openaiModel, config.openaiTimeoutMs);
 const puppeteerRunner = new SSDPuppeteerRunner({
   screenshotDir: 'screenshots',
   timeout: config.runnerStepTimeoutMs,
@@ -170,85 +207,183 @@ app.get('/api/fetchHtml', async (req, res) => {
   }
 });
 
+// Strict mode: No post-processing functions - execute exactly what the LLM returns
+
 // SSD Test API Endpoints
 // ============================================================================
 
-// POST /api/ssd/ingest - Convert PDF to DSL with real OpenAI processing
-app.post('/api/ssd/ingest', upload.single('pdf'), async (req, res) => {
-  let pdfPath = null;
+// POST /api/spec/generate - Create Test Specification Preview from URL + PDF
+app.post('/api/spec/generate', upload.single('pdf'), async (req, res) => {
+  const correlationId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   
   try {
     const { url } = req.body;
     const pdf = req.file;
 
-    // Basic validation
-    if (!url || !pdf) {
-      return res.status(400).json({ error: 'URL and PDF file are required' });
+    // Early validation - check required fields
+    if (!pdf) {
+      return res.status(400).json({ 
+        error: "Missing 'pdf' file field in multipart/form-data.",
+        code: 'MISSING_FILE_FIELD'
+      });
     }
 
-    // Validate URL format
+    if (!url) {
+      return res.status(400).json({ 
+        error: 'URL is required',
+        code: 'MISSING_URL'
+      });
+    }
+
+    // Log file information for debugging
+    console.log(`[${correlationId}] File upload details:`, {
+      originalname: pdf.originalname,
+      mimetype: pdf.mimetype,
+      size: pdf.size,
+      fieldname: pdf.fieldname,
+      bufferLength: pdf.buffer?.length || 0
+    });
+
+    // Validate and normalize URL format
+    let targetOrigin: string;
     try {
-      new URL(url);
+      targetOrigin = normalizeOrigin(url);
     } catch (urlError) {
-      return res.status(400).json({ error: 'Invalid URL format' });
+      return res.status(400).json({ 
+        error: 'Target Website URL non valida. Includi http/https (es. https://example.com).',
+        code: 'INVALID_URL'
+      });
     }
 
     if (!config.openaiApiKey) {
       return res.status(500).json({ 
-        error: 'OpenAI API key not configured. Please set OPENAI_API_KEY environment variable.' 
+        error: 'OpenAI API key not configured. Please set OPENAI_API_KEY environment variable.',
+        code: 'OPENAI_NOT_CONFIGURED'
       });
     }
 
-    pdfPath = pdf.path;
+    // Magic number validation - check PDF signature
+    if (!isPdfBuffer(pdf.buffer)) {
+      console.log(`[${correlationId}] PDF magic number check failed:`, {
+        firstBytes: pdf.buffer.subarray(0, 16).toString('hex'),
+        firstChars: pdf.buffer.subarray(0, 8).toString('ascii')
+      });
+      return res.status(415).json({ 
+        error: 'Uploaded file is not a valid PDF (missing %PDF- header).',
+        code: 'INVALID_PDF_SIGNATURE'
+      });
+    }
 
-    // Validate PDF file
-    await validatePDFFile(pdfPath, config.maxFileSize);
+    // File size validation
+    if (pdf.size > MAX_UPLOAD_BYTES) {
+      return res.status(413).json({ 
+        error: `PDF exceeds maximum size of ${MAX_UPLOAD_MB} MB.`,
+        code: 'FILE_TOO_LARGE'
+      });
+    }
 
-    // Extract text from PDF
-    const extractionResult = await extractPDFText(pdfPath);
+    console.log(`[${correlationId}] PDF validation passed - magic number: true, size: ${pdf.size} bytes`);
+
+    // Extract text from PDF using buffer directly
+    const extractionResult = await extractPDFTextFromBuffer(pdf.buffer);
     
     if (extractionResult.warnings.length > 0) {
-      console.log('PDF extraction warnings:', extractionResult.warnings);
+      console.log(`[${correlationId}] PDF extraction warnings:`, extractionResult.warnings);
     }
+
+    // Check if PDF has no extractable text
+    if (extractionResult.text.length === 0) {
+      return res.status(422).json({ 
+        error: 'PDF has no extractable text. Please export the PPT as a text-based PDF (selectable text), not a scanned image.',
+        code: 'NO_TEXT_CONTENT'
+      });
+    }
+
+    console.log(`[${correlationId}] PDF text extracted successfully: ${extractionResult.text.length} characters`);
 
     // Convert PDF text to TestSpec using OpenAI with timeout
     const openaiResponse = await Promise.race([
-      openaiService.convertPDFToTestSpec(extractionResult.text, url),
+      openaiService.convertPDFToTestSpec(extractionResult.text, targetOrigin),
       new Promise((_, reject) => 
         setTimeout(() => reject(new Error('OpenAI request timeout')), 60000)
       )
     ]);
 
-    // Prepare response
+    // 1) leggi l'URL della form (accetta sia 'url' che 'site')
+    const rawInputUrl = String(req.body?.url ?? req.body?.site ?? "").trim();
+    if (!rawInputUrl) {
+      return res.status(400).json({ 
+        error: "Missing target URL", 
+        code: "INVALID_URL" 
+      });
+    }
+
+    // 2) ottieni il DSL dall'LLM (stringa o oggetto)
+    const dslFromLLM = openaiResponse.dsl ?? {};
+    
+    // 3) forzatura/merge: il site del DSL è sempre l'origin scelto dall'utente
+    const mergedDsl = { ...dslFromLLM, site: targetOrigin };
+    
+    // 4) LOG mirato: cosa stiamo per validare?
+    console.info("[SSD] validating DSL with site:", mergedDsl?.site);
+    
+    // 5) valida con lo schema che normalizza internamente
+    const validatedDSL = validateTestSpec(mergedDsl);
+    
+    // 6) usa **sempre** 'validatedDSL' per tutto il resto (salvataggio, run, response)
+    //    Evita di riusare 'dslFromLLM' o altre copie altrove.
+
+    // Prepare response with validated DSL as-is (no post-processing)
     const response = {
-      dsl: openaiResponse.dsl,
-      ambiguities: openaiResponse.ambiguities,
+      dsl: validatedDSL,
       meta: {
-        tokens: openaiResponse.meta.tokens,
         model: openaiResponse.meta.model,
-        ingestionWarnings: extractionResult.warnings,
+        tokens: openaiResponse.meta.tokens,
       }
     };
 
-    // Clean up uploaded file
-    await fs.unlink(pdfPath).catch(() => {});
-    pdfPath = null;
+    console.log(`[${correlationId}] Spec generation completed successfully`);
 
     res.json(response);
 
   } catch (error) {
-    console.error('SSD Ingest Error:', error);
+    console.error(`[${correlationId}] Spec Generation Error:`, error);
     
-    // Clean up uploaded file on error
-    if (pdfPath) {
-      await fs.unlink(pdfPath).catch(() => {});
-    }
-
-    // Handle specific error types
+    // Handle specific error types with precise error codes
     if (error instanceof PDFExtractionError) {
+      if (error.code === 'NO_TEXT_CONTENT') {
+        return res.status(422).json({ 
+          error: 'PDF has no extractable text. Please export the PPT as a text-based PDF (selectable text), not a scanned image.',
+          code: error.code 
+        });
+      }
+      if (error.code === 'PASSWORD_PROTECTED') {
+        return res.status(422).json({ 
+          error: 'PDF is password-protected and cannot be parsed.',
+          code: error.code 
+        });
+      }
       return res.status(422).json({ 
         error: error.message,
         code: error.code 
+      });
+    }
+
+    if (error instanceof SpecValidationError) {
+      return res.status(422).json({ 
+        error: error.message,
+        code: error.code,
+        fieldErrors: error.errors
+      });
+    }
+
+    // Handle Zod validation errors specifically
+    if (error instanceof z.ZodError) {
+      console.warn("[SSD] Zod fail on site with value:", mergedDsl?.site);
+      return res.status(422).json({ 
+        error: "DSL schema validation failed", 
+        code: "SCHEMA_VALIDATION", 
+        fieldErrors: error.flatten().fieldErrors 
       });
     }
 
@@ -265,7 +400,7 @@ app.post('/api/ssd/ingest', upload.single('pdf'), async (req, res) => {
   }
 });
 
-// POST /api/ssd/run - Execute DSL tests with real Puppeteer
+// POST /api/ssd/run - Execute DSL tests with strict execution (no hidden post-processing)
 app.post('/api/ssd/run', async (req, res) => {
   try {
     const { dsl, runOptions = {} } = req.body;
@@ -274,17 +409,9 @@ app.post('/api/ssd/run', async (req, res) => {
       return res.status(400).json({ error: 'DSL is required' });
     }
 
-    // Validate DSL structure
-    if (!dsl.site || !dsl.tests || !Array.isArray(dsl.tests)) {
-      return res.status(400).json({ error: 'Invalid DSL structure' });
-    }
-
-    // Validate site URL
-    try {
-      new URL(dsl.site);
-    } catch (urlError) {
-      return res.status(400).json({ error: 'Invalid site URL in DSL' });
-    }
+    // Validate DSL structure using our validation service
+    console.info("[SSD] validating DSL for run with site:", dsl?.site);
+    const validatedDSL = validateTestSpec(dsl);
 
     // Set default run options
     const options = {
@@ -292,14 +419,17 @@ app.post('/api/ssd/run', async (req, res) => {
       consent: runOptions.consent || 'both',
       timeout: config.runnerStepTimeoutMs,
       screenshotDir: 'screenshots',
+      allowedHosts: validatedDSL.allowed_hosts || [],
+      allowedTracking: config.puppeteerAllowedTracking,
+      allowedCDNs: config.puppeteerAllowedCDNs,
     };
 
-    console.log(`Starting SSD test execution for ${dsl.site}`);
+    console.log(`Starting SSD test execution for ${validatedDSL.site}`);
     console.log(`Options:`, options);
 
-    // Run the tests with timeout
+    // Run the tests with timeout - execute exactly what's in the DSL
     const report = await Promise.race([
-      puppeteerRunner.runTests(dsl, options),
+      puppeteerRunner.runTests(validatedDSL, options),
       new Promise((_, reject) => 
         setTimeout(() => reject(new Error('Test execution timeout')), 300000) // 5 minutes
       )
@@ -318,6 +448,14 @@ app.post('/api/ssd/run', async (req, res) => {
     console.error('SSD Run Error:', error);
     
     // Handle specific error types
+    if (error instanceof SpecValidationError) {
+      return res.status(422).json({ 
+        error: error.message,
+        code: error.code,
+        fieldErrors: error.errors
+      });
+    }
+
     if (error instanceof SSDRunnerError) {
       return res.status(422).json({ 
         error: error.message,
@@ -352,12 +490,16 @@ app.get('/api/ssd/config', (req, res) => {
     openaiModel: config.openaiModel,
     stepTimeoutMs: config.runnerStepTimeoutMs,
     navTimeoutMs: config.runnerNavTimeoutMs,
+    puppeteerAllowedTracking: config.puppeteerAllowedTracking,
+    puppeteerAllowedCDNs: config.puppeteerAllowedCDNs,
+    puppeteerOriginAllowlist: config.puppeteerOriginAllowlist,
     rateLimit: {
       windowMs: config.rateLimitWindowMs,
       max: config.rateLimitMax,
     },
   });
 });
+
 
 // Error handling middleware
 app.use((error, req, res, next) => {

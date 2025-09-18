@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { Upload, FileText, Play, CheckCircle, XCircle, AlertTriangle, Eye, Download, RefreshCw, Loader2, Tag, ToggleLeft, Code2, PackageSearch, Box } from 'lucide-react';
+import { Upload, FileText, Play, CheckCircle, XCircle, AlertTriangle, Eye, Download, RefreshCw, Loader2, Tag, ToggleLeft, Code2, PackageSearch, Box, Edit3, Save, RotateCcw } from 'lucide-react';
 import { TestSpec, Ambiguity, TestReport, SSDTestState, DisambiguationItem } from '../types/ssd';
 import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -47,14 +47,19 @@ export default function SSDTestPage() {
     url: '',
     pdfFile: null,
     dsl: null,
-    ambiguities: [],
     report: null,
     isLoading: false,
     error: null,
   });
 
-  const [disambiguationItems, setDisambiguationItems] = useState<DisambiguationItem[]>([]);
   const [loadingType, setLoadingType] = useState<'pdf' | 'test' | null>(null);
+  const [editableDsl, setEditableDsl] = useState<string>('');
+  const [isEditingDsl, setIsEditingDsl] = useState(false);
+  const [dslValidationError, setDslValidationError] = useState<string | null>(null);
+  const [originalDsl, setOriginalDsl] = useState<TestSpec | null>(null);
+
+  // API base URL configuration
+  const apiBaseUrl = import.meta.env.VITE_API_BASE || (window.location.origin === 'http://localhost:5173' ? 'http://localhost:4000' : '');
 
   // Loading steps for different operations
   const pdfSteps = [
@@ -85,7 +90,8 @@ export default function SSDTestPage() {
 
   // Step 1: Upload PDF and URL
   const handleFileUpload = useCallback((file: File) => {
-    if (file.type !== 'application/pdf') {
+    // Basic client-side check: file extension ends with .pdf (case-insensitive)
+    if (!file.name.toLowerCase().endsWith('.pdf')) {
       toast.error('Please upload a PDF file');
       return;
     }
@@ -95,6 +101,25 @@ export default function SSDTestPage() {
   const handleUrlChange = useCallback((url: string) => {
     setState(prev => ({ ...prev, url }));
   }, []);
+
+  // Normalize URL before sending to server
+  const normalizeUrl = (input: string): string => {
+    if (!input || typeof input !== "string") return input;
+    
+    let s = input.trim();
+    
+    // Add https:// if no protocol is provided
+    if (!/^https?:\/\//i.test(s)) {
+      s = "https://" + s;
+    }
+    
+    try {
+      const url = new URL(s);
+      return url.origin; // Return normalized origin
+    } catch {
+      return input; // Return original if invalid
+    }
+  };
 
   const handleIngest = async () => {
     if (!state.url || !state.pdfFile) {
@@ -106,11 +131,14 @@ export default function SSDTestPage() {
     setState(prev => ({ ...prev, isLoading: true, error: null }));
 
     try {
+      // Normalize URL before sending
+      const normalizedUrl = normalizeUrl(state.url);
+      
       const formData = new FormData();
-      formData.append('url', state.url);
+      formData.append('url', normalizedUrl);
       formData.append('pdf', state.pdfFile);
 
-      const response = await fetch('http://localhost:4000/api/ssd/ingest', {
+      const response = await fetch(`${apiBaseUrl}/api/spec/generate`, {
         method: 'POST',
         body: formData,
         signal: AbortSignal.timeout(120000), // 2 minute timeout
@@ -118,8 +146,16 @@ export default function SSDTestPage() {
 
       if (!response.ok) {
         const error = await response.json();
-        if (response.status === 422) {
-          throw new Error(`Validation Error: ${error.error}`);
+        
+        // Show precise error messages based on status codes
+        if (response.status === 400) {
+          throw new Error(error.error || 'Invalid request');
+        } else if (response.status === 413) {
+          throw new Error(error.error || 'File too large');
+        } else if (response.status === 415) {
+          throw new Error(error.error || 'Invalid file type');
+        } else if (response.status === 422) {
+          throw new Error(error.error || 'Validation error');
         } else if (response.status === 429) {
           throw new Error('Rate limit exceeded. Please try again later.');
         } else {
@@ -132,24 +168,12 @@ export default function SSDTestPage() {
       setState(prev => ({
         ...prev,
         dsl: result.dsl,
-        ambiguities: result.ambiguities,
         currentStep: 'review',
         isLoading: false,
       }));
+      setOriginalDsl(result.dsl);
+      setEditableDsl(JSON.stringify(result.dsl, null, 2));
       setLoadingType(null);
-
-      // Prepare disambiguation items
-      const items: DisambiguationItem[] = result.ambiguities.map((ambiguity: Ambiguity) => {
-        const [testIndex, stepIndex] = parseStepPath(ambiguity.stepPath);
-        const step = result.dsl.tests[testIndex]?.steps[stepIndex];
-        return {
-          stepPath: ambiguity.stepPath,
-          step,
-          ambiguity,
-          suggestedTargets: ambiguity.candidates || [],
-        };
-      });
-      setDisambiguationItems(items);
 
       toast.success('PDF processed successfully!');
     } catch (error) {
@@ -163,24 +187,7 @@ export default function SSDTestPage() {
     }
   };
 
-  // Step 2: Review and Disambiguation
-  const handleDisambiguationFix = (stepPath: string, newTarget: any) => {
-    if (!state.dsl) return;
-
-    const [testIndex, stepIndex] = parseStepPath(stepPath);
-    const updatedDsl = { ...state.dsl };
-    updatedDsl.tests[testIndex].steps[stepIndex].target = newTarget;
-    updatedDsl.tests[testIndex].steps[stepIndex].confidence = 0.9; // Mark as fixed
-
-    setState(prev => ({ ...prev, dsl: updatedDsl }));
-
-    // Remove from disambiguation items
-    setDisambiguationItems(prev => 
-      prev.filter(item => item.stepPath !== stepPath)
-    );
-
-    toast.success('Target updated successfully');
-  };
+  // Step 2: Review (universal mode - no disambiguation needed)
 
   const handleRunTests = async () => {
     if (!state.dsl) return;
@@ -189,7 +196,7 @@ export default function SSDTestPage() {
     setState(prev => ({ ...prev, isLoading: true, error: null }));
 
     try {
-      const response = await fetch('http://localhost:4000/api/ssd/run', {
+      const response = await fetch(`${apiBaseUrl}/api/ssd/run`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -237,19 +244,83 @@ export default function SSDTestPage() {
     }
   };
 
+  // DSL editing functions
+  const validateDsl = (dslText: string): { isValid: boolean; error?: string; dsl?: TestSpec } => {
+    try {
+      const parsed = JSON.parse(dslText);
+      
+      // Basic validation
+      if (!parsed.site || !parsed.tests || !Array.isArray(parsed.tests)) {
+        return { isValid: false, error: 'Invalid DSL structure: missing required fields' };
+      }
+      
+      if (parsed.tests.length === 0) {
+        return { isValid: false, error: 'DSL must contain at least one test' };
+      }
+      
+      // Validate each test
+      for (let i = 0; i < parsed.tests.length; i++) {
+        const test = parsed.tests[i];
+        if (!test.section || !test.steps || !Array.isArray(test.steps)) {
+          return { isValid: false, error: `Test ${i} is missing required fields` };
+        }
+        
+        if (test.steps.length === 0) {
+          return { isValid: false, error: `Test ${i} must contain at least one step` };
+        }
+      }
+      
+      return { isValid: true, dsl: parsed };
+    } catch (error) {
+      return { 
+        isValid: false, 
+        error: `Invalid JSON: ${error instanceof Error ? error.message : 'Unknown error'}` 
+      };
+    }
+  };
+
+  const handleDslEdit = (value: string) => {
+    setEditableDsl(value);
+    const validation = validateDsl(value);
+    setDslValidationError(validation.isValid ? null : validation.error || 'Invalid DSL');
+  };
+
+  const handleSaveDsl = () => {
+    const validation = validateDsl(editableDsl);
+    if (validation.isValid && validation.dsl) {
+      setState(prev => ({ ...prev, dsl: validation.dsl! }));
+      setIsEditingDsl(false);
+      toast.success('DSL updated successfully');
+    } else {
+      toast.error(validation.error || 'Invalid DSL');
+    }
+  };
+
+  const handleResetDsl = () => {
+    if (originalDsl) {
+      setEditableDsl(JSON.stringify(originalDsl, null, 2));
+      setState(prev => ({ ...prev, dsl: originalDsl }));
+      setDslValidationError(null);
+      setIsEditingDsl(false);
+      toast.success('DSL reset to original');
+    }
+  };
+
   const handleReset = () => {
     setState({
       currentStep: 'upload',
       url: '',
       pdfFile: null,
       dsl: null,
-      ambiguities: [],
       report: null,
       isLoading: false,
       error: null,
     });
-    setDisambiguationItems([]);
     setLoadingType(null);
+    setEditableDsl('');
+    setIsEditingDsl(false);
+    setDslValidationError(null);
+    setOriginalDsl(null);
   };
 
   const handleExportReport = () => {
@@ -352,7 +423,7 @@ export default function SSDTestPage() {
                 </label>
                 <Input
                   type="url"
-                  placeholder="https://example.com"
+                  placeholder="https://fibra.aruba.it"
                   value={state.url}
                   onChange={(e) => handleUrlChange(e.target.value)}
                   className="w-full"
@@ -410,6 +481,7 @@ export default function SSDTestPage() {
                 </div>
               )}
 
+
               {/* Action Button */}
               <div className="flex justify-center">
                 <Button
@@ -436,61 +508,93 @@ export default function SSDTestPage() {
             <Card className="p-6">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-xl font-semibold">Test Specification Preview</h2>
-                <div className="flex items-center gap-2 text-sm text-gray-600">
-                  <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                  Generated from PDF
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2 text-sm text-gray-600">
+                    <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                    Generated from PDF
+                  </div>
+                  {!isEditingDsl ? (
+                    <Button
+                      onClick={() => setIsEditingDsl(true)}
+                      variant="outline"
+                      size="sm"
+                      className="flex items-center gap-2"
+                    >
+                      <Edit3 className="w-4 h-4" />
+                      Advanced: Edit JSON
+                    </Button>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <Button
+                        onClick={handleSaveDsl}
+                        disabled={!!dslValidationError}
+                        size="sm"
+                        className="flex items-center gap-2"
+                      >
+                        <Save className="w-4 h-4" />
+                        Save
+                      </Button>
+                      <Button
+                        onClick={handleResetDsl}
+                        variant="outline"
+                        size="sm"
+                        className="flex items-center gap-2"
+                      >
+                        <RotateCcw className="w-4 h-4" />
+                        Reset
+                      </Button>
+                    </div>
+                  )}
                 </div>
               </div>
-              <div className="bg-gray-900 rounded-lg p-6 overflow-auto max-h-96 border">
-                <pre className="text-sm text-green-400 font-mono leading-relaxed">
-                  {JSON.stringify(state.dsl, null, 2)}
-                </pre>
-              </div>
+              
+              {dslValidationError && (
+                <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
+                  <div className="flex items-center">
+                    <XCircle className="w-5 h-5 text-red-400 mr-2" />
+                    <p className="text-sm text-red-800">{dslValidationError}</p>
+                  </div>
+                </div>
+              )}
+              
+              {isEditingDsl ? (
+                <div className="space-y-4">
+                  <textarea
+                    value={editableDsl}
+                    onChange={(e) => handleDslEdit(e.target.value)}
+                    className="w-full h-96 p-4 border border-gray-300 rounded-lg font-mono text-sm resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="Edit your DSL here..."
+                  />
+                  <div className="text-sm text-gray-600">
+                    Edit the DSL above. Invalid JSON will be highlighted in red.
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-gray-900 rounded-lg p-6 overflow-auto max-h-96 border">
+                  <pre className="text-sm text-green-400 font-mono leading-relaxed">
+                    {JSON.stringify(state.dsl, null, 2)}
+                  </pre>
+                </div>
+              )}
+              
               <div className="mt-4 flex items-center justify-between text-sm text-gray-600">
                 <span>Total tests: {state.dsl?.tests?.length || 0}</span>
                 <span>Total steps: {state.dsl?.tests?.reduce((sum, test) => sum + test.steps.length, 0) || 0}</span>
               </div>
             </Card>
 
-            {/* Ambiguities */}
-            {disambiguationItems.length > 0 && (
-              <Card className="p-6">
-                <h2 className="text-xl font-semibold mb-4 flex items-center">
-                  <AlertTriangle className="w-5 h-5 text-yellow-500 mr-2" />
-                  Ambiguous Targets ({disambiguationItems.length})
-                </h2>
-                <div className="space-y-4">
-                  {disambiguationItems.map((item, index) => (
-                    <div key={index} className="border border-yellow-200 rounded-lg p-4 bg-yellow-50">
-                      <div className="flex justify-between items-start mb-2">
-                        <div>
-                          <p className="font-medium text-gray-900">
-                            {item.step.description || `Step ${item.step.action}`}
-                          </p>
-                          <p className="text-sm text-gray-600">{item.ambiguity.reason}</p>
-                        </div>
-                        <Badge variant="warning">Confidence: {item.step.confidence}</Badge>
-                      </div>
-                      
-                      <div className="mt-3">
-                        <p className="text-sm font-medium text-gray-700 mb-2">Suggested fixes:</p>
-                        <div className="space-y-2">
-                          {item.suggestedTargets.map((target, targetIndex) => (
-                            <button
-                              key={targetIndex}
-                              onClick={() => handleDisambiguationFix(item.stepPath, target)}
-                              className="block w-full text-left p-2 bg-white border border-gray-200 rounded hover:bg-gray-50"
-                            >
-                              <span className="font-medium">{target.kind}</span>: {target.value}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
+            {/* Generated by info */}
+            <Card className="p-4 bg-gray-50">
+              <div className="flex items-center justify-between text-sm text-gray-600">
+                <div className="flex items-center gap-4">
+                  <span>Generated by: {state.dsl?.meta?.model || 'Unknown'}</span>
+                  <span>Tokens: {state.dsl?.meta?.tokens?.input || 0} input, {state.dsl?.meta?.tokens?.output || 0} output</span>
                 </div>
-              </Card>
-            )}
+                <div className="text-xs text-gray-500">
+                  Universal mode - executes exactly what the LLM returns
+                </div>
+              </div>
+            </Card>
 
             {/* Action Buttons */}
             <div className="flex justify-between items-center gap-4">
@@ -506,9 +610,12 @@ export default function SSDTestPage() {
                 <p className="text-sm text-gray-600 mb-2">
                   Ready to execute the generated test specification?
                 </p>
+                <p className="text-xs text-gray-500 mb-3">
+                  The runner will execute exactly what the LLM generated - no hidden modifications
+                </p>
                 <Button
                   onClick={handleRunTests}
-                  disabled={state.isLoading}
+                  disabled={state.isLoading || !!dslValidationError}
                   className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white font-semibold py-3 px-8 rounded-lg shadow-lg hover:shadow-xl transition-all duration-200 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
                 >
                   {state.isLoading ? (
@@ -720,9 +827,3 @@ export default function SSDTestPage() {
   );
 }
 
-// Helper function to parse step path like "tests[0].steps[2]"
-function parseStepPath(stepPath: string): [number, number] {
-  const match = stepPath.match(/tests\[(\d+)\]\.steps\[(\d+)\]/);
-  if (!match) throw new Error('Invalid step path');
-  return [parseInt(match[1]), parseInt(match[2])];
-}

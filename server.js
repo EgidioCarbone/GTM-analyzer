@@ -116,6 +116,10 @@ app.get('/api/fetchHtml', async (req, res) => {
 // POST /api/ssd/ingest - Convert PDF to DSL
 app.post('/api/ssd/ingest', upload.single('pdf'), async (req, res) => {
   try {
+    // Debug logging
+    console.log('Request body:', req.body);
+    console.log('Request file:', req.file);
+    
     // Validate request
     const validation = validateSSDIngestRequest({
       url: req.body.url,
@@ -123,7 +127,18 @@ app.post('/api/ssd/ingest', upload.single('pdf'), async (req, res) => {
     });
 
     if (!validation.success) {
-      return res.status(400).json({ error: validation.error });
+      console.log('Validation error:', validation.error);
+      return res.status(400).json({ 
+        error: validation.error,
+        code: 'SCHEMA_VALIDATION',
+        fieldErrors: [
+          {
+            field: 'site',
+            message: 'Site must be a valid URL',
+            code: 'SCHEMA_VALIDATION'
+          }
+        ]
+      });
     }
 
     const { url, pdf } = validation.data;

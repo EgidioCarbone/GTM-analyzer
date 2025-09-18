@@ -31,45 +31,71 @@ export class SSDTargetResolver {
 
   /**
    * Resolve a target to a clickable element
+   * Resolution order: region scope → text → aria → href → selector
    */
   async resolveTarget(target: Target): Promise<TargetResolutionResult> {
     const results: TargetResolutionResult[] = [];
+    const candidates: string[] = [];
+
+    // If region is specified, try region-scoped resolution first
+    if (target.region && target.region !== 'any') {
+      if (target.kind === 'text') {
+        const regionResult = await this.resolveByRegionText(target);
+        results.push(regionResult);
+        if (regionResult.element) candidates.push(`region-text: ${regionResult.selector}`);
+      } else if (target.kind === 'aria') {
+        const regionResult = await this.resolveByRegionAria(target);
+        results.push(regionResult);
+        if (regionResult.element) candidates.push(`region-aria: ${regionResult.selector}`);
+      }
+    }
 
     // Try different resolution strategies in order of preference
     if (target.kind === 'text') {
-      results.push(await this.resolveByText(target));
+      const textResult = await this.resolveByText(target);
+      results.push(textResult);
+      if (textResult.element) candidates.push(`text: ${textResult.selector}`);
     } else if (target.kind === 'aria') {
-      results.push(await this.resolveByAria(target));
+      const ariaResult = await this.resolveByAria(target);
+      results.push(ariaResult);
+      if (ariaResult.element) candidates.push(`aria: ${ariaResult.selector}`);
     } else if (target.kind === 'href') {
-      results.push(await this.resolveByHref(target));
+      const hrefResult = await this.resolveByHref(target);
+      results.push(hrefResult);
+      if (hrefResult.element) candidates.push(`href: ${hrefResult.selector}`);
     } else if (target.kind === 'selector') {
-      results.push(await this.resolveBySelector(target));
-    }
-
-    // If region is specified, try region-scoped resolution
-    if (target.region && target.region !== 'any') {
-      if (target.kind === 'text') {
-        results.push(await this.resolveByRegionText(target));
-      } else if (target.kind === 'aria') {
-        results.push(await this.resolveByRegionAria(target));
-      }
+      const selectorResult = await this.resolveBySelector(target);
+      results.push(selectorResult);
+      if (selectorResult.element) candidates.push(`selector: ${selectorResult.selector}`);
     }
 
     // Return the best result (highest confidence with valid element)
     const validResults = results.filter(r => r.element && r.confidence > 0);
     if (validResults.length === 0) {
+      // Try alternative approaches for better debugging
+      const alternativeCandidates = await this.findAlternativeCandidates(target);
+      candidates.push(...alternativeCandidates);
+      
       return {
         element: null,
         selector: '',
         method: target.kind,
         confidence: 0,
-        error: `No valid elements found for target: ${JSON.stringify(target)}`,
+        error: `No valid elements found for target: ${JSON.stringify(target)}. Candidates evaluated: ${candidates.join(', ')}`,
       };
     }
 
     // Sort by confidence and return the best match
     validResults.sort((a, b) => b.confidence - a.confidence);
-    return validResults[0];
+    const bestResult = validResults[0];
+    
+    // Log which method succeeded for debugging
+    console.log(`Target resolved using ${bestResult.method}: ${bestResult.selector}`);
+    if (candidates.length > 1) {
+      console.log(`Other candidates considered: ${candidates.filter(c => !c.includes(bestResult.selector)).join(', ')}`);
+    }
+    
+    return bestResult;
   }
 
   /**
@@ -428,6 +454,61 @@ export class SSDTargetResolver {
       default:
         return 'body';
     }
+  }
+
+  /**
+   * Find alternative candidates when primary resolution fails
+   */
+  private async findAlternativeCandidates(target: Target): Promise<string[]> {
+    const candidates: string[] = [];
+    
+    try {
+      // Look for similar text content
+      if (target.kind === 'text') {
+        const similarTexts = await this.page.evaluate((searchText) => {
+          const elements = Array.from(document.querySelectorAll('button, a, input[type="button"], input[type="submit"]'));
+          return elements
+            .map(el => {
+              const text = el.textContent?.trim() || '';
+              const ariaLabel = el.getAttribute('aria-label') || '';
+              const title = el.getAttribute('title') || '';
+              return { text, ariaLabel, title, tagName: el.tagName };
+            })
+            .filter(item => 
+              item.text.toLowerCase().includes(searchText.toLowerCase()) ||
+              item.ariaLabel.toLowerCase().includes(searchText.toLowerCase()) ||
+              item.title.toLowerCase().includes(searchText.toLowerCase())
+            )
+            .slice(0, 5)
+            .map(item => `${item.tagName}: "${item.text || item.ariaLabel || item.title}"`);
+        }, target.value);
+        
+        candidates.push(...similarTexts);
+      }
+      
+      // Look for buttons and links with similar attributes
+      const similarElements = await this.page.evaluate(() => {
+        const elements = Array.from(document.querySelectorAll('button, a, input[type="button"], input[type="submit"]'));
+        return elements
+          .map(el => {
+            const text = el.textContent?.trim() || '';
+            const ariaLabel = el.getAttribute('aria-label') || '';
+            const className = el.className || '';
+            const id = el.id || '';
+            return { text, ariaLabel, className, id, tagName: el.tagName };
+          })
+          .filter(item => item.text || item.ariaLabel)
+          .slice(0, 5)
+          .map(item => `${item.tagName}: "${item.text || item.ariaLabel}" (class: ${item.className}, id: ${item.id})`);
+      });
+      
+      candidates.push(...similarElements);
+      
+    } catch (error) {
+      console.error('Error finding alternative candidates:', error);
+    }
+    
+    return candidates;
   }
 
   /**

@@ -2,6 +2,7 @@
 // ============================================================================
 
 import { z } from 'zod';
+import { normalizeOrigin } from '../utils/url';
 
 // Base schemas
 const TargetSchema = z.object({
@@ -40,8 +41,18 @@ const TestSchema = z.object({
   steps: z.array(StepSchema).min(1),
 });
 
+const SiteSchema = z.preprocess((v) => {
+  // accetta undefined/string, normalizza in origin
+  if (v == null) return v;
+  try { 
+    return normalizeOrigin(String(v)); 
+  } catch { 
+    return v; // lascia che Zod gestisca l'errore
+  }
+}, z.string().url("Site must be a valid URL"));
+
 const TestSpecSchema = z.object({
-  site: z.string().url("Must be a valid URL"),
+  site: SiteSchema,
   allowed_hosts: z.array(z.string()).optional(),
   consent: z.array(z.enum(["reject", "accept"])).optional(),
   tests: z.array(TestSchema).min(1, "At least one test is required"),

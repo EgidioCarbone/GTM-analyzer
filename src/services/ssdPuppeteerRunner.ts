@@ -13,6 +13,9 @@ export interface RunOptions {
   consent?: 'accept' | 'reject' | 'both';
   timeout?: number;
   screenshotDir?: string;
+  allowedHosts?: string[];
+  allowedTracking?: string[];
+  allowedCDNs?: string[];
 }
 
 export interface RunResult {
@@ -123,7 +126,7 @@ export class SSDPuppeteerRunner {
     await this.setupDataLayerTracking();
 
     // Set up network monitoring
-    await this.setupNetworkMonitoring();
+    await this.setupNetworkMonitoring(options);
 
     // Set up SPA detection
     await this.setupSPADetection();
@@ -137,10 +140,9 @@ export class SSDPuppeteerRunner {
       await this.page.setRequestInterception(true);
       this.page.on('request', (request) => {
         const url = new URL(request.url());
-        const allowedHosts = [new URL(request.url()).hostname];
+        const isAllowed = this.isRequestAllowed(url, options);
         
-        // Allow requests to the main site and allowed hosts
-        if (allowedHosts.includes(url.hostname)) {
+        if (isAllowed) {
           request.continue();
         } else {
           request.abort();
@@ -199,24 +201,25 @@ export class SSDPuppeteerRunner {
   /**
    * Set up network monitoring
    */
-  private async setupNetworkMonitoring(): Promise<void> {
+  private async setupNetworkMonitoring(options: RunOptions = {}): Promise<void> {
     if (!this.page) return;
+
+    // Get tracking domains from options or use defaults
+    const trackingDomains = options.allowedTracking || [
+      'google-analytics.com',
+      'googletagmanager.com',
+      'g.doubleclick.net',
+      'facebook.com/tr',
+      'connect.facebook.net',
+      'analytics.google.com',
+      'www.google-analytics.com',
+    ];
 
     this.page.on('request', (request) => {
       const url = request.url();
       const domain = new URL(url).hostname;
       
-      // Track requests to common analytics domains
-      const trackingDomains = [
-        'google-analytics.com',
-        'googletagmanager.com',
-        'g.doubleclick.net',
-        'facebook.com',
-        'connect.facebook.net',
-        'analytics.google.com',
-        'www.google-analytics.com',
-      ];
-
+      // Track requests to configured analytics domains
       if (trackingDomains.some(d => domain.includes(d))) {
         this.trackingHits.push({
           timestamp: Date.now(),
@@ -231,16 +234,6 @@ export class SSDPuppeteerRunner {
       const url = response.url();
       const domain = new URL(url).hostname;
       
-      const trackingDomains = [
-        'google-analytics.com',
-        'googletagmanager.com',
-        'g.doubleclick.net',
-        'facebook.com',
-        'connect.facebook.net',
-        'analytics.google.com',
-        'www.google-analytics.com',
-      ];
-
       if (trackingDomains.some(d => domain.includes(d))) {
         // Update existing tracking hit with status
         const existingHit = this.trackingHits.find(hit => hit.url === url && !hit.status);
@@ -489,6 +482,10 @@ export class SSDPuppeteerRunner {
     }
 
     await resolution.element.click();
+    
+    // Add jittered wait for SPA route changes
+    const jitter = Math.random() * 500 + 500; // 500-1000ms
+    await this.page!.waitForTimeout(jitter);
   }
 
   /**
@@ -528,10 +525,38 @@ export class SSDPuppeteerRunner {
    * Execute navigate step
    */
   private async executeNavigateStep(step: any): Promise<void> {
-    if (!step.target) throw new SSDRunnerError('Navigate step requires target');
+    if (!step.target) {
+      // If no target, treat as wait for state change
+      console.log('Navigate step without target - waiting for state change');
+      await this.page!.waitForTimeout(1000); // Small wait for any state changes
+      return;
+    }
 
     const url = step.target.value;
-    await this.page!.goto(url, { waitUntil: 'networkidle2', timeout: this.timeout });
+    
+    try {
+      // Handle relative URLs
+      if (url.startsWith('/') || url.startsWith('./') || url.startsWith('../')) {
+        const currentUrl = this.page!.url();
+        const resolvedUrl = new URL(url, currentUrl).href;
+        console.log(`Resolved relative URL: ${url} -> ${resolvedUrl}`);
+        await this.page!.goto(resolvedUrl, { waitUntil: 'networkidle2', timeout: this.timeout });
+      } else if (url.startsWith('http://') || url.startsWith('https://')) {
+        // Absolute URL
+        await this.page!.goto(url, { waitUntil: 'networkidle2', timeout: this.timeout });
+      } else {
+        // Treat as relative path
+        const currentUrl = this.page!.url();
+        const resolvedUrl = new URL(url, currentUrl).href;
+        console.log(`Treated as relative path: ${url} -> ${resolvedUrl}`);
+        await this.page!.goto(resolvedUrl, { waitUntil: 'networkidle2', timeout: this.timeout });
+      }
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('Cannot navigate to invalid URL')) {
+        throw new SSDRunnerError(`Invalid URL for navigation: ${url}. Please use absolute URLs or relative paths starting with '/'.`);
+      }
+      throw error;
+    }
   }
 
   /**
@@ -629,6 +654,83 @@ export class SSDPuppeteerRunner {
       console.error('Failed to take screenshot:', error);
       return '';
     }
+  }
+
+  /**
+   * Check if a request should be allowed based on allowlist configuration
+   */
+  private isRequestAllowed(url: URL, options: RunOptions = {}): boolean {
+    const hostname = url.hostname;
+    const pathname = url.pathname;
+    
+    // Always allow the main site and allowed hosts
+    if (options.allowedHosts && options.allowedHosts.includes(hostname)) {
+      return true;
+    }
+    
+    // Allow tracking domains
+    const trackingDomains = options.allowedTracking || [
+      'google-analytics.com',
+      'googletagmanager.com',
+      'g.doubleclick.net',
+      'facebook.com/tr',
+      'connect.facebook.net',
+      'analytics.google.com',
+      'www.google-analytics.com',
+    ];
+    
+    if (trackingDomains.some(domain => hostname.includes(domain))) {
+      return true;
+    }
+    
+    // Allow CDN domains
+    const cdnDomains = options.allowedCDNs || [
+      'cdnjs.cloudflare.com',
+      'unpkg.com',
+      'jsdelivr.net',
+      'fonts.googleapis.com',
+      'fonts.gstatic.com',
+    ];
+    
+    if (cdnDomains.some(domain => hostname.includes(domain))) {
+      return true;
+    }
+    
+    // Allow common CMP domains (consent management platforms)
+    const cmpDomains = [
+      'consent.trustarc.com',
+      'consent.cookiebot.com',
+      'consent.one-trust.com',
+      'consent.cookieyes.com',
+      'consent.quantcast.com',
+      'consent.iubenda.com'
+    ];
+    
+    if (cmpDomains.some(domain => hostname.includes(domain))) {
+      return true;
+    }
+    
+    // Allow common resource types
+    const resourceType = pathname.split('.').pop()?.toLowerCase();
+    const allowedExtensions = ['css', 'js', 'png', 'jpg', 'jpeg', 'gif', 'svg', 'ico', 'woff', 'woff2', 'ttf', 'eot', 'webp', 'avif'];
+    
+    if (resourceType && allowedExtensions.includes(resourceType)) {
+      return true;
+    }
+    
+    // Allow data URLs and blob URLs
+    if (url.protocol === 'data:' || url.protocol === 'blob:') {
+      return true;
+    }
+    
+    // Allow same-origin requests
+    if (url.origin === this.page?.url()) {
+      return true;
+    }
+    
+    // Block everything else
+    console.log(`Blocked request to: ${url.href}`);
+    return false;
   }
 
   /**

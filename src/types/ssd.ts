@@ -6,6 +6,13 @@ export interface TestSpec {
   allowed_hosts?: string[];           // for cross-domain navigation allowlist
   consent?: ("reject" | "accept")[];  // optional; if absent, default to ["accept"]
   tests: Test[];
+  meta?: {                           // optional metadata from generation
+    model: string;
+    tokens: {
+      input: number;
+      output: number;
+    };
+  };
 }
 
 export interface Test {
@@ -55,11 +62,12 @@ export interface SSDIngestRequest {
 
 export interface SSDIngestResponse {
   dsl: TestSpec;
-  ambiguities: Ambiguity[];
   meta: {
-    tokens: number;
     model: string;
-    ingestionWarnings?: string[];
+    tokens: {
+      input: number;
+      output: number;
+    };
   };
 }
 
@@ -135,7 +143,6 @@ export interface SSDTestState {
   url: string;
   pdfFile: File | null;
   dsl: TestSpec | null;
-  ambiguities: Ambiguity[];
   report: TestReport | null;
   isLoading: boolean;
   error: string | null;

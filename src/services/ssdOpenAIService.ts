@@ -4,6 +4,7 @@
 
 import OpenAI from 'openai';
 import { z } from 'zod';
+import { normalizeOrigin } from '../utils/url';
 import { TestSpec, Ambiguity } from '../types/ssd';
 
 export interface OpenAIResponse {
@@ -61,8 +62,18 @@ const TestSchema = z.object({
   steps: z.array(StepSchema).min(1),
 });
 
+const SiteSchema = z.preprocess((v) => {
+  // accetta undefined/string, normalizza in origin
+  if (v == null) return v;
+  try { 
+    return normalizeOrigin(String(v)); 
+  } catch { 
+    return v; // lascia che Zod gestisca l'errore
+  }
+}, z.string().url());
+
 const TestSpecSchema = z.object({
-  site: z.string().url(),
+  site: SiteSchema,
   allowed_hosts: z.array(z.string()).optional(),
   consent: z.array(z.enum(['reject', 'accept'])).optional(),
   tests: z.array(TestSchema).min(1),
