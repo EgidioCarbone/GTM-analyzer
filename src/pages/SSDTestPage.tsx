@@ -1,12 +1,45 @@
-import React, { useState, useCallback } from 'react';
-import { Upload, FileText, Play, CheckCircle, XCircle, AlertTriangle, Eye, Download, RefreshCw } from 'lucide-react';
+import React, { useState, useCallback, useEffect } from 'react';
+import { Upload, FileText, Play, CheckCircle, XCircle, AlertTriangle, Eye, Download, RefreshCw, Loader2, Tag, ToggleLeft, Code2, PackageSearch, Box } from 'lucide-react';
 import { TestSpec, Ambiguity, TestReport, SSDTestState, DisambiguationItem } from '../types/ssd';
 import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/Badge';
-import LoadingOverlay from '../components/ui/LoadingOverlay';
+import { motion } from 'framer-motion';
+import Lottie from 'lottie-react';
+import animationData from '../assets/background-ai-loader.json';
 import toast from 'react-hot-toast';
+
+/*─────────────────────────── type-writer hook ───────────────────────────*/
+function useCyclingTypewriter(
+  texts: string[],
+  speed = 70,
+  hold  = 3000,
+): { text: string; step: number } {
+  const [step, setStep]       = useState(0);        // frase corrente
+  const [sub,  setSub]        = useState(0);        // indice carattere
+  const [text, setText]       = useState("");
+
+  useEffect(() => {
+    let t: NodeJS.Timeout;
+
+    /* fase di typing -----------------------------------------------------*/
+    if (sub < texts[step].length) {
+      setText(texts[step].slice(0, sub + 1));
+      t = setTimeout(() => setSub(sub + 1), speed);
+      return () => clearTimeout(t);
+    }
+
+    /* fase di pausa ------------------------------------------------------*/
+    t = setTimeout(() => {
+      setSub(0);
+      setStep((s) => (s + 1) % texts.length);
+    }, hold);
+    return () => clearTimeout(t);
+  }, [sub, step, texts, speed, hold]);
+
+  return { text, step };
+}
 
 export default function SSDTestPage() {
   const [state, setState] = useState<SSDTestState>({
@@ -21,6 +54,34 @@ export default function SSDTestPage() {
   });
 
   const [disambiguationItems, setDisambiguationItems] = useState<DisambiguationItem[]>([]);
+  const [loadingType, setLoadingType] = useState<'pdf' | 'test' | null>(null);
+
+  // Loading steps for different operations
+  const pdfSteps = [
+    { label: "Caricamento PDF in corso…",   icon: FileText },
+    { label: "Analisi del documento…",      icon: Tag },
+    { label: "Estrazione delle specifiche…", icon: Code2 },
+    { label: "Generazione DSL…",            icon: PackageSearch },
+    { label: "Preparazione test…",          icon: Box },
+  ];
+
+  const testSteps = [
+    { label: "Avvio browser…",              icon: Play },
+    { label: "Navigazione al sito…",        icon: Eye },
+    { label: "Esecuzione test…",            icon: CheckCircle },
+    { label: "Raccolta evidenze…",          icon: PackageSearch },
+    { label: "Generazione report…",         icon: FileText },
+  ];
+
+  const currentSteps = loadingType === 'pdf' ? pdfSteps : testSteps;
+  const { text: typing, step } = useCyclingTypewriter(
+    currentSteps.map((s) => s.label),
+    70,   // ms/carattere
+    3000, // pausa
+  );
+
+  const CurrentIcon =
+    currentSteps[step] && typeof currentSteps[step].icon === "function" ? currentSteps[step].icon : Loader2;
 
   // Step 1: Upload PDF and URL
   const handleFileUpload = useCallback((file: File) => {
@@ -41,6 +102,7 @@ export default function SSDTestPage() {
       return;
     }
 
+    setLoadingType('pdf');
     setState(prev => ({ ...prev, isLoading: true, error: null }));
 
     try {
@@ -74,6 +136,7 @@ export default function SSDTestPage() {
         currentStep: 'review',
         isLoading: false,
       }));
+      setLoadingType(null);
 
       // Prepare disambiguation items
       const items: DisambiguationItem[] = result.ambiguities.map((ambiguity: Ambiguity) => {
@@ -95,6 +158,7 @@ export default function SSDTestPage() {
         error: error instanceof Error ? error.message : 'Unknown error',
         isLoading: false,
       }));
+      setLoadingType(null);
       toast.error('Failed to process PDF');
     }
   };
@@ -121,6 +185,7 @@ export default function SSDTestPage() {
   const handleRunTests = async () => {
     if (!state.dsl) return;
 
+    setLoadingType('test');
     setState(prev => ({ ...prev, isLoading: true, error: null }));
 
     try {
@@ -158,6 +223,7 @@ export default function SSDTestPage() {
         currentStep: 'run',
         isLoading: false,
       }));
+      setLoadingType(null);
 
       toast.success('Tests completed successfully!');
     } catch (error) {
@@ -166,6 +232,7 @@ export default function SSDTestPage() {
         error: error instanceof Error ? error.message : 'Unknown error',
         isLoading: false,
       }));
+      setLoadingType(null);
       toast.error('Failed to run tests');
     }
   };
@@ -182,6 +249,7 @@ export default function SSDTestPage() {
       error: null,
     });
     setDisambiguationItems([]);
+    setLoadingType(null);
   };
 
   const handleExportReport = () => {
@@ -251,7 +319,25 @@ export default function SSDTestPage() {
         </div>
 
         {/* Loading Overlay */}
-        {state.isLoading && <LoadingOverlay />}
+        {state.isLoading && (
+          <div className="fixed inset-0 z-50 bg-gradient-to-br from-purple-50 via-pink-50 to-white dark:from-gray-900 dark:via-gray-950 dark:to-black flex items-center justify-center overflow-hidden">
+            <div className="absolute -top-48 -left-48  w-[600px] h-[600px] bg-purple-400 opacity-30 blur-3xl rounded-full" />
+            <div className="absolute -bottom-48 -right-48 w-[600px] h-[600px] bg-pink-400   opacity-30 blur-3xl rounded-full" />
+
+            <div className="relative flex flex-col items-center">
+              <div className="w-[500px] max-w-[90%]">
+                <Lottie animationData={animationData} loop autoplay />
+                <div className="flex items-center justify-center gap-2 mt-4">
+                  <CurrentIcon className="w-5 h-5 text-purple-600 shrink-0" />
+                  <p className="text-gray-800 dark:text-white text-lg font-semibold min-h-[1.5rem]">
+                    {typing || "Stiamo analizzando il tuo container…"}
+                  </p>
+                  <Loader2 className="w-5 h-5 text-purple-600 animate-spin" />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Step 1: Upload */}
         {state.currentStep === 'upload' && (
