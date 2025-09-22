@@ -350,7 +350,7 @@ export class SSDPuppeteerRunner {
         await this.executeStep(step, targetResolver);
 
         // Wait for any async operations
-        await this.page.waitForTimeout(1000);
+        await new Promise(resolve => setTimeout(resolve, 1000));
 
         // Check expectations
         const expectationContext: ExpectationContext = {
@@ -485,7 +485,7 @@ export class SSDPuppeteerRunner {
     
     // Add jittered wait for SPA route changes
     const jitter = Math.random() * 500 + 500; // 500-1000ms
-    await this.page!.waitForTimeout(jitter);
+    await new Promise(resolve => setTimeout(resolve, jitter));
   }
 
   /**
@@ -528,7 +528,7 @@ export class SSDPuppeteerRunner {
     if (!step.target) {
       // If no target, treat as wait for state change
       console.log('Navigate step without target - waiting for state change');
-      await this.page!.waitForTimeout(1000); // Small wait for any state changes
+      await new Promise(resolve => setTimeout(resolve, 1000)); // Small wait for any state changes
       return;
     }
 

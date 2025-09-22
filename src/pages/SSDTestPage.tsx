@@ -21,10 +21,16 @@ function useCyclingTypewriter(
   const [text, setText]       = useState("");
 
   useEffect(() => {
+    // Controlla che texts sia valido e non vuoto
+    if (!texts || texts.length === 0) {
+      setText("");
+      return;
+    }
+
     let t: NodeJS.Timeout;
 
     /* fase di typing -----------------------------------------------------*/
-    if (sub < texts[step].length) {
+    if (sub < texts[step]?.length) {
       setText(texts[step].slice(0, sub + 1));
       t = setTimeout(() => setSub(sub + 1), speed);
       return () => clearTimeout(t);
@@ -63,6 +69,7 @@ export default function SSDTestPage() {
 
   // Loading steps for different operations
   const pdfSteps = [
+    { label: "Download HTML e estrazione cookie banner…", icon: Eye },
     { label: "Caricamento PDF in corso…",   icon: FileText },
     { label: "Analisi del documento…",      icon: Tag },
     { label: "Estrazione delle specifiche…", icon: Code2 },
@@ -79,14 +86,15 @@ export default function SSDTestPage() {
   ];
 
   const currentSteps = loadingType === 'pdf' ? pdfSteps : testSteps;
+  const stepLabels = currentSteps && currentSteps.length > 0 ? currentSteps.map((s) => s.label) : ['Loading...'];
   const { text: typing, step } = useCyclingTypewriter(
-    currentSteps.map((s) => s.label),
+    stepLabels,
     70,   // ms/carattere
     3000, // pausa
   );
 
   const CurrentIcon =
-    currentSteps[step] && typeof currentSteps[step].icon === "function" ? currentSteps[step].icon : Loader2;
+    currentSteps && currentSteps[step] && typeof currentSteps[step].icon === "function" ? currentSteps[step].icon : Loader2;
 
   // Step 1: Upload PDF and URL
   const handleFileUpload = useCallback((file: File) => {
@@ -134,6 +142,28 @@ export default function SSDTestPage() {
       // Normalize URL before sending
       const normalizedUrl = normalizeUrl(state.url);
       
+      // STEP 1: Scarica HTML e estrai cookie banner
+      console.log('Step 1: Fetching HTML and extracting cookie banner...');
+      toast.loading('Downloading HTML and extracting cookie banner...', { id: 'html-fetch' });
+      
+      const htmlResponse = await fetch(`${apiBaseUrl}/api/ssd/fetch-html?url=${encodeURIComponent(normalizedUrl)}`, {
+        method: 'GET',
+        signal: AbortSignal.timeout(60000), // 1 minute timeout
+      });
+
+      if (!htmlResponse.ok) {
+        const error = await htmlResponse.json();
+        throw new Error(error.error || 'Failed to fetch HTML');
+      }
+
+      const htmlData = await htmlResponse.json();
+      console.log('Cookie banner extraction result:', htmlData.cookieBanner);
+      toast.success('HTML downloaded and cookie banner extracted!', { id: 'html-fetch' });
+
+      // STEP 2: Processa PDF e genera DSL
+      console.log('Step 2: Processing PDF and generating DSL...');
+      toast.loading('Processing PDF and generating DSL...', { id: 'pdf-process' });
+      
       const formData = new FormData();
       formData.append('url', normalizedUrl);
       formData.append('pdf', state.pdfFile);
@@ -175,7 +205,7 @@ export default function SSDTestPage() {
       setEditableDsl(JSON.stringify(result.dsl, null, 2));
       setLoadingType(null);
 
-      toast.success('PDF processed successfully!');
+      toast.success('PDF processed successfully!', { id: 'pdf-process' });
     } catch (error) {
       setState(prev => ({
         ...prev,

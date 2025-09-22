@@ -20,6 +20,8 @@ import { validateTestSpec, SpecValidationError } from './src/services/specValida
 import { z } from 'zod';
 import { SSDPuppeteerRunner, SSDRunnerError } from './src/services/ssdPuppeteerRunner.js';
 import { normalizeOrigin, isValidUrl } from './src/utils/url.js';
+import { extractCookieBannerWithPuppeteer } from './src/services/cookieBannerExtractor.js';
+import puppeteer from 'puppeteer';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -178,6 +180,411 @@ const puppeteerRunner = new SSDPuppeteerRunner({
   screenshotDir: 'screenshots',
   timeout: config.runnerStepTimeoutMs,
 });
+
+/**
+ * Esegue il test di cookie consent e controlla il dataLayer
+ */
+async function executeCookieConsentTest(testSpec: any, page: any) {
+  const result = {
+    status: 'FAIL',
+    dataLayerEvents: [],
+    consentStatus: 'unknown',
+    steps: [],
+    error: null
+  };
+
+  // Variabili per tracciare il dataLayer prima e dopo il click
+  let dataLayerBefore = [];
+  let dataLayerAfter = [];
+
+  try {
+    console.log('Executing cookie consent test...');
+    
+    // Monitora il dataLayer
+    await page.evaluateOnNewDocument(() => {
+      window.dataLayer = window.dataLayer || [];
+      window.originalDataLayerPush = window.dataLayer.push;
+      window.dataLayer.push = function(...args) {
+        console.log('DataLayer push:', args);
+        window.originalDataLayerPush.apply(this, args);
+      };
+    });
+
+    // Esegui ogni step del test
+    for (let i = 0; i < testSpec.tests[0].steps.length; i++) {
+      const step = testSpec.tests[0].steps[i];
+      console.log(`Executing step ${i + 1}: ${step.description}`);
+      
+      const stepResult = {
+        step: i + 1,
+        description: step.description,
+        action: step.action,
+        status: 'FAIL',
+        error: null
+      };
+
+      try {
+        if (step.action === 'navigate') {
+          // Naviga alla pagina
+          await page.goto(step.target.value, { waitUntil: 'networkidle2' });
+          stepResult.status = 'PASS';
+          console.log(`✓ Navigation successful`);
+          
+        } else if (step.action === 'click') {
+          // Trova e clicca l'elemento - gestisce selettori complessi
+          let element = null;
+          const selector = step.target.value;
+          
+          // Wait for cookie banner to load and become visible
+          console.log('Waiting for cookie banner to load and become visible...');
+          try {
+            element = await page.waitForSelector(selector, { visible: true, timeout: 15000 });
+            console.log('✓ Cookie banner button found and visible');
+          } catch (waitError) {
+            console.log('⚠ Cookie banner button not found within 15 seconds, trying anyway...');
+          }
+
+          // Check dataLayer BEFORE clicking
+          console.log('Checking dataLayer BEFORE click...');
+          dataLayerBefore = await page.evaluate(() => {
+            return window.dataLayer ? [...window.dataLayer] : [];
+          });
+          console.log(`DataLayer BEFORE click: ${dataLayerBefore.length} events`);
+          if (dataLayerBefore.length > 0) {
+            console.log('DataLayer BEFORE click events:', JSON.stringify(dataLayerBefore, null, 2));
+          }
+          
+          try {
+            let clickSuccessful = false;
+            
+            // Se abbiamo già l'elemento da waitForSelector, usalo direttamente
+            if (element) {
+              console.log('Using element found by waitForSelector');
+              await element.click();
+              stepResult.status = 'PASS';
+              console.log(`✓ Click successful on ${selector}`);
+              clickSuccessful = true;
+            } else if (selector.includes(':contains')) {
+              // Se il selettore contiene :contains, salta il selettore diretto e usa approcci alternativi
+              console.log('Trying alternative selectors for text-based search...');
+              
+              // Estrai il testo da cercare
+              const textMatch = selector.match(/:contains\('([^']+)'\)/);
+              if (textMatch) {
+                const searchText = textMatch[1];
+                console.log(`Looking for button with text: "${searchText}"`);
+                
+                // Prova diversi approcci per trovare il pulsante
+                const alternativeSelectors = [
+                  `.CybotCookiebotDialogBodyLevelButtonWrapper button`,
+                  `.CybotCookiebotDialogBodyLevelButtonWrapper input[type="button"]`,
+                  `.CybotCookiebotDialogBodyLevelButtonWrapper input[type="submit"]`,
+                  `button[onclick*="accept"]`,
+                  `button[onclick*="consent"]`,
+                  `input[value*="${searchText}"]`,
+                  `button:has-text("${searchText}")`,
+                  `[role="button"]:has-text("${searchText}")`
+                ];
+                
+                for (const altSelector of alternativeSelectors) {
+                  try {
+                    element = await page.$(altSelector);
+                    if (element) {
+                      console.log(`✓ Found element with selector: ${altSelector}`);
+                      break;
+                    }
+                  } catch (e) {
+                    // Ignora selettori non validi
+                    continue;
+                  }
+                }
+                
+                // Se ancora non trova, cerca per testo usando XPath
+                if (!element) {
+                  try {
+                    const xpath = `//button[contains(text(), '${searchText}')] | //input[@type='button' and contains(@value, '${searchText}')] | //*[contains(text(), '${searchText}') and (@role='button' or @onclick)]`;
+                    const elements = await page.$x(xpath);
+                    if (elements.length > 0) {
+                      element = elements[0];
+                      console.log(`✓ Found element using XPath`);
+                    }
+                  } catch (e) {
+                    console.log('XPath search failed:', e.message);
+                  }
+                }
+              }
+            }
+            
+            // Se non abbiamo ancora cliccato l'elemento, proviamo a trovarlo e cliccarlo
+            if (!clickSuccessful && element) {
+              await element.click();
+              stepResult.status = 'PASS';
+              console.log(`✓ Click successful on ${selector}`);
+              clickSuccessful = true;
+            } else if (!clickSuccessful) {
+              stepResult.error = `Element not found: ${selector}`;
+              console.log(`✗ Element not found: ${selector}`);
+            }
+
+            // Se il click è stato effettuato, aspettiamo e controlliamo il dataLayer
+            if (clickSuccessful) {
+              // Aspetta 15 secondi dopo il click per completare il processo di consenso
+              console.log('Waiting 15 seconds for consent to be fully processed...');
+              await new Promise(resolve => setTimeout(resolve, 15000));
+
+              // Check dataLayer AFTER clicking
+              console.log('Checking dataLayer AFTER click...');
+              dataLayerAfter = await page.evaluate(() => {
+                return window.dataLayer ? [...window.dataLayer] : [];
+              });
+              console.log(`DataLayer AFTER click: ${dataLayerAfter.length} events`);
+              if (dataLayerAfter.length > 0) {
+                console.log('DataLayer AFTER click events:', JSON.stringify(dataLayerAfter, null, 2));
+              }
+
+              // Compare dataLayer before and after
+              const newEvents = dataLayerAfter.slice(dataLayerBefore.length);
+              console.log(`New events added: ${newEvents.length}`);
+              if (newEvents.length > 0) {
+                console.log('New events:', JSON.stringify(newEvents, null, 2));
+              } else {
+                console.log('No new events detected in dataLayer');
+              }
+            }
+          } catch (selectorError) {
+            stepResult.error = `Selector error: ${selectorError.message}`;
+            console.log(`✗ Selector error: ${selectorError.message}`);
+          }
+        }
+        
+        result.steps.push(stepResult);
+        
+      } catch (stepError) {
+        stepResult.error = stepError.message;
+        stepResult.status = 'FAIL';
+        result.steps.push(stepResult);
+        console.error(`✗ Step ${i + 1} failed:`, stepError);
+      }
+    }
+
+    // Controlla il dataLayer per eventi di consenso
+    console.log('Checking dataLayer for consent events...');
+    
+    // Se non abbiamo dati dopo il click, li raccogliamo ora
+    if (typeof dataLayerAfter === 'undefined') {
+      console.log('Collecting dataLayer data now...');
+      dataLayerAfter = await page.evaluate(() => {
+        return window.dataLayer ? [...window.dataLayer] : [];
+      });
+    }
+    
+    // Debug: mostra tutti gli eventi dataLayer per capire cosa emette Cookiebot
+    console.log('All dataLayer events after click:', JSON.stringify(dataLayerAfter, null, 2));
+    
+    const dataLayerData = {
+      dataLayer: dataLayerAfter,
+      consentEvents: dataLayerAfter.filter(event => 
+        event && (
+          event.event === 'consent_update' ||
+          event.event === 'cookie_consent' ||
+          event.event === 'cookie_consent_update' ||
+          event.event === 'cookie_consent_preferences' ||
+          event.event === 'cookie_consent_statistics' ||
+          event.event === 'cookie_consent_marketing' ||
+          event.event === 'consent_given' ||
+          event.event === 'cookiebot_consent' ||
+          event.event === 'cookiebot_consent_update' ||
+          event.consent_status ||
+          event.cookie_consent ||
+          event.cookiebot_consent ||
+          event.cookiebot_consent_status ||
+          (event[0] === 'consent' && event[1] === 'update')
+        )
+      )
+    };
+
+    result.dataLayerEvents = dataLayerData.consentEvents;
+    
+    // Controlla se il cookie banner è scomparso (indicatore principale di successo)
+    const bannerStillVisible = await page.$('.CybotCookiebotDialogContentWrapper');
+    if (!bannerStillVisible) {
+      console.log('✓ Cookie banner disappeared after consent');
+      result.consentStatus = 'accepted';
+      result.status = 'PASS';
+    } else {
+      console.log('⚠ Cookie banner still visible');
+    }
+
+    // Determina lo status del consenso basato su eventi dataLayer (indicatore secondario)
+    if (dataLayerData.consentEvents.length > 0) {
+      result.consentStatus = 'accepted';
+      result.status = 'PASS';
+      console.log(`✓ Consent events found: ${dataLayerData.consentEvents.length}`);
+      console.log('Consent events:', dataLayerData.consentEvents);
+    } else if (result.status !== 'PASS') {
+      result.consentStatus = 'not_detected';
+      console.log('✗ No consent events found in dataLayer');
+    }
+
+  } catch (error) {
+    result.error = error.message;
+    console.error('Error executing cookie consent test:', error);
+  }
+
+  return result;
+}
+
+/**
+ * Genera Test Specification per testare la CTA di accettazione cookie
+ */
+async function generateCookieConsentTestSpec(siteUrl: string, cookieBanner: any) {
+  if (!config.openaiApiKey) {
+    throw new Error('OpenAI API key not configured');
+  }
+
+  // Filtra solo i bottoni "Accept All" con alta confidence
+  const acceptAllButtons = cookieBanner.buttons?.filter((btn: any) => btn.isAcceptAll && btn.confidence > 0.5) || [];
+  
+  const prompt = `You are an expert in web testing and cookie consent management. 
+
+I need you to generate a Test Specification Preview for testing ONLY the cookie consent acceptance CTA (Call-to-Action) button.
+
+SITE TO TEST: ${siteUrl}
+
+COOKIE BANNER INFORMATION:
+- Type: ${cookieBanner.type}
+- Position: ${cookieBanner.position}
+- Selectors: ${cookieBanner.selectors.join(', ')}
+
+ACCEPT ALL BUTTONS FOUND:
+${acceptAllButtons.length > 0 ? acceptAllButtons.map((btn: any, index: number) => `
+Button ${index + 1}:
+- ID: ${btn.id}
+- Class: ${btn.className}
+- Text: "${btn.text}"
+- Type: ${btn.type}
+- Role: ${btn.role}
+- Selector: ${btn.selector}
+- Confidence: ${btn.confidence}
+`).join('\n') : 'No Accept All buttons identified with high confidence'}
+
+ALL BUTTONS IN COOKIE BANNER:
+${cookieBanner.buttons?.map((btn: any, index: number) => `
+Button ${index + 1}:
+- ID: ${btn.id}
+- Class: ${btn.className}
+- Text: "${btn.text}"
+- Type: ${btn.type}
+- Role: ${btn.role}
+- Selector: ${btn.selector}
+- Is Accept All: ${btn.isAcceptAll} (confidence: ${btn.confidence})
+`).join('\n') || 'No buttons found'}
+
+TASK: Generate a TestSpec JSON that tests ONLY the cookie consent acceptance functionality. The test should:
+
+1. Navigate to the site
+2. Find and click the "Accept All" or "Accept Cookies" button
+3. Verify that the consent was properly given (check for dataLayer events, network calls, or UI changes)
+4. Be specific to this exact site and cookie banner
+
+CRITICAL: Use ONLY simple CSS selectors that work with Puppeteer:
+- ✅ GOOD: .class-name, #id, button, input[type="button"]
+- ❌ BAD: :contains(), :has-text(), :nth-child(), complex pseudo-selectors
+
+Return ONLY a valid JSON TestSpec object with this structure:
+{
+  "site": "${siteUrl}",
+  "allowed_hosts": ["${new URL(siteUrl).hostname}"],
+  "consent": ["accept"],
+  "tests": [
+    {
+      "section": "Cookie Consent Acceptance",
+      "steps": [
+        {
+          "description": "Navigate to the website",
+          "action": "navigate",
+          "target": {
+            "kind": "href",
+            "value": "${siteUrl}"
+          },
+          "expect": [
+            {
+              "type": "navigation",
+              "url_contains": "${new URL(siteUrl).hostname}"
+            }
+          ]
+        },
+        {
+          "description": "Click Accept All Cookies button",
+          "action": "click",
+          "target": {
+            "kind": "text",
+            "value": "Accept All"
+          },
+          "expect": [
+            {
+              "type": "dataLayer",
+              "event": "consent_update"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+
+IMPORTANT: 
+- Use the exact selectors and text from the cookie banner information provided
+- Focus ONLY on cookie consent acceptance testing
+- Make the test specific to this site and cookie banner
+- Use ONLY simple CSS selectors that work with Puppeteer (NO :contains(), :has-text(), or complex pseudo-selectors)
+- For text-based selection, use simple selectors like: .class-name, #id, button, input[type="button"]
+- Return valid JSON only, no explanations`;
+
+  try {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${config.openaiApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: config.openaiModel,
+        messages: [
+          {
+            role: 'user',
+            content: prompt
+          }
+        ],
+        temperature: 0.1,
+        max_tokens: 2000
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`OpenAI API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const content = data.choices[0].message.content;
+    
+    // Clean the response - remove markdown code blocks if present
+    let jsonContent = content.trim();
+    if (jsonContent.startsWith('```json')) {
+      jsonContent = jsonContent.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+    } else if (jsonContent.startsWith('```')) {
+      jsonContent = jsonContent.replace(/^```\s*/, '').replace(/\s*```$/, '');
+    }
+    
+    // Parse the JSON response
+    const testSpec = JSON.parse(jsonContent);
+    
+    return testSpec;
+  } catch (error) {
+    console.error('Error calling OpenAI for cookie consent test:', error);
+    throw error;
+  }
+}
 
 // Original HTML fetch endpoint
 app.get('/api/fetchHtml', async (req, res) => {
@@ -465,6 +872,148 @@ app.post('/api/ssd/run', async (req, res) => {
 
     res.status(500).json({ 
       error: error instanceof Error ? error.message : 'Internal server error' 
+    });
+  }
+});
+
+// GET /api/ssd/fetch-html - Download HTML and extract cookie banner
+app.get('/api/ssd/fetch-html', async (req, res) => {
+  const correlationId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  
+  try {
+    const { url } = req.query;
+
+    // Validazione URL
+    if (!url || typeof url !== 'string') {
+      return res.status(400).json({ 
+        error: 'URL parameter is required',
+        code: 'MISSING_URL'
+      });
+    }
+
+    // Normalizza URL
+    let targetUrl: string;
+    try {
+      targetUrl = normalizeOrigin(url);
+    } catch (urlError) {
+      return res.status(400).json({ 
+        error: 'Invalid URL format',
+        code: 'INVALID_URL'
+      });
+    }
+
+    console.log(`[${correlationId}] Fetching HTML and extracting cookie banner for: ${targetUrl}`);
+
+    // Avvia Puppeteer per scaricare l'HTML
+    const browser = await puppeteer.launch({
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });
+
+    try {
+      const page = await browser.newPage();
+      
+      // Imposta user agent per evitare blocchi
+      await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36');
+      
+      // Naviga alla pagina
+      await page.goto(targetUrl, { 
+        waitUntil: 'networkidle2',
+        timeout: 30000 
+      });
+
+      // Aspetta un po' per assicurarsi che i cookie banner si carichino
+      await new Promise(resolve => setTimeout(resolve, 3000));
+
+      // Estrai l'HTML completo
+      const html = await page.content();
+
+      // Estrai il cookie banner
+      const cookieBanner = await extractCookieBannerWithPuppeteer(page);
+
+      console.log(`[${correlationId}] Cookie banner extraction completed:`, {
+        found: cookieBanner.found,
+        type: cookieBanner.type,
+        position: cookieBanner.position,
+        textLength: cookieBanner.text.length
+      });
+
+      // Stampa il cookie banner nel backend
+      if (cookieBanner.found) {
+        console.log(`[${correlationId}] ===== COOKIE BANNER FOUND =====`);
+        console.log(`[${correlationId}] Type: ${cookieBanner.type}`);
+        console.log(`[${correlationId}] Position: ${cookieBanner.position}`);
+        console.log(`[${correlationId}] Selectors: ${cookieBanner.selectors.join(', ')}`);
+        console.log(`[${correlationId}] Text: ${cookieBanner.text.substring(0, 200)}${cookieBanner.text.length > 200 ? '...' : ''}`);
+        console.log(`[${correlationId}] HTML: ${cookieBanner.html.substring(0, 500)}${cookieBanner.html.length > 500 ? '...' : ''}`);
+        console.log(`[${correlationId}] ===== BUTTONS FOUND =====`);
+        if (cookieBanner.buttons && cookieBanner.buttons.length > 0) {
+          cookieBanner.buttons.forEach((button, index) => {
+            console.log(`[${correlationId}] Button ${index + 1}:`);
+            console.log(`[${correlationId}]   ID: ${button.id}`);
+            console.log(`[${correlationId}]   Class: ${button.className}`);
+            console.log(`[${correlationId}]   Text: "${button.text}"`);
+            console.log(`[${correlationId}]   Type: ${button.type}`);
+            console.log(`[${correlationId}]   Role: ${button.role}`);
+            console.log(`[${correlationId}]   Selector: ${button.selector}`);
+            console.log(`[${correlationId}]   Is Accept All: ${button.isAcceptAll} (confidence: ${button.confidence})`);
+            console.log(`[${correlationId}]   Position: ${button.position}`);
+          });
+        } else {
+          console.log(`[${correlationId}] No buttons found in cookie banner`);
+        }
+        console.log(`[${correlationId}] ================================`);
+        
+        // Genera Test Specification per la CTA di accettazione cookie
+        console.log(`[${correlationId}] ===== GENERATING COOKIE CONSENT TEST =====`);
+        try {
+          const cookieTestSpec = await generateCookieConsentTestSpec(targetUrl, cookieBanner);
+          console.log(`[${correlationId}] Generated Cookie Consent Test Specification:`);
+          console.log(`[${correlationId}] Site: ${cookieTestSpec.site}`);
+          console.log(`[${correlationId}] Test Section: ${cookieTestSpec.tests[0].section}`);
+          console.log(`[${correlationId}] Steps: ${cookieTestSpec.tests[0].steps.length}`);
+          console.log(`[${correlationId}] Full Test Spec:`);
+          console.log(JSON.stringify(cookieTestSpec, null, 2));
+          console.log(`[${correlationId}] ==========================================`);
+          
+          // ESEGUI IL TEST GENERATO
+          console.log(`[${correlationId}] ===== EXECUTING COOKIE CONSENT TEST =====`);
+          try {
+            const testResult = await executeCookieConsentTest(cookieTestSpec, page);
+            console.log(`[${correlationId}] Cookie Consent Test Result:`);
+            console.log(`[${correlationId}] Status: ${testResult.status}`);
+            console.log(`[${correlationId}] DataLayer Events Found: ${testResult.dataLayerEvents.length}`);
+            console.log(`[${correlationId}] Consent Status: ${testResult.consentStatus}`);
+            console.log(`[${correlationId}] Test Details:`);
+            console.log(JSON.stringify(testResult, null, 2));
+            console.log(`[${correlationId}] ==========================================`);
+          } catch (testError) {
+            console.error(`[${correlationId}] Error executing cookie consent test:`, testError);
+          }
+        } catch (error) {
+          console.error(`[${correlationId}] Error generating cookie consent test:`, error);
+        }
+      } else {
+        console.log(`[${correlationId}] No cookie banner found on the page`);
+      }
+
+      res.json({
+        url: targetUrl,
+        html: html,
+        cookieBanner: cookieBanner,
+        timestamp: new Date().toISOString()
+      });
+
+    } finally {
+      await browser.close();
+    }
+
+  } catch (error) {
+    console.error(`[${correlationId}] Error fetching HTML and extracting cookie banner:`, error);
+    
+    res.status(500).json({ 
+      error: error instanceof Error ? error.message : 'Internal server error',
+      code: 'FETCH_ERROR'
     });
   }
 });

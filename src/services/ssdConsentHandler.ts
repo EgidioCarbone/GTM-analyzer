@@ -144,7 +144,7 @@ export class SSDConsentHandler {
       
       if (result.success) {
         // Wait a bit for the consent to be processed
-        await this.page.waitForTimeout(1000);
+        await new Promise(resolve => setTimeout(resolve, 1000));
       }
 
       return result;

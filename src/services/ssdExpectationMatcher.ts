@@ -399,7 +399,7 @@ export class SSDExpectationMatcher {
       await this.page.reload({ waitUntil: 'networkidle2' });
       
       // Wait a bit for any potential events to fire
-      await this.page.waitForTimeout(2000);
+      await new Promise(resolve => setTimeout(resolve, 2000));
       
       // Check if the event fired again after reload
       const postReloadEvents = await this.page.evaluate(() => {
