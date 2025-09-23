@@ -24,6 +24,158 @@ import { normalizeOrigin, isValidUrl } from './src/utils/url.js';
 import { extractCookieBannerWithPuppeteer } from './src/services/cookieBannerExtractor.js';
 import puppeteer from 'puppeteer';
 
+// Error Classes with predefined codes
+// ============================================================================
+
+export class PdfExtractionError extends Error {
+  constructor(message: string, public code: string = 'PDF_EXTRACTION_ERROR', public details?: any) {
+    super(message);
+    this.name = 'PdfExtractionError';
+  }
+}
+
+export class OpenAIError extends Error {
+  constructor(message: string, public code: string = 'OPENAI_ERROR', public details?: any) {
+    super(message);
+    this.name = 'OpenAIError';
+  }
+}
+
+export class RunnerTimeoutError extends Error {
+  constructor(message: string, public code: string = 'RUNNER_TIMEOUT', public details?: any) {
+    super(message);
+    this.name = 'RunnerTimeoutError';
+  }
+}
+
+export class ValidationError extends Error {
+  constructor(message: string, public code: string = 'VALIDATION_ERROR', public details?: any) {
+    super(message);
+    this.name = 'ValidationError';
+  }
+}
+
+export class NavigationError extends Error {
+  constructor(message: string, public code: string = 'NAVIGATION_ERROR', public details?: any) {
+    super(message);
+    this.name = 'NavigationError';
+  }
+}
+
+export class FileUploadError extends Error {
+  constructor(message: string, public code: string = 'FILE_UPLOAD_ERROR', public details?: any) {
+    super(message);
+    this.name = 'FileUploadError';
+  }
+}
+
+export class ConfigurationError extends Error {
+  constructor(message: string, public code: string = 'CONFIGURATION_ERROR', public details?: any) {
+    super(message);
+    this.name = 'ConfigurationError';
+  }
+}
+
+// HTTP Error Normalization Function
+// ============================================================================
+
+interface HttpError {
+  code: string;
+  httpStatus: number;
+  message: string;
+  details?: any;
+}
+
+export function toHttpError(e: Error): HttpError {
+  // Handle specific error classes
+  if (e instanceof PdfExtractionError) {
+    switch (e.code) {
+      case 'NO_TEXT_CONTENT':
+        return { code: 'PDF_EMPTY', httpStatus: 400, message: e.message, details: e.details };
+      case 'PASSWORD_PROTECTED':
+        return { code: 'PDF_PASSWORD_PROTECTED', httpStatus: 422, message: e.message, details: e.details };
+      default:
+        return { code: 'PDF_EXTRACTION_ERROR', httpStatus: 422, message: e.message, details: e.details };
+    }
+  }
+
+  if (e instanceof OpenAIError) {
+    switch (e.code) {
+      case 'RATE_LIMIT':
+        return { code: 'OPENAI_RATE_LIMIT', httpStatus: 429, message: e.message, details: e.details };
+      case 'INVALID_API_KEY':
+        return { code: 'OPENAI_INVALID_KEY', httpStatus: 401, message: e.message, details: e.details };
+      case 'TIMEOUT':
+        return { code: 'OPENAI_TIMEOUT', httpStatus: 504, message: e.message, details: e.details };
+      default:
+        return { code: 'OPENAI_ERROR', httpStatus: 422, message: e.message, details: e.details };
+    }
+  }
+
+  if (e instanceof RunnerTimeoutError) {
+    return { code: 'NAVIGATION_TIMEOUT', httpStatus: 504, message: e.message, details: e.details };
+  }
+
+  if (e instanceof ValidationError) {
+    switch (e.code) {
+      case 'INVALID_JSON':
+        return { code: 'INVALID_JSON', httpStatus: 422, message: e.message, details: e.details };
+      case 'SCHEMA_VALIDATION':
+        return { code: 'SCHEMA_VALIDATION', httpStatus: 422, message: e.message, details: e.details };
+      default:
+        return { code: 'VALIDATION_ERROR', httpStatus: 422, message: e.message, details: e.details };
+    }
+  }
+
+  if (e instanceof NavigationError) {
+    return { code: 'NAVIGATION_ERROR', httpStatus: 504, message: e.message, details: e.details };
+  }
+
+  if (e instanceof FileUploadError) {
+    switch (e.code) {
+      case 'INVALID_FILE_TYPE':
+        return { code: 'INVALID_FILE_TYPE', httpStatus: 415, message: e.message, details: e.details };
+      case 'FILE_TOO_LARGE':
+        return { code: 'FILE_TOO_LARGE', httpStatus: 413, message: e.message, details: e.details };
+      case 'INVALID_PDF_SIGNATURE':
+        return { code: 'INVALID_PDF_SIGNATURE', httpStatus: 415, message: e.message, details: e.details };
+      default:
+        return { code: 'FILE_UPLOAD_ERROR', httpStatus: 400, message: e.message, details: e.details };
+    }
+  }
+
+  if (e instanceof ConfigurationError) {
+    return { code: 'CONFIGURATION_ERROR', httpStatus: 500, message: e.message, details: e.details };
+  }
+
+  // Handle generic errors with common patterns
+  const message = e.message || 'Unknown error';
+  
+  if (message.includes('URL') && message.includes('invalid')) {
+    return { code: 'URL_INVALID', httpStatus: 400, message, details: { originalError: e.name } };
+  }
+  
+  if (message.includes('timeout') || message.includes('TIMEOUT')) {
+    return { code: 'NAVIGATION_TIMEOUT', httpStatus: 504, message, details: { originalError: e.name } };
+  }
+  
+  if (message.includes('JSON') && (message.includes('invalid') || message.includes('parse'))) {
+    return { code: 'INVALID_JSON', httpStatus: 422, message, details: { originalError: e.name } };
+  }
+  
+  if (message.includes('rate limit') || message.includes('too many requests')) {
+    return { code: 'OPENAI_RATE_LIMIT', httpStatus: 429, message, details: { originalError: e.name } };
+  }
+
+  // Fallback for unknown errors
+  return { 
+    code: 'INTERNAL_ERROR', 
+    httpStatus: 500, 
+    message: 'Internal server error', 
+    details: { originalError: e.name, originalMessage: e.message } 
+  };
+}
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
@@ -203,7 +355,7 @@ async function generatePdfTestSpec(siteUrl: string, pdfContent: string, htmlCont
   }
   
   if (!config.openaiApiKey) {
-    throw new Error('OpenAI API key not configured');
+    throw new ConfigurationError('OpenAI API key not configured', 'OPENAI_NOT_CONFIGURED');
   }
   
   console.log('🔑 OpenAI API Key configured:', !!config.openaiApiKey);
@@ -467,7 +619,7 @@ Please analyze the HTML to generate accurate selectors for the test specificatio
       stack: error.stack,
       name: error.name
     });
-    throw new Error(`Failed to generate PDF test specification: ${error.message}`);
+    throw new OpenAIError(`Failed to generate PDF test specification: ${error.message}`, 'PDF_SPEC_GENERATION_FAILED');
   }
 }
 
@@ -1237,7 +1389,7 @@ async function executeCookieConsentTest(testSpec: any, page: any) {
  */
 async function generateCookieConsentTestSpec(siteUrl: string, cookieBanner: any) {
   if (!config.openaiApiKey) {
-    throw new Error('OpenAI API key not configured');
+    throw new ConfigurationError('OpenAI API key not configured', 'OPENAI_NOT_CONFIGURED');
   }
 
   // Filtra solo i bottoni "Accept All" con alta confidence
@@ -1360,7 +1512,13 @@ IMPORTANT:
     });
 
     if (!response.ok) {
-      throw new Error(`OpenAI API error: ${response.status}`);
+      if (response.status === 429) {
+        throw new OpenAIError(`OpenAI API rate limit exceeded`, 'RATE_LIMIT');
+      }
+      if (response.status === 401) {
+        throw new OpenAIError(`OpenAI API key invalid`, 'INVALID_API_KEY');
+      }
+      throw new OpenAIError(`OpenAI API error: ${response.status}`, 'API_ERROR');
     }
 
     const data = await response.json();
@@ -1399,7 +1557,10 @@ IMPORTANT:
     return testSpec;
   } catch (error) {
     console.error('Error calling OpenAI for cookie consent test:', error);
-    throw error;
+    if (error instanceof OpenAIError) {
+      throw error;
+    }
+    throw new OpenAIError(`Failed to generate cookie consent test spec: ${error.message}`, 'COOKIE_SPEC_GENERATION_FAILED');
   }
 }
 
@@ -1409,7 +1570,8 @@ app.get('/api/fetchHtml', async (req, res) => {
 
   // ✅ Validazione veloce dell'URL
   if (typeof targetUrl !== 'string' || !/^https?:\/\//i.test(targetUrl)) {
-    return res.status(400).json({ error: 'URL non valido' });
+    const httpError = toHttpError(new ValidationError('URL non valido', 'URL_INVALID'));
+    return res.status(httpError.httpStatus).json({ error: { code: httpError.code, message: httpError.message, details: httpError.details } });
   }
 
   try {
@@ -1427,7 +1589,8 @@ app.get('/api/fetchHtml', async (req, res) => {
     res.setHeader('Cache-Control', 's-maxage=300');
     return res.status(200).send(html);
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    const httpError = toHttpError(err instanceof Error ? err : new Error(err.message || 'Unknown error'));
+    return res.status(httpError.httpStatus).json({ error: { code: httpError.code, message: httpError.message, details: httpError.details } });
   }
 });
 
@@ -1437,6 +1600,7 @@ app.get('/api/fetchHtml', async (req, res) => {
 // ============================================================================
 
 // POST /api/spec/generate - Create Test Specification Preview from URL + PDF
+
 app.post('/api/spec/generate', upload.single('pdf'), async (req, res) => {
   const correlationId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   
@@ -1446,17 +1610,13 @@ app.post('/api/spec/generate', upload.single('pdf'), async (req, res) => {
 
     // Early validation - check required fields
     if (!pdf) {
-      return res.status(400).json({ 
-        error: "Missing 'pdf' file field in multipart/form-data.",
-        code: 'MISSING_FILE_FIELD'
-      });
+      const httpError = toHttpError(new FileUploadError("Missing 'pdf' file field in multipart/form-data.", 'MISSING_FILE_FIELD'));
+      return res.status(httpError.httpStatus).json({ error: { code: httpError.code, message: httpError.message, details: httpError.details } });
     }
 
     if (!url) {
-      return res.status(400).json({ 
-        error: 'URL is required',
-        code: 'MISSING_URL'
-      });
+      const httpError = toHttpError(new ValidationError('URL is required', 'MISSING_URL'));
+      return res.status(httpError.httpStatus).json({ error: { code: httpError.code, message: httpError.message, details: httpError.details } });
     }
 
     // Log file information for debugging
@@ -1473,17 +1633,13 @@ app.post('/api/spec/generate', upload.single('pdf'), async (req, res) => {
     try {
       targetOrigin = normalizeOrigin(url);
     } catch (urlError) {
-      return res.status(400).json({ 
-        error: 'Target Website URL non valida. Includi http/https (es. https://example.com).',
-        code: 'INVALID_URL'
-      });
+      const httpError = toHttpError(new ValidationError('Target Website URL non valida. Includi http/https (es. https://example.com).', 'INVALID_URL'));
+      return res.status(httpError.httpStatus).json({ error: { code: httpError.code, message: httpError.message, details: httpError.details } });
     }
 
     if (!config.openaiApiKey) {
-      return res.status(500).json({ 
-        error: 'OpenAI API key not configured. Please set OPENAI_API_KEY environment variable.',
-        code: 'OPENAI_NOT_CONFIGURED'
-      });
+      const httpError = toHttpError(new ConfigurationError('OpenAI API key not configured. Please set OPENAI_API_KEY environment variable.', 'OPENAI_NOT_CONFIGURED'));
+      return res.status(httpError.httpStatus).json({ error: { code: httpError.code, message: httpError.message, details: httpError.details } });
     }
 
     // Magic number validation - check PDF signature
@@ -1492,18 +1648,14 @@ app.post('/api/spec/generate', upload.single('pdf'), async (req, res) => {
         firstBytes: pdf.buffer.subarray(0, 16).toString('hex'),
         firstChars: pdf.buffer.subarray(0, 8).toString('ascii')
       });
-      return res.status(415).json({ 
-        error: 'Uploaded file is not a valid PDF (missing %PDF- header).',
-        code: 'INVALID_PDF_SIGNATURE'
-      });
+      const httpError = toHttpError(new FileUploadError('Uploaded file is not a valid PDF (missing %PDF- header).', 'INVALID_PDF_SIGNATURE'));
+      return res.status(httpError.httpStatus).json({ error: { code: httpError.code, message: httpError.message, details: httpError.details } });
     }
 
     // File size validation
     if (pdf.size > MAX_UPLOAD_BYTES) {
-      return res.status(413).json({ 
-        error: `PDF exceeds maximum size of ${MAX_UPLOAD_MB} MB.`,
-        code: 'FILE_TOO_LARGE'
-      });
+      const httpError = toHttpError(new FileUploadError(`PDF exceeds maximum size of ${MAX_UPLOAD_MB} MB.`, 'FILE_TOO_LARGE'));
+      return res.status(httpError.httpStatus).json({ error: { code: httpError.code, message: httpError.message, details: httpError.details } });
     }
 
     console.log(`[${correlationId}] PDF validation passed - magic number: true, size: ${pdf.size} bytes`);
@@ -1517,10 +1669,8 @@ app.post('/api/spec/generate', upload.single('pdf'), async (req, res) => {
 
     // Check if PDF has no extractable text
     if (extractionResult.text.length === 0) {
-      return res.status(422).json({ 
-        error: 'PDF has no extractable text. Please export the PPT as a text-based PDF (selectable text), not a scanned image.',
-        code: 'NO_TEXT_CONTENT'
-      });
+      const httpError = toHttpError(new PdfExtractionError('PDF has no extractable text. Please export the PPT as a text-based PDF (selectable text), not a scanned image.', 'NO_TEXT_CONTENT'));
+      return res.status(httpError.httpStatus).json({ error: { code: httpError.code, message: httpError.message, details: httpError.details } });
     }
 
     console.log(`[${correlationId}] PDF text extracted successfully: ${extractionResult.text.length} characters`);
@@ -1582,54 +1732,8 @@ app.post('/api/spec/generate', upload.single('pdf'), async (req, res) => {
   } catch (error) {
     console.error(`[${correlationId}] Spec Generation Error:`, error);
     
-    // Handle specific error types with precise error codes
-    if (error instanceof PDFExtractionError) {
-      if (error.code === 'NO_TEXT_CONTENT') {
-        return res.status(422).json({ 
-          error: 'PDF has no extractable text. Please export the PPT as a text-based PDF (selectable text), not a scanned image.',
-          code: error.code 
-        });
-      }
-      if (error.code === 'PASSWORD_PROTECTED') {
-        return res.status(422).json({ 
-          error: 'PDF is password-protected and cannot be parsed.',
-          code: error.code 
-        });
-      }
-      return res.status(422).json({ 
-        error: error.message,
-        code: error.code 
-      });
-    }
-
-    if (error instanceof SpecValidationError) {
-      return res.status(422).json({ 
-        error: error.message,
-        code: error.code,
-        fieldErrors: error.errors
-      });
-    }
-
-    // Handle Zod validation errors specifically
-    if (error instanceof z.ZodError) {
-      console.warn("[SSD] Zod fail on site with value:", mergedDsl?.site);
-      return res.status(422).json({ 
-        error: "DSL schema validation failed", 
-        code: "SCHEMA_VALIDATION", 
-        fieldErrors: error.flatten().fieldErrors 
-      });
-    }
-
-    if (error instanceof OpenAIError) {
-      return res.status(422).json({ 
-        error: error.message,
-        code: error.code 
-      });
-    }
-
-    res.status(500).json({ 
-      error: error instanceof Error ? error.message : 'Internal server error' 
-    });
+    const httpError = toHttpError(error instanceof Error ? error : new Error('Unknown error'));
+    return res.status(httpError.httpStatus).json({ error: { code: httpError.code, message: httpError.message, details: httpError.details } });
   }
 });
 
@@ -1645,7 +1749,8 @@ app.post('/api/ssd/run', async (req, res) => {
     const { dsl, runOptions = {}, pdfContent, pdfBufferPath } = req.body;
 
     if (!dsl) {
-      return res.status(400).json({ error: 'DSL is required' });
+      const httpError = toHttpError(new ValidationError('DSL is required', 'MISSING_DSL'));
+      return res.status(httpError.httpStatus).json({ error: { code: httpError.code, message: httpError.message, details: httpError.details } });
     }
 
     // Debug: Check pdfContent explicitly
@@ -1928,25 +2033,8 @@ app.post('/api/ssd/run', async (req, res) => {
   } catch (error) {
     console.error('SSD Run Error:', error);
     
-    // Handle specific error types
-    if (error instanceof SpecValidationError) {
-      return res.status(422).json({ 
-        error: error.message,
-        code: error.code,
-        fieldErrors: error.errors
-      });
-    }
-
-    if (error instanceof SSDRunnerError) {
-      return res.status(422).json({ 
-        error: error.message,
-        stepIndex: error.stepIndex 
-      });
-    }
-
-    res.status(500).json({ 
-      error: error instanceof Error ? error.message : 'Internal server error' 
-    });
+    const httpError = toHttpError(error instanceof Error ? error : new Error('Unknown error'));
+    return res.status(httpError.httpStatus).json({ error: { code: httpError.code, message: httpError.message, details: httpError.details } });
   }
 });
 
@@ -1959,10 +2047,8 @@ app.get('/api/ssd/fetch-html', async (req, res) => {
 
     // Validazione URL
     if (!url || typeof url !== 'string') {
-      return res.status(400).json({ 
-        error: 'URL parameter is required',
-        code: 'MISSING_URL'
-      });
+      const httpError = toHttpError(new ValidationError('URL parameter is required', 'MISSING_URL'));
+      return res.status(httpError.httpStatus).json({ error: { code: httpError.code, message: httpError.message, details: httpError.details } });
     }
 
     // Normalizza URL
@@ -1970,10 +2056,8 @@ app.get('/api/ssd/fetch-html', async (req, res) => {
     try {
       targetUrl = normalizeOrigin(url);
     } catch (urlError) {
-      return res.status(400).json({ 
-        error: 'Invalid URL format',
-        code: 'INVALID_URL'
-      });
+      const httpError = toHttpError(new ValidationError('Invalid URL format', 'INVALID_URL'));
+      return res.status(httpError.httpStatus).json({ error: { code: httpError.code, message: httpError.message, details: httpError.details } });
     }
 
     console.log(`[${correlationId}] Fetching HTML and extracting cookie banner for: ${targetUrl}`);
@@ -2074,19 +2158,23 @@ app.get('/api/ssd/fetch-html', async (req, res) => {
   } catch (error) {
     console.error(`[${correlationId}] Error fetching HTML and extracting cookie banner:`, error);
     
-    res.status(500).json({ 
-      error: error instanceof Error ? error.message : 'Internal server error',
-      code: 'FETCH_ERROR'
-    });
+    const httpError = toHttpError(error instanceof Error ? error : new Error('Unknown error'));
+    return res.status(httpError.httpStatus).json({ error: { code: httpError.code, message: httpError.message, details: httpError.details } });
   }
 });
 
 // GET /api/ssd/config - Get configuration info
 app.get('/api/ssd/config', (req, res) => {
   res.json({
-    maxFileSize: config.maxFileSize,
-    maxFileSizeMB: Math.round(config.maxFileSize / 1024 / 1024),
-    allowedFileTypes: ['application/pdf'],
+    success: true,
+    config: {
+      maxFileSize: config.maxFileSize,
+      maxFileSizeMB: Math.round(config.maxFileSize / 1024 / 1024),
+      allowedMimeTypes: ['application/pdf', 'application/octet-stream'],
+      allowedExtensions: ['.pdf'],
+      supportedFormats: ['PDF with selectable text'],
+      ambiguityMinConfidence: 0.6
+    },
     supportedActions: [
       'click', 'input', 'wait_for_selector', 'wait_for_text', 
       'navigate', 'maybe_set_quantity', 'choose_payment', 
@@ -2116,12 +2204,14 @@ app.get('/api/ssd/config', (req, res) => {
 // Error handling middleware
 app.use((error, req, res, next) => {
   console.error('Server Error:', error);
-  res.status(500).json({ error: 'Internal server error' });
+  const httpError = toHttpError(error instanceof Error ? error : new Error('Unknown error'));
+  res.status(httpError.httpStatus).json({ error: { code: httpError.code, message: httpError.message, details: httpError.details } });
 });
 
 // 404 handler
 app.use((req, res) => {
-  res.status(404).json({ error: 'Endpoint not found' });
+  const httpError = toHttpError(new Error('Endpoint not found'));
+  res.status(404).json({ error: { code: 'ENDPOINT_NOT_FOUND', message: 'Endpoint not found', details: { path: req.path, method: req.method } } });
 });
 
 // Avvio server

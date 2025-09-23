@@ -159,6 +159,46 @@ export interface DisambiguationItem {
   suggestedTargets: Target[];
 }
 
+// Component Props Types
+// ============================================================================
+
+export interface UploadStepProps {
+  state: SSDTestState;
+  ssdConfig: any;
+  configLoading: boolean;
+  configError: string | null;
+  onFileUpload: (file: File) => void;
+  onUrlChange: (url: string) => void;
+  onIngest: () => void;
+}
+
+export interface ReviewStepProps {
+  state: SSDTestState;
+  editableDsl: string;
+  isEditingDsl: boolean;
+  dslValidationError: string | null;
+  ambiguityMinConfidence: number;
+  onDslEdit: (value: string) => void;
+  onSaveDsl: () => void;
+  onResetDsl: () => void;
+  onReset: () => void;
+}
+
+export interface ResultsStepProps {
+  state: SSDTestState;
+  originalDsl: TestSpec | null;
+  onReset: () => void;
+  onExportReport: () => void;
+  onRunTestsWithData: (dsl: any, pdfContent: string, pdfBufferPath?: string) => void;
+}
+
+export interface LoadingOverlayProps {
+  isLoading: boolean;
+  loadingType: 'pdf' | 'test' | null;
+  typing: string;
+  CurrentIcon: React.ComponentType<any>;
+}
+
 // Environment Configuration
 // ============================================================================
 
@@ -171,4 +211,5 @@ export interface SSDConfig {
   maxFileSize: number;
   rateLimitWindowMs: number;
   rateLimitMax: number;
+  ambiguityMinConfidence: number;
 }

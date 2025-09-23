@@ -1,14 +1,16 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { Upload, FileText, Play, CheckCircle, XCircle, AlertTriangle, Eye, Download, RefreshCw, Loader2, Tag, ToggleLeft, Code2, PackageSearch, Box, Edit3, Save, RotateCcw } from 'lucide-react';
-import { TestSpec, Ambiguity, TestReport, SSDTestState, DisambiguationItem } from '../types/ssd';
+import { Upload, Play, Loader2, Eye, Tag, Code2, PackageSearch, Box, FileText, CheckCircle } from 'lucide-react';
+import { TestSpec, SSDTestState } from '../types/ssd';
 import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
-import { Input } from '../components/ui/input';
-import { Badge } from '../components/ui/Badge';
-import { motion } from 'framer-motion';
-import Lottie from 'lottie-react';
-import animationData from '../assets/background-ai-loader.json';
+import { useSSDConfig } from '../hooks/useSSDConfig';
+import { useAbortController } from '../hooks/useAbortController';
+import { notifyError } from '../utils/errorNotification';
 import toast from 'react-hot-toast';
+import UploadStep from '../components/ssd/UploadStep';
+import ReviewStep from '../components/ssd/ReviewStep';
+import ResultsStep from '../components/ssd/ResultsStep';
+import LoadingOverlay from '../components/ssd/LoadingOverlay';
 
 /*─────────────────────────── type-writer hook ───────────────────────────*/
 function useCyclingTypewriter(
@@ -65,9 +67,14 @@ export default function SSDTestPage() {
   const [dslValidationError, setDslValidationError] = useState<string | null>(null);
   const [originalDsl, setOriginalDsl] = useState<TestSpec | null>(null);
 
+  // AbortController per gestire richieste pendenti
+  const { createNewController, abortCurrentRequest, isAborted } = useAbortController();
 
   // API base URL configuration
   const apiBaseUrl = import.meta.env.VITE_API_BASE || (window.location.origin === 'http://localhost:5173' ? 'http://localhost:4000' : '');
+  
+  // SSD Configuration
+  const { config: ssdConfig, loading: configLoading, error: configError } = useSSDConfig(apiBaseUrl);
 
   // Loading steps for different operations
   const pdfSteps = [
@@ -98,15 +105,67 @@ export default function SSDTestPage() {
   const CurrentIcon =
     currentSteps && currentSteps[step] && typeof currentSteps[step].icon === "function" ? currentSteps[step].icon : Loader2;
 
+  // Cancella richieste pendenti quando cambia lo step o si ricarica la pagina
+  useEffect(() => {
+    return () => {
+      abortCurrentRequest();
+    };
+  }, [state.currentStep, abortCurrentRequest]);
+
   // Step 1: Upload PDF and URL
   const handleFileUpload = useCallback((file: File) => {
-    // Basic client-side check: file extension ends with .pdf (case-insensitive)
-    if (!file.name.toLowerCase().endsWith('.pdf')) {
-      toast.error('Please upload a PDF file');
+    if (!ssdConfig) {
+      toast.error('Configuration not loaded yet');
       return;
     }
+
+    // Check file extension
+    const hasValidExtension = ssdConfig.allowedExtensions.some(ext => 
+      file.name.toLowerCase().endsWith(ext.toLowerCase())
+    );
+    
+    if (!hasValidExtension) {
+      toast.error(
+        <div className="space-y-1">
+          <div className="font-semibold">Tipo di file non supportato</div>
+          <div className="text-sm">Carica un file PDF</div>
+        </div>,
+        { duration: 5000 }
+      );
+      return;
+    }
+
+    // Check MIME type
+    const hasValidMimeType = ssdConfig.allowedMimeTypes.includes(file.type) || 
+                            file.type === '' || // Some browsers don't set MIME type for PDFs
+                            file.type === 'application/octet-stream';
+    
+    if (!hasValidMimeType) {
+      toast.error(
+        <div className="space-y-1">
+          <div className="font-semibold">Tipo di file non valido</div>
+          <div className="text-sm">Il file deve essere un PDF</div>
+        </div>,
+        { duration: 5000 }
+      );
+      return;
+    }
+
+    // Check file size
+    if (file.size > ssdConfig.maxFileSize) {
+      const maxSizeMB = ssdConfig.maxFileSizeMB;
+      toast.error(
+        <div className="space-y-1">
+          <div className="font-semibold">File troppo grande</div>
+          <div className="text-sm">Dimensione massima consentita: {maxSizeMB} MB</div>
+        </div>,
+        { duration: 5000 }
+      );
+      return;
+    }
+
     setState(prev => ({ ...prev, pdfFile: file }));
-  }, []);
+  }, [ssdConfig]);
 
   const handleUrlChange = useCallback((url: string) => {
     setState(prev => ({ ...prev, url }));
@@ -140,6 +199,9 @@ export default function SSDTestPage() {
     setLoadingType('pdf');
     setState(prev => ({ ...prev, isLoading: true, error: null }));
 
+    // Crea nuovo AbortController per questa richiesta
+    const abortController = createNewController();
+
     try {
       // Normalize URL before sending
       const normalizedUrl = normalizeUrl(state.url);
@@ -150,7 +212,7 @@ export default function SSDTestPage() {
       
       const htmlResponse = await fetch(`${apiBaseUrl}/api/ssd/fetch-html?url=${encodeURIComponent(normalizedUrl)}`, {
         method: 'GET',
-        signal: AbortSignal.timeout(60000), // 1 minute timeout
+        signal: abortController.signal,
       });
 
       if (!htmlResponse.ok) {
@@ -173,26 +235,13 @@ export default function SSDTestPage() {
       const response = await fetch(`${apiBaseUrl}/api/spec/generate`, {
         method: 'POST',
         body: formData,
-        signal: AbortSignal.timeout(120000), // 2 minute timeout
+        signal: abortController.signal,
       });
 
       if (!response.ok) {
         const error = await response.json();
-        
-        // Show precise error messages based on status codes
-        if (response.status === 400) {
-          throw new Error(error.error || 'Invalid request');
-        } else if (response.status === 413) {
-          throw new Error(error.error || 'File too large');
-        } else if (response.status === 415) {
-          throw new Error(error.error || 'Invalid file type');
-        } else if (response.status === 422) {
-          throw new Error(error.error || 'Validation error');
-        } else if (response.status === 429) {
-          throw new Error('Rate limit exceeded. Please try again later.');
-        } else {
-          throw new Error(error.error || `Server error (${response.status})`);
-        }
+        notifyError(error, 'Failed to process PDF');
+        throw new Error(error.error?.message || error.error || 'Failed to process PDF');
       }
 
       const result = await response.json();
@@ -222,13 +271,19 @@ export default function SSDTestPage() {
 
       toast.success('PDF processed successfully!', { id: 'pdf-process' });
     } catch (error) {
+      // Gestisci errore di abort
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.log('Request was aborted');
+        return;
+      }
+      
       setState(prev => ({
         ...prev,
         error: error instanceof Error ? error.message : 'Unknown error',
         isLoading: false,
       }));
       setLoadingType(null);
-      toast.error('Failed to process PDF');
+      notifyError(error, 'Failed to process PDF');
     }
   };
 
@@ -247,6 +302,9 @@ export default function SSDTestPage() {
 
     console.log('Starting test execution with provided data...');
     setLoadingType('test');
+    
+    // Crea nuovo AbortController per questa richiesta
+    const abortController = createNewController();
     
     // Update state with the provided data
     setState(prev => ({ 
@@ -292,10 +350,13 @@ export default function SSDTestPage() {
           'Content-Type': 'application/json',
         },
         body: jsonBody,
+        signal: abortController.signal,
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        const error = await response.json();
+        notifyError(error, 'Failed to run tests');
+        throw new Error(error.error?.message || error.error || `HTTP error! status: ${response.status}`);
       }
 
       const result = await response.json();
@@ -310,13 +371,19 @@ export default function SSDTestPage() {
 
       toast.success('Tests completed successfully!');
     } catch (error) {
+      // Gestisci errore di abort
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.log('Request was aborted');
+        return;
+      }
+      
       setState(prev => ({
         ...prev,
         error: error instanceof Error ? error.message : 'Unknown error',
         isLoading: false,
       }));
       setLoadingType(null);
-      toast.error('Failed to run tests');
+      notifyError(error, 'Failed to run tests');
     }
   };
 
@@ -333,6 +400,9 @@ export default function SSDTestPage() {
     console.log('Starting test execution...');
     setLoadingType('test');
     
+    // Crea nuovo AbortController per questa richiesta
+    const abortController = createNewController();
+    
     // Update state with the provided data
     setState(prev => ({ 
       ...prev, 
@@ -348,6 +418,7 @@ export default function SSDTestPage() {
         headers: {
           'Content-Type': 'application/json',
         },
+        signal: abortController.signal,
         body: JSON.stringify({
           dsl: dsl,
           pdfContent: pdfContent,
@@ -356,18 +427,12 @@ export default function SSDTestPage() {
             consent: 'both',
           },
         }),
-        signal: AbortSignal.timeout(300000), // 5 minute timeout
       });
 
       if (!response.ok) {
         const error = await response.json();
-        if (response.status === 422) {
-          throw new Error(`Test execution error: ${error.error}`);
-        } else if (response.status === 429) {
-          throw new Error('Rate limit exceeded. Please try again later.');
-        } else {
-          throw new Error(error.error || `Server error (${response.status})`);
-        }
+        notifyError(error, 'Failed to run tests');
+        throw new Error(error.error?.message || error.error || `Server error (${response.status})`);
       }
 
       const result = await response.json();
@@ -382,13 +447,19 @@ export default function SSDTestPage() {
 
       toast.success('Tests completed successfully!');
     } catch (error) {
+      // Gestisci errore di abort
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.log('Request was aborted');
+        return;
+      }
+      
       setState(prev => ({
         ...prev,
         error: error instanceof Error ? error.message : 'Unknown error',
         isLoading: false,
       }));
       setLoadingType(null);
-      toast.error('Failed to run tests');
+      notifyError(error, 'Failed to run tests');
     }
   };
 
@@ -537,428 +608,50 @@ export default function SSDTestPage() {
         </div>
 
         {/* Loading Overlay */}
-        {state.isLoading && (
-          <div className="fixed inset-0 z-50 bg-gradient-to-br from-purple-50 via-pink-50 to-white dark:from-gray-900 dark:via-gray-950 dark:to-black flex items-center justify-center overflow-hidden">
-            <div className="absolute -top-48 -left-48  w-[600px] h-[600px] bg-purple-400 opacity-30 blur-3xl rounded-full" />
-            <div className="absolute -bottom-48 -right-48 w-[600px] h-[600px] bg-pink-400   opacity-30 blur-3xl rounded-full" />
-
-            <div className="relative flex flex-col items-center">
-              <div className="w-[500px] max-w-[90%]">
-                <Lottie animationData={animationData} loop autoplay />
-                <div className="flex items-center justify-center gap-2 mt-4">
-                  <CurrentIcon className="w-5 h-5 text-purple-600 shrink-0" />
-                  <p className="text-gray-800 dark:text-white text-lg font-semibold min-h-[1.5rem]">
-                    {typing || "Stiamo analizzando il tuo container…"}
-                  </p>
-                  <Loader2 className="w-5 h-5 text-purple-600 animate-spin" />
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+        <LoadingOverlay
+          isLoading={state.isLoading}
+          loadingType={loadingType}
+          typing={typing}
+          CurrentIcon={CurrentIcon}
+        />
 
         {/* Step 1: Upload */}
         {state.currentStep === 'upload' && (
-          <Card className="p-6">
-            <h2 className="text-xl font-semibold mb-4">Upload PDF and Target URL</h2>
-            <p className="text-sm text-gray-600 mb-6">
-              Upload your PDF specification and the system will automatically process it and run the tests.
-            </p>
-            
-            <div className="space-y-6">
-              {/* URL Input */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Target Website URL
-                </label>
-                <Input
-                  type="url"
-                  placeholder="https://fibra.aruba.it"
-                  value={state.url}
-                  onChange={(e) => handleUrlChange(e.target.value)}
-                  className="w-full"
-                />
-              </div>
-
-              {/* PDF Upload */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  SSD PDF Document
-                </label>
-                <div className={`border-2 border-dashed rounded-xl p-8 text-center transition-all duration-200 ${
-                  state.pdfFile 
-                    ? 'border-green-400 bg-green-50' 
-                    : 'border-gray-300 hover:border-blue-400 hover:bg-blue-50'
-                }`}>
-                  <FileText className={`w-16 h-16 mx-auto mb-4 ${
-                    state.pdfFile ? 'text-green-500' : 'text-gray-400'
-                  }`} />
-                  <div className="space-y-3">
-                    <p className={`text-sm font-medium ${
-                      state.pdfFile ? 'text-green-700' : 'text-gray-600'
-                    }`}>
-                      {state.pdfFile ? state.pdfFile.name : 'Click to upload PDF or drag and drop'}
-                    </p>
-                    {state.pdfFile && (
-                      <p className="text-xs text-green-600">
-                        ✓ PDF ready for processing
-                      </p>
-                    )}
-                    <input
-                      type="file"
-                      accept=".pdf"
-                      onChange={(e) => e.target.files?.[0] && handleFileUpload(e.target.files[0])}
-                      className="hidden"
-                      id="pdf-upload"
-                    />
-                    <label
-                      htmlFor="pdf-upload"
-                      className="inline-flex items-center px-6 py-3 border border-gray-300 rounded-lg shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 cursor-pointer transition-colors duration-200"
-                    >
-                      {state.pdfFile ? 'Change File' : 'Choose File'}
-                    </label>
-                  </div>
-                </div>
-              </div>
-
-              {/* Error Display */}
-              {state.error && (
-                <div className="bg-red-50 border border-red-200 rounded-md p-4">
-                  <div className="flex">
-                    <XCircle className="w-5 h-5 text-red-400 mr-2" />
-                    <p className="text-sm text-red-800">{state.error}</p>
-                  </div>
-                </div>
-              )}
-
-
-              {/* Action Button */}
-              <div className="flex justify-center">
-                <Button
-                  onClick={handleIngest}
-                  disabled={!state.url || !state.pdfFile || state.isLoading}
-                  className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-semibold py-3 px-8 rounded-lg shadow-lg hover:shadow-xl transition-all duration-200 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
-                >
-                  {state.isLoading ? (
-                    <RefreshCw className="w-5 h-5 mr-3 animate-spin" />
-                  ) : (
-                    <FileText className="w-5 h-5 mr-3" />
-                  )}
-                  {state.isLoading ? 'Processing PDF & Running Tests...' : 'Process PDF & Run Tests'}
-                </Button>
-              </div>
-            </div>
-          </Card>
+          <UploadStep
+            state={state}
+            ssdConfig={ssdConfig}
+            configLoading={configLoading}
+            configError={configError}
+            onFileUpload={handleFileUpload}
+            onUrlChange={handleUrlChange}
+            onIngest={handleIngest}
+          />
         )}
 
-        {/* Step 2: Review & Disambiguation - REMOVED - now auto-executes */}
-        {false && state.currentStep === 'review' && state.dsl && (
-          <div className="space-y-6">
-            {/* DSL Preview */}
-            <Card className="p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-xl font-semibold">Test Specification Preview</h2>
-                <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-2 text-sm text-gray-600">
-                    <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                    Generated from PDF
-                  </div>
-                  {!isEditingDsl ? (
-                    <Button
-                      onClick={() => setIsEditingDsl(true)}
-                      variant="outline"
-                      size="sm"
-                      className="flex items-center gap-2"
-                    >
-                      <Edit3 className="w-4 h-4" />
-                      Advanced: Edit JSON
-                    </Button>
-                  ) : (
-                    <div className="flex items-center gap-2">
-                      <Button
-                        onClick={handleSaveDsl}
-                        disabled={!!dslValidationError}
-                        size="sm"
-                        className="flex items-center gap-2"
-                      >
-                        <Save className="w-4 h-4" />
-                        Save
-                      </Button>
-                      <Button
-                        onClick={handleResetDsl}
-                        variant="outline"
-                        size="sm"
-                        className="flex items-center gap-2"
-                      >
-                        <RotateCcw className="w-4 h-4" />
-                        Reset
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              </div>
-              
-              {dslValidationError && (
-                <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
-                  <div className="flex items-center">
-                    <XCircle className="w-5 h-5 text-red-400 mr-2" />
-                    <p className="text-sm text-red-800">{dslValidationError}</p>
-                  </div>
-                </div>
-              )}
-              
-              {isEditingDsl ? (
-                <div className="space-y-4">
-                  <textarea
-                    value={editableDsl}
-                    onChange={(e) => handleDslEdit(e.target.value)}
-                    className="w-full h-96 p-4 border border-gray-300 rounded-lg font-mono text-sm resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="Edit your DSL here..."
-                  />
-                  <div className="text-sm text-gray-600">
-                    Edit the DSL above. Invalid JSON will be highlighted in red.
-                  </div>
-                </div>
-              ) : (
-                <div className="bg-gray-900 rounded-lg p-6 overflow-auto max-h-96 border">
-                  <pre className="text-sm text-green-400 font-mono leading-relaxed">
-                    {JSON.stringify(state.dsl, null, 2)}
-                  </pre>
-                </div>
-              )}
-              
-              <div className="mt-4 flex items-center justify-between text-sm text-gray-600">
-                <span>Total tests: {state.dsl?.tests?.length || 0}</span>
-                <span>Total steps: {state.dsl?.tests?.reduce((sum, test) => sum + test.steps.length, 0) || 0}</span>
-              </div>
-            </Card>
-
-            {/* Generated by info */}
-            <Card className="p-4 bg-gray-50">
-              <div className="flex items-center justify-between text-sm text-gray-600">
-                <div className="flex items-center gap-4">
-                  <span>Generated by: {state.dsl?.meta?.model || 'Unknown'}</span>
-                  <span>Tokens: {state.dsl?.meta?.tokens?.input || 0} input, {state.dsl?.meta?.tokens?.output || 0} output</span>
-                </div>
-                <div className="text-xs text-gray-500">
-                  Universal mode - executes exactly what the LLM returns
-                </div>
-              </div>
-            </Card>
-
-            {/* Action Buttons */}
-            <div className="flex justify-between items-center gap-4">
-              <Button 
-                onClick={handleReset} 
-                variant="outline"
-                className="flex items-center gap-2 px-6 py-3 border-2 border-gray-300 text-gray-700 hover:border-gray-400 hover:bg-gray-50 transition-all duration-200"
-              >
-                <RefreshCw className="w-4 h-4" />
-                Start Over
-              </Button>
-              <div className="text-center">
-                <p className="text-sm text-gray-600 mb-2">
-                  Test execution will start automatically...
-                </p>
-                <p className="text-xs text-gray-500 mb-3">
-                  The system will execute the generated test specification automatically
-                </p>
-              </div>
-            </div>
-          </div>
+        {/* Step 2: Review & Disambiguation */}
+        {state.currentStep === 'review' && state.dsl && (
+          <ReviewStep
+            state={state}
+            editableDsl={editableDsl}
+            isEditingDsl={isEditingDsl}
+            dslValidationError={dslValidationError}
+            ambiguityMinConfidence={ssdConfig?.ambiguityMinConfidence || 0.6}
+            onDslEdit={handleDslEdit}
+            onSaveDsl={handleSaveDsl}
+            onResetDsl={handleResetDsl}
+            onReset={handleReset}
+          />
         )}
 
         {/* Step 3: Results */}
         {state.currentStep === 'run' && state.report && (
-          <div className="space-y-6">
-            {/* Summary */}
-            <Card className="p-6">
-              <h2 className="text-xl font-semibold mb-4">Test Results Summary</h2>
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-gray-900">{state.report.summary.steps}</div>
-                  <div className="text-sm text-gray-600">Total Steps</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-green-600">{state.report.summary.passed}</div>
-                  <div className="text-sm text-gray-600">Passed</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-red-600">{state.report.summary.failed}</div>
-                  <div className="text-sm text-gray-600">Failed</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-blue-600">
-                    {Math.round(state.report.summary.duration / 1000)}s
-                  </div>
-                  <div className="text-sm text-gray-600">Duration</div>
-                </div>
-              </div>
-            </Card>
-
-            {/* Detailed Results */}
-            <Card className="p-6">
-              <h2 className="text-xl font-semibold mb-4">Detailed Results</h2>
-              <div className="space-y-4">
-                {state.report.results?.map((result, index) => (
-                  <div
-                    key={index}
-                    className={`border rounded-lg p-4 ${
-                      result.status === 'PASS'
-                        ? 'border-green-200 bg-green-50'
-                        : 'border-red-200 bg-red-50'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center">
-                        {result.status === 'PASS' ? (
-                          <CheckCircle className="w-5 h-5 text-green-600 mr-2" />
-                        ) : (
-                          <XCircle className="w-5 h-5 text-red-600 mr-2" />
-                        )}
-                        <span className="font-medium">{result.section}</span>
-                        <Badge
-                          variant={result.status === 'PASS' ? 'success' : 'error'}
-                          className="ml-2"
-                        >
-                          {result.status}
-                        </Badge>
-                      </div>
-                      <span className="text-sm text-gray-600">
-                        {result.timings?.duration || 0}ms
-                      </span>
-                    </div>
-                    
-                    {result.description && (
-                      <p className="text-sm text-gray-700 mb-2">{result.description}</p>
-                    )}
-                    
-                    {result.reasons && result.reasons.length > 0 && (
-                      <div className="text-sm text-red-700">
-                        <p className="font-medium">Reasons:</p>
-                        <ul className="list-disc list-inside">
-                          {result.reasons.map((reason, reasonIndex) => (
-                            <li key={reasonIndex}>{reason}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-
-                    {/* Evidence */}
-                    <div className="mt-3 space-y-3">
-                      {result.evidence.dataLayerEvents.length > 0 && (
-                        <div>
-                          <p className="text-sm font-medium text-gray-700">DataLayer Events:</p>
-                          <div className="bg-gray-100 rounded p-3 text-xs font-mono max-h-32 overflow-y-auto">
-                            {result.evidence.dataLayerEvents.map((event, eventIndex) => (
-                              <div key={eventIndex} className="mb-2 p-2 bg-white rounded border">
-                                <div className="text-blue-600 font-semibold">
-                                  {event.payload?.event || 'Unknown Event'}
-                                </div>
-                                <div className="text-gray-600 mt-1">
-                                  {new Date(event.timestamp).toLocaleTimeString()}
-                                </div>
-                                <div className="text-gray-800 mt-1">
-                                  {JSON.stringify(event.payload, null, 2)}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      
-                      {result.evidence.trackingHits.length > 0 && (
-                        <div>
-                          <p className="text-sm font-medium text-gray-700">Tracking Hits:</p>
-                          <div className="bg-gray-100 rounded p-3 text-xs font-mono max-h-32 overflow-y-auto">
-                            {result.evidence.trackingHits.map((hit, hitIndex) => (
-                              <div key={hitIndex} className="mb-2 p-2 bg-white rounded border">
-                                <div className="flex items-center justify-between">
-                                  <span className="text-green-600 font-semibold">{hit.domain}</span>
-                                  <span className="text-gray-500">{hit.method}</span>
-                                </div>
-                                <div className="text-gray-600 mt-1">
-                                  {new Date(hit.timestamp).toLocaleTimeString()}
-                                </div>
-                                <div className="text-gray-800 mt-1 truncate">
-                                  {hit.url}
-                                </div>
-                                {hit.status && (
-                                  <div className={`text-xs mt-1 ${
-                                    hit.status >= 200 && hit.status < 300 ? 'text-green-600' : 'text-red-600'
-                                  }`}>
-                                    Status: {hit.status}
-                                  </div>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {result.evidence.screenshotPathOrB64 && (
-                        <div>
-                          <p className="text-sm font-medium text-gray-700">Screenshot:</p>
-                          <div className="mt-2">
-                            <img
-                              src={`data:image/png;base64,${result.evidence.screenshotPathOrB64}`}
-                              alt={`Screenshot for ${result.section} step ${result.stepIndex}`}
-                              className="max-w-full h-auto rounded border shadow-sm cursor-pointer hover:shadow-md transition-shadow"
-                              onClick={() => {
-                                // Open screenshot in new tab
-                                const newWindow = window.open();
-                                if (newWindow) {
-                                  newWindow.document.write(`
-                                    <html>
-                                      <head><title>Screenshot - ${result.section} Step ${result.stepIndex}</title></head>
-                                      <body style="margin:0; padding:20px; background:#f5f5f5;">
-                                        <img src="data:image/png;base64,${result.evidence.screenshotPathOrB64}" 
-                                             style="max-width:100%; height:auto; border-radius:8px; box-shadow:0 4px 8px rgba(0,0,0,0.1);" />
-                                      </body>
-                                    </html>
-                                  `);
-                                }
-                              }}
-                            />
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </Card>
-
-            {/* Action Buttons */}
-            <div className="flex flex-col sm:flex-row justify-between items-center gap-4 p-6 bg-gray-50 rounded-lg">
-              <Button 
-                onClick={handleReset} 
-                variant="outline"
-                className="flex items-center gap-2 px-6 py-3 border-2 border-gray-300 text-gray-700 hover:border-gray-400 hover:bg-gray-50 transition-all duration-200 w-full sm:w-auto"
-              >
-                <RefreshCw className="w-4 h-4" />
-                Start Over
-              </Button>
-              
-              <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
-                <Button 
-                  onClick={handleExportReport} 
-                  variant="outline"
-                  className="flex items-center gap-2 px-6 py-3 border-2 border-blue-300 text-blue-700 hover:border-blue-400 hover:bg-blue-50 transition-all duration-200 w-full sm:w-auto"
-                >
-                  <Download className="w-4 h-4" />
-                  Export Report
-                </Button>
-                <Button 
-                  onClick={() => handleRunTestsWithData(originalDsl, state.pdfContent || '', undefined)} 
-                  className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold py-3 px-8 rounded-lg shadow-lg hover:shadow-xl transition-all duration-200 transform hover:scale-105 w-full sm:w-auto"
-                >
-                  <RefreshCw className="w-4 h-4 mr-2" />
-                  Run Again
-                </Button>
-              </div>
-            </div>
-          </div>
+          <ResultsStep
+            state={state}
+            originalDsl={originalDsl}
+            onReset={handleReset}
+            onExportReport={handleExportReport}
+            onRunTestsWithData={handleRunTestsWithData}
+          />
         )}
       </div>
     </div>

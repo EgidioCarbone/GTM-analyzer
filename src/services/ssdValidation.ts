@@ -136,7 +136,7 @@ export function isUrlAllowed(url: string, allowedHosts: string[]): boolean {
 }
 
 // Utility function to validate confidence scores and detect ambiguities
-export function detectAmbiguities(testSpec: any): Array<{ stepPath: string; reason: string; candidates?: any[] }> {
+export function detectAmbiguities(testSpec: any, minConfidence: number = 0.6): Array<{ stepPath: string; reason: string; candidates?: any[] }> {
   const ambiguities: Array<{ stepPath: string; reason: string; candidates?: any[] }> = [];
   
   testSpec.tests?.forEach((test: any, testIndex: number) => {
@@ -144,10 +144,10 @@ export function detectAmbiguities(testSpec: any): Array<{ stepPath: string; reas
       const stepPath = `tests[${testIndex}].steps[${stepIndex}]`;
       
       // Check for low confidence
-      if (step.confidence !== undefined && step.confidence < 0.6) {
+      if (step.confidence !== undefined && step.confidence < minConfidence) {
         ambiguities.push({
           stepPath,
-          reason: `Low confidence (${step.confidence}) - target may be ambiguous`,
+          reason: `Low confidence (${step.confidence}) - target may be ambiguous (threshold: ${minConfidence})`,
           candidates: step.target ? [step.target] : undefined
         });
       }

@@ -12,6 +12,10 @@ export interface RunOptions {
   headless?: boolean;
   consent?: 'accept' | 'reject' | 'both';
   timeout?: number;
+  navTimeoutMs?: number;
+  requestTimeoutMs?: number;
+  spaRouteTimeoutMs?: number;
+  fuzzy?: boolean;
   screenshotDir?: string;
   allowedHosts?: string[];
   allowedTracking?: string[];
@@ -47,10 +51,18 @@ export class SSDPuppeteerRunner {
   private trackingHits: TrackingHit[] = [];
   private screenshotDir: string;
   private timeout: number;
+  private navTimeout: number;
+  private requestTimeout: number;
+  private spaRouteTimeout: number;
+  private fuzzy: boolean;
 
-  constructor(options: { screenshotDir?: string; timeout?: number } = {}) {
+  constructor(options: { screenshotDir?: string; timeout?: number; navTimeoutMs?: number; requestTimeoutMs?: number; spaRouteTimeoutMs?: number; fuzzy?: boolean } = {}) {
     this.screenshotDir = options.screenshotDir || 'screenshots';
     this.timeout = options.timeout || 30000;
+    this.navTimeout = options.navTimeoutMs || 30000;
+    this.requestTimeout = options.requestTimeoutMs || 10000;
+    this.spaRouteTimeout = options.spaRouteTimeoutMs || 5000;
+    this.fuzzy = options.fuzzy || false;
   }
 
   /**
@@ -60,6 +72,20 @@ export class SSDPuppeteerRunner {
     const startTime = Date.now();
     let results: TestResult[] = [];
     let consentProfiles: string[] = [];
+
+    // Update timeouts from options
+    if (options.navTimeoutMs) {
+      this.navTimeout = options.navTimeoutMs;
+    }
+    if (options.requestTimeoutMs) {
+      this.requestTimeout = options.requestTimeoutMs;
+    }
+    if (options.spaRouteTimeoutMs) {
+      this.spaRouteTimeout = options.spaRouteTimeoutMs;
+    }
+    if (options.fuzzy !== undefined) {
+      this.fuzzy = options.fuzzy;
+    }
 
     try {
       // Initialize browser and page
@@ -108,7 +134,7 @@ export class SSDPuppeteerRunner {
    */
   private async initializeBrowser(options: RunOptions): Promise<void> {
     this.browser = await puppeteer.launch({
-      headless: options.headless !== false,
+      headless: options.headless !== false ? "new" : false,
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
@@ -139,13 +165,18 @@ export class SSDPuppeteerRunner {
     if (this.page) {
       await this.page.setRequestInterception(true);
       this.page.on('request', (request) => {
-        const url = new URL(request.url());
-        const isAllowed = this.isRequestAllowed(url, options);
-        
-        if (isAllowed) {
-          request.continue();
-        } else {
-          request.abort();
+        try {
+          const url = new URL(request.url());
+          const isAllowed = this.isRequestAllowed(url, options);
+          
+          if (isAllowed) {
+            request.continue();
+          } else {
+            request.abort();
+          }
+        } catch (error) {
+          // If request is already terminated, ignore the error
+          console.warn('Request handling error (likely already terminated):', error);
         }
       });
     }
@@ -306,7 +337,7 @@ export class SSDPuppeteerRunner {
 
     try {
       // Navigate to the site
-      await this.page.goto(testSpec.site, { waitUntil: 'networkidle2', timeout: this.timeout });
+      await this.page.goto(testSpec.site, { waitUntil: 'networkidle2', timeout: this.navTimeout });
 
       // Apply consent profile
       if (consentProfile === 'accept' || consentProfile === 'reject') {
@@ -339,7 +370,7 @@ export class SSDPuppeteerRunner {
 
     const results: TestResult[] = [];
     const targetResolver = new SSDTargetResolver(this.page, this.timeout);
-    const expectationMatcher = new SSDExpectationMatcher(this.page);
+    const expectationMatcher = new SSDExpectationMatcher(this.page, { fuzzy: this.fuzzy });
 
     for (let stepIndex = 0; stepIndex < test.steps.length; stepIndex++) {
       const step = test.steps[stepIndex];
@@ -349,8 +380,13 @@ export class SSDPuppeteerRunner {
         // Execute the step
         await this.executeStep(step, targetResolver);
 
-        // Wait for any async operations
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        // Wait for SPA route changes or async operations
+        try {
+          const waitReason = await this.waitForSPARouteChange();
+          console.log(`[Step ${stepIndex}] SPA wait completed: ${waitReason}`);
+        } catch (error) {
+          console.warn(`[Step ${stepIndex}] SPA wait failed, continuing:`, error);
+        }
 
         // Check expectations
         const expectationContext: ExpectationContext = {
@@ -404,7 +440,9 @@ export class SSDPuppeteerRunner {
 
       } catch (error) {
         // Handle step execution error
-        const screenshot = await this.takeScreenshot(stepIndex, test.section);
+        const stepPath = `tests[${testSpec.tests.indexOf(test)}].steps[${stepIndex}]`;
+        const failureScreenshot = await this.takeFailureScreenshot(stepPath);
+        const regularScreenshot = await this.takeScreenshot(stepIndex, test.section);
         
         const result: TestResult = {
           section: test.section,
@@ -413,7 +451,7 @@ export class SSDPuppeteerRunner {
           status: 'FAIL',
           reasons: [error instanceof Error ? error.message : 'Unknown error'],
           evidence: {
-            screenshotPathOrB64: screenshot,
+            screenshotPathOrB64: failureScreenshot || regularScreenshot,
             dataLayerEvents: [],
             trackingHits: [],
           },
@@ -483,9 +521,13 @@ export class SSDPuppeteerRunner {
 
     await resolution.element.click();
     
-    // Add jittered wait for SPA route changes
-    const jitter = Math.random() * 500 + 500; // 500-1000ms
-    await new Promise(resolve => setTimeout(resolve, jitter));
+    // Wait for SPA route changes after click
+    try {
+      const waitReason = await this.waitForSPARouteChange();
+      console.log(`[Click Step] SPA wait completed: ${waitReason}`);
+    } catch (error) {
+      console.warn(`[Click Step] SPA wait failed, continuing:`, error);
+    }
   }
 
   /**
@@ -528,7 +570,12 @@ export class SSDPuppeteerRunner {
     if (!step.target) {
       // If no target, treat as wait for state change
       console.log('Navigate step without target - waiting for state change');
-      await new Promise(resolve => setTimeout(resolve, 1000)); // Small wait for any state changes
+      try {
+        const waitReason = await this.waitForSPARouteChange();
+        console.log(`[Navigate Step] SPA wait completed: ${waitReason}`);
+      } catch (error) {
+        console.warn(`[Navigate Step] SPA wait failed, continuing:`, error);
+      }
       return;
     }
 
@@ -657,11 +704,114 @@ export class SSDPuppeteerRunner {
   }
 
   /**
+   * Take screenshot on failure with specific naming
+   */
+  private async takeFailureScreenshot(stepPath: string): Promise<string> {
+    if (!this.page) return '';
+
+    try {
+      const filename = `${stepPath}_fail.png`;
+      const filepath = `${this.screenshotDir}/${filename}`;
+      
+      await this.page.screenshot({ path: filepath, fullPage: true });
+      
+      // Also return base64 for immediate use
+      const base64 = await this.page.screenshot({ encoding: 'base64' });
+      return base64;
+    } catch (error) {
+      console.error('Failed to take failure screenshot:', error);
+      return '';
+    }
+  }
+
+  /**
+   * Wait for SPA route change using Promise.race
+   */
+  private async waitForSPARouteChange(): Promise<string> {
+    if (!this.page) throw new SSDRunnerError('Page not initialized');
+
+    return new Promise((resolve, reject) => {
+      let resolved = false;
+      let resolutionReason = '';
+
+      // 1. Listen for custom spaRouteChange event
+      const spaRouteHandler = (event: any) => {
+        if (resolved) return;
+        resolved = true;
+        resolutionReason = 'spaRouteChange event';
+        console.log(`[SPA Wait] Resolved by: ${resolutionReason}`);
+        resolve(resolutionReason);
+      };
+
+      // 2. Wait for navigation
+      const navigationPromise = this.page!.waitForNavigation({ 
+        waitUntil: 'networkidle2',
+        timeout: this.spaRouteTimeout 
+      }).then(() => {
+        if (resolved) return;
+        resolved = true;
+        resolutionReason = 'page.waitForNavigation';
+        console.log(`[SPA Wait] Resolved by: ${resolutionReason}`);
+        return resolutionReason;
+      }).catch((error) => {
+        if (resolved) return;
+        resolved = true;
+        resolutionReason = 'page.waitForNavigation (timeout)';
+        console.log(`[SPA Wait] Resolved by: ${resolutionReason}`);
+        return resolutionReason;
+      });
+
+      // 3. Timeout fallback
+      const timeoutPromise = new Promise<string>((timeoutResolve) => {
+        setTimeout(() => {
+          if (resolved) return;
+          resolved = true;
+          resolutionReason = 'explicit timeout';
+          console.log(`[SPA Wait] Resolved by: ${resolutionReason}`);
+          timeoutResolve(resolutionReason);
+        }, this.spaRouteTimeout);
+      });
+
+      // Set up event listener
+      this.page!.on('spaRouteChange', spaRouteHandler);
+
+      // Race between all conditions
+      Promise.race([
+        navigationPromise,
+        timeoutPromise
+      ]).then((reason) => {
+        // Clean up event listener
+        this.page!.off('spaRouteChange', spaRouteHandler);
+        if (!resolved) {
+          resolved = true;
+          resolutionReason = reason;
+          console.log(`[SPA Wait] Resolved by: ${resolutionReason}`);
+          resolve(resolutionReason);
+        }
+      }).catch((error) => {
+        // Clean up event listener
+        this.page!.off('spaRouteChange', spaRouteHandler);
+        if (!resolved) {
+          resolved = true;
+          resolutionReason = 'error';
+          console.log(`[SPA Wait] Resolved by: ${resolutionReason} - ${error.message}`);
+          reject(error);
+        }
+      });
+    });
+  }
+
+  /**
    * Check if a request should be allowed based on allowlist configuration
    */
   private isRequestAllowed(url: URL, options: RunOptions = {}): boolean {
     const hostname = url.hostname;
     const pathname = url.pathname;
+    
+    // Always allow data: and blob: protocols
+    if (url.protocol === 'data:' || url.protocol === 'blob:') {
+      return true;
+    }
     
     // Always allow the main site and allowed hosts
     if (options.allowedHosts && options.allowedHosts.includes(hostname)) {
@@ -683,16 +833,33 @@ export class SSDPuppeteerRunner {
       return true;
     }
     
-    // Allow CDN domains
+    // Allow CDN domains (extended with common hosts)
     const cdnDomains = options.allowedCDNs || [
       'cdnjs.cloudflare.com',
       'unpkg.com',
       'jsdelivr.net',
       'fonts.googleapis.com',
       'fonts.gstatic.com',
+      // Extended common hosts
+      '*.gstatic.com',
+      '*.googleapis.com',
+      '*.googletagmanager.com',
+      '*.google-analytics.com',
+      'fonts.gstatic.com',
+      'fonts.googleapis.com',
+      '*.cloudflare.com',
+      '*.cdn.jsdelivr.net',
+      '*.unpkg.com',
     ];
     
-    if (cdnDomains.some(domain => hostname.includes(domain))) {
+    if (cdnDomains.some(domain => {
+      // Handle wildcard domains
+      if (domain.startsWith('*.')) {
+        const baseDomain = domain.substring(2);
+        return hostname.endsWith(baseDomain);
+      }
+      return hostname.includes(domain);
+    })) {
       return true;
     }
     
@@ -715,11 +882,6 @@ export class SSDPuppeteerRunner {
     const allowedExtensions = ['css', 'js', 'png', 'jpg', 'jpeg', 'gif', 'svg', 'ico', 'woff', 'woff2', 'ttf', 'eot', 'webp', 'avif'];
     
     if (resourceType && allowedExtensions.includes(resourceType)) {
-      return true;
-    }
-    
-    // Allow data URLs and blob URLs
-    if (url.protocol === 'data:' || url.protocol === 'blob:') {
       return true;
     }
     

@@ -30,9 +30,11 @@ export class ExpectationMatchError extends Error {
 
 export class SSDExpectationMatcher {
   private page: Page;
+  private fuzzy: boolean;
 
-  constructor(page: Page) {
+  constructor(page: Page, options: { fuzzy?: boolean } = {}) {
     this.page = page;
+    this.fuzzy = options.fuzzy || false;
   }
 
   /**
@@ -475,6 +477,11 @@ export class SSDExpectationMatcher {
    * Check if expected object is a subset of actual object
    */
   private isSubsetMatch(expected: any, actual: any): boolean {
+    if (this.fuzzy) {
+      return this.isFuzzySubsetMatch(expected, actual);
+    }
+
+    // Original strict matching
     if (typeof expected !== 'object' || expected === null) {
       return expected === actual;
     }
@@ -494,6 +501,79 @@ export class SSDExpectationMatcher {
     }
 
     return true;
+  }
+
+  /**
+   * Fuzzy subset matching with case-insensitive strings, key order independence, and numeric tolerance
+   */
+  private isFuzzySubsetMatch(expected: any, actual: any): boolean {
+    // Handle primitive types
+    if (typeof expected !== 'object' || expected === null) {
+      return this.isFuzzyValueMatch(expected, actual);
+    }
+
+    if (typeof actual !== 'object' || actual === null) {
+      return false;
+    }
+
+    // For objects, check all expected keys exist in actual
+    for (const key in expected) {
+      if (!(key in actual)) {
+        return false;
+      }
+
+      if (!this.isFuzzySubsetMatch(expected[key], actual[key])) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  /**
+   * Fuzzy value matching with case-insensitive strings and numeric tolerance
+   */
+  private isFuzzyValueMatch(expected: any, actual: any): boolean {
+    // Exact match for non-string, non-number types
+    if (typeof expected !== 'string' && typeof expected !== 'number') {
+      return expected === actual;
+    }
+
+    if (typeof actual !== typeof expected) {
+      return false;
+    }
+
+    // Case-insensitive string comparison
+    if (typeof expected === 'string') {
+      return expected.toLowerCase() === actual.toLowerCase();
+    }
+
+    // Numeric comparison with tolerance
+    if (typeof expected === 'number' && typeof actual === 'number') {
+      return this.isNumericMatch(expected, actual);
+    }
+
+    return expected === actual;
+  }
+
+  /**
+   * Numeric comparison with ±1% tolerance or epsilon for small values
+   */
+  private isNumericMatch(expected: number, actual: number): boolean {
+    // Handle special cases
+    if (expected === actual) return true;
+    if (!isFinite(expected) || !isFinite(actual)) return false;
+    if (expected === 0 && actual === 0) return true;
+
+    // Use epsilon for very small values
+    const epsilon = 1e-2;
+    if (Math.abs(expected) <= epsilon || Math.abs(actual) <= epsilon) {
+      return Math.abs(expected - actual) < epsilon;
+    }
+
+    // Use ±1% tolerance for larger values
+    const tolerance = Math.abs(expected) * 0.01;
+    return Math.abs(expected - actual) <= tolerance;
   }
 
   /**

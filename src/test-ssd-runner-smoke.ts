@@ -1,378 +1,191 @@
-// SSD Test Runner Smoke Test
-// End-to-end smoke test for the runner functionality
-// ============================================================================
+// Test smoke per SSD Runner
+// ========================
+// Esegue un test di base per verificare che Puppeteer funzioni correttamente
 
-import { TestSpec } from './types/ssd';
+import puppeteer from 'puppeteer';
+import { promises as fs } from 'fs';
+import path from 'path';
 
-/**
- * Create a comprehensive test DSL for smoke testing
- */
-export function createRunnerSmokeTestDSL(): TestSpec {
-  return {
-    site: 'https://example.com',
-    allowed_hosts: ['example.com', 'www.example.com', 'api.example.com'],
-    consent: ['accept'],
-    tests: [{
-      section: 'Navigation Test',
-      steps: [{
-        description: 'Navigate to homepage',
-        action: 'navigate',
-        target: {
-          kind: 'href',
-          value: 'https://example.com'
-        },
-        expect: [{
-          type: 'navigation',
-          url_contains: 'example.com'
-        }],
-        confidence: 0.9
-      }]
-    }, {
-      section: 'Interaction Test',
-      steps: [{
-        description: 'Click on a button',
-        action: 'click',
-        target: {
-          region: 'header',
-          kind: 'text',
-          value: 'Home'
-        },
-        expect: [{
-          type: 'dataLayer',
-          event: 'page_view',
-          params_subset: {
-            page_title: '*',
-            page_location: '*'
-          }
-        }],
-        confidence: 0.8
-      }]
-    }, {
-      section: 'Ecommerce Test',
-      steps: [{
-        description: 'Add item to cart',
-        action: 'click',
-        target: {
-          kind: 'text',
-          value: 'Add to Cart'
-        },
-        expect: [
-          {
-            type: 'dataLayer',
-            contains: { ecommerce: null },
-            near_previous_n: 3
-          },
-          {
-            type: 'dataLayer',
-            event: 'add_to_cart',
-            params_subset: {
-              item_category: '*',
-              value: '*'
-            }
-          }
-        ],
-        confidence: 0.9
-      }, {
-        description: 'Complete purchase',
-        action: 'click',
-        target: {
-          kind: 'text',
-          value: 'Complete Purchase'
-        },
-        expect: [
-          {
-            type: 'dataLayer',
-            event: 'purchase',
-            params_subset: {
-              transaction_id: '*',
-              value: '*'
-            }
-          },
-          {
-            type: 'no_repeat_on_reload',
-            for_event: 'purchase'
-          }
-        ],
-        confidence: 0.9
-      }]
-    }]
-  };
+interface SmokeTestResult {
+  success: boolean;
+  duration: number;
+  userAgent: string;
+  error?: string;
+  screenshotPath?: string;
 }
 
-/**
- * Mock dataLayer events for testing
- */
-export function createMockDataLayerEvents(): any[] {
-  return [
-    {
-      timestamp: Date.now() - 2000,
-      payload: {
-        event: 'page_view',
-        page_title: 'Example Homepage',
-        page_location: 'https://example.com'
-      }
-    },
-    {
-      timestamp: Date.now() - 1500,
-      payload: {
-        ecommerce: null // Reset event
-      }
-    },
-    {
-      timestamp: Date.now() - 1000,
-      payload: {
-        event: 'add_to_cart',
-        item_category: 'electronics',
-        item_name: 'iPhone',
-        value: 999.99
-      }
-    },
-    {
-      timestamp: Date.now() - 500,
-      payload: {
-        event: 'purchase',
-        transaction_id: 'TXN123456',
-        value: 999.99,
-        currency: 'USD'
-      }
-    }
-  ];
+async function ensureScreenshotsDir(): Promise<void> {
+  const screenshotsDir = path.join(process.cwd(), 'screenshots');
+  try {
+    await fs.access(screenshotsDir);
+  } catch {
+    await fs.mkdir(screenshotsDir, { recursive: true });
+  }
 }
 
-/**
- * Mock tracking hits for testing
- */
-export function createMockTrackingHits(): any[] {
-  return [
-    {
-      timestamp: Date.now() - 2000,
-      url: 'https://www.google-analytics.com/collect?v=2&t=pageview',
-      method: 'GET',
-      domain: 'www.google-analytics.com',
-      status: 200
-    },
-    {
-      timestamp: Date.now() - 1000,
-      url: 'https://www.googletagmanager.com/gtag/js?id=GA_MEASUREMENT_ID',
-      method: 'GET',
-      domain: 'www.googletagmanager.com',
-      status: 200
-    },
-    {
-      timestamp: Date.now() - 500,
-      url: 'https://www.google-analytics.com/collect?v=2&t=event&ec=ecommerce&ea=purchase',
-      method: 'GET',
-      domain: 'www.google-analytics.com',
-      status: 200
-    }
-  ];
-}
-
-/**
- * Test relative URL resolution
- */
-export function testRelativeUrlResolution() {
-  const testCases = [
-    { input: '/checkout', base: 'https://example.com/shop', expected: 'https://example.com/checkout' },
-    { input: './cart', base: 'https://example.com/shop', expected: 'https://example.com/cart' },
-    { input: '../home', base: 'https://example.com/shop', expected: 'https://example.com/home' },
-    { input: 'checkout', base: 'https://example.com/shop', expected: 'https://example.com/shop/checkout' },
-    { input: 'https://example.com/absolute', base: 'https://example.com/shop', expected: 'https://example.com/absolute' }
-  ];
+async function runSmokeTest(): Promise<SmokeTestResult> {
+  const startTime = Date.now();
+  let browser: puppeteer.Browser | null = null;
+  let page: puppeteer.Page | null = null;
   
-  console.log('Testing relative URL resolution:');
-  testCases.forEach(({ input, base, expected }) => {
-    try {
-      const resolved = new URL(input, base).href;
-      const passed = resolved === expected;
-      console.log(`${passed ? '✓' : '✗'} ${input} -> ${resolved} (expected: ${expected})`);
-    } catch (error) {
-      console.log(`✗ ${input} -> ERROR: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  });
-}
-
-/**
- * Test network allowlist logic
- */
-export function testNetworkAllowlist() {
-  const testUrls = [
-    'https://example.com/page',
-    'https://www.google-analytics.com/collect',
-    'https://fonts.googleapis.com/css2',
-    'https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js',
-    'https://consent.trustarc.com/consent',
-    'https://api.example.com/data',
-    'https://malicious-site.com/evil.js'
-  ];
-  
-  const allowedHosts = ['example.com', 'www.example.com', 'api.example.com'];
-  const allowedTracking = ['google-analytics.com', 'googletagmanager.com'];
-  const allowedCDNs = ['fonts.googleapis.com', 'cdnjs.cloudflare.com'];
-  const cmpDomains = ['consent.trustarc.com', 'consent.cookiebot.com'];
-  
-  console.log('Testing network allowlist:');
-  testUrls.forEach(url => {
-    const urlObj = new URL(url);
-    const hostname = urlObj.hostname;
-    const pathname = urlObj.pathname;
+  try {
+    console.log('🚀 Starting SSD Runner Smoke Test...');
     
-    const isAllowed = 
-      allowedHosts.includes(hostname) ||
-      allowedTracking.some(domain => hostname.includes(domain)) ||
-      allowedCDNs.some(domain => hostname.includes(domain)) ||
-      cmpDomains.some(domain => hostname.includes(domain)) ||
-      (() => {
-        const resourceType = pathname.split('.').pop()?.toLowerCase();
-        const allowedExtensions = ['css', 'js', 'png', 'jpg', 'jpeg', 'gif', 'svg', 'ico', 'woff', 'woff2', 'ttf', 'eot'];
-        return resourceType && allowedExtensions.includes(resourceType);
-      })();
+    // Assicurati che la directory screenshots esista
+    await ensureScreenshotsDir();
     
-    console.log(`${isAllowed ? '✓' : '✗'} ${url} - ${isAllowed ? 'ALLOWED' : 'BLOCKED'}`);
-  });
-}
-
-/**
- * Test expectation matching logic
- */
-export function testExpectationMatching() {
-  const events = createMockDataLayerEvents();
-  const hits = createMockTrackingHits();
-  
-  console.log('Testing expectation matching:');
-  
-  // Test subset matching
-  const purchaseEvent = events.find(e => e.payload.event === 'purchase');
-  const expectedSubset = { event: 'purchase', transaction_id: '*' };
-  const actualPayload = purchaseEvent?.payload;
-  
-  if (actualPayload) {
-    const subsetMatch = Object.keys(expectedSubset).every(key => {
-      if (expectedSubset[key] === '*') return true;
-      return actualPayload[key] === expectedSubset[key];
+    // Lancia browser
+    console.log('📱 Launching browser...');
+    browser = await puppeteer.launch({
+      headless: 'new',
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--no-first-run',
+        '--no-zygote',
+        '--disable-gpu'
+      ]
     });
-    console.log(`${subsetMatch ? '✓' : '✗'} Subset matching: ${subsetMatch}`);
+    
+    page = await browser.newPage();
+    
+    // Configura viewport
+    await page.setViewport({ width: 1280, height: 720 });
+    
+    // Ottieni user agent
+    const userAgent = await page.evaluate(() => navigator.userAgent);
+    console.log(`🌐 User Agent: ${userAgent}`);
+    
+    // Naviga a example.com
+    console.log('🌍 Navigating to https://example.com/...');
+    const navigationStart = Date.now();
+    
+    await page.goto('https://example.com/', {
+      waitUntil: 'networkidle2',
+      timeout: 10000
+    });
+    
+    const navigationDuration = Date.now() - navigationStart;
+    console.log(`⏱️  Navigation completed in ${navigationDuration}ms`);
+    
+    // Attendi un po' per assicurarsi che la pagina sia completamente caricata
+    console.log('⏳ Waiting for page to stabilize...');
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    // Cattura screenshot
+    const screenshotPath = path.join(process.cwd(), 'screenshots', 'smoke_example.png');
+    console.log('📸 Capturing screenshot...');
+    
+    await page.screenshot({
+      path: screenshotPath,
+      fullPage: true
+    });
+    
+    console.log(`💾 Screenshot saved to: ${screenshotPath}`);
+    
+    // Verifica che la pagina sia caricata correttamente
+    const pageTitle = await page.title();
+    const pageUrl = page.url();
+    
+    console.log(`📄 Page Title: ${pageTitle}`);
+    console.log(`🔗 Page URL: ${pageUrl}`);
+    
+    // Verifica che il contenuto sia presente
+    const hasContent = await page.evaluate(() => {
+      const body = document.body;
+      return body && body.textContent && body.textContent.trim().length > 0;
+    });
+    
+    if (!hasContent) {
+      throw new Error('Page appears to be empty or failed to load content');
+    }
+    
+    const totalDuration = Date.now() - startTime;
+    
+    return {
+      success: true,
+      duration: totalDuration,
+      userAgent,
+      screenshotPath
+    };
+    
+  } catch (error) {
+    const totalDuration = Date.now() - startTime;
+    
+    console.error('❌ Smoke test failed:', error);
+    
+    return {
+      success: false,
+      duration: totalDuration,
+      userAgent: page ? await page.evaluate(() => navigator.userAgent) : 'Unknown',
+      error: error instanceof Error ? error.message : String(error)
+    };
+    
+  } finally {
+    // Cleanup
+    if (page) {
+      await page.close();
+    }
+    if (browser) {
+      await browser.close();
+    }
+  }
+}
+
+function printCompactReport(result: SmokeTestResult): void {
+  console.log('\n' + '='.repeat(50));
+  console.log('📊 SSD RUNNER SMOKE TEST REPORT');
+  console.log('='.repeat(50));
+  
+  // Status
+  const status = result.success ? '✅ OK' : '❌ FAIL';
+  console.log(`Status: ${status}`);
+  
+  // Duration
+  console.log(`Duration: ${result.duration}ms`);
+  
+  // User Agent (truncated)
+  const shortUserAgent = result.userAgent.length > 60 
+    ? result.userAgent.substring(0, 60) + '...' 
+    : result.userAgent;
+  console.log(`User Agent: ${shortUserAgent}`);
+  
+  // Screenshot path
+  if (result.screenshotPath) {
+    console.log(`Screenshot: ${result.screenshotPath}`);
   }
   
-  // Test sequence matching
-  const resetEvent = events.find(e => e.payload.ecommerce === null);
-  const purchaseEventAfterReset = events.find(e => 
-    e.payload.event === 'purchase' && 
-    e.timestamp > (resetEvent?.timestamp || 0)
-  );
-  console.log(`${resetEvent && purchaseEventAfterReset ? '✓' : '✗'} Sequence matching: ${!!(resetEvent && purchaseEventAfterReset)}`);
+  // Error details
+  if (result.error) {
+    console.log(`Error: ${result.error}`);
+  }
   
-  // Test tracking hits
-  const gaHits = hits.filter(h => h.domain.includes('google-analytics.com'));
-  console.log(`${gaHits.length > 0 ? '✓' : '✗'} Tracking hits: ${gaHits.length} GA hits found`);
+  console.log('='.repeat(50));
+  
+  // Exit code
+  if (result.success) {
+    console.log('🎉 Smoke test completed successfully!');
+    process.exit(0);
+  } else {
+    console.log('💥 Smoke test failed!');
+    process.exit(1);
+  }
 }
 
-/**
- * Test DSL validation
- */
-export function testDSLValidation() {
-  const dsl = createRunnerSmokeTestDSL();
-  
-  console.log('Testing DSL validation:');
-  
-  // Test basic structure
-  const hasRequiredFields = !!dsl.site && Array.isArray(dsl.tests) && dsl.tests.length > 0;
-  console.log(`${hasRequiredFields ? '✓' : '✗'} Required fields: ${hasRequiredFields}`);
-  
-  // Test test structure
-  const validTests = dsl.tests.every(test => 
-    !!test.section && Array.isArray(test.steps) && test.steps.length > 0
-  );
-  console.log(`${validTests ? '✓' : '✗'} Test structure: ${validTests}`);
-  
-  // Test step structure
-  const validSteps = dsl.tests.every(test => 
-    test.steps.every(step => 
-      !!step.action && 
-      (step.target ? !!step.target.kind && !!step.target.value : true) &&
-      Array.isArray(step.expect)
-    )
-  );
-  console.log(`${validSteps ? '✓' : '✗'} Step structure: ${validSteps}`);
-  
-  // Test ecommerce reset injection
-  const hasEcommerceResets = dsl.tests.some(test => 
-    test.steps.some(step => 
-      step.expect.some(exp => 
-        exp.type === 'dataLayer' && 
-        exp.contains && 
-        exp.contains.ecommerce === null
-      )
-    )
-  );
-  console.log(`${hasEcommerceResets ? '✓' : '✗'} Ecommerce resets: ${hasEcommerceResets}`);
-  
-  // Test no-repeat injection
-  const hasNoRepeat = dsl.tests.some(test => 
-    test.steps.some(step => 
-      step.expect.some(exp => exp.type === 'no_repeat_on_reload')
-    )
-  );
-  console.log(`${hasNoRepeat ? '✓' : '✗'} No-repeat: ${hasNoRepeat}`);
+// Esegui il test
+async function main(): Promise<void> {
+  try {
+    const result = await runSmokeTest();
+    printCompactReport(result);
+  } catch (error) {
+    console.error('💥 Unexpected error during smoke test:', error);
+    process.exit(1);
+  }
 }
 
-/**
- * Test target resolution priority
- */
-export function testTargetResolutionPriority() {
-  const targets = [
-    { region: 'header', kind: 'text', value: 'Logo' },
-    { kind: 'aria', value: 'button' },
-    { kind: 'href', value: '/checkout' },
-    { kind: 'selector', value: '.btn-primary' }
-  ];
-  
-  console.log('Testing target resolution priority:');
-  
-  targets.forEach((target, index) => {
-    const priority = [];
-    
-    // Simulate resolution order
-    if (target.region && target.region !== 'any') {
-      priority.push('region-scoped');
-    }
-    priority.push(target.kind);
-    
-    console.log(`${index + 1}. ${JSON.stringify(target)} -> Priority: ${priority.join(' → ')}`);
-  });
-}
-
-/**
- * Run all smoke tests
- */
-export function runRunnerSmokeTests() {
-  console.log('🧪 Running SSD Test Runner Smoke Tests...\n');
-  
-  console.log('1. Testing DSL Validation:');
-  testDSLValidation();
-  console.log('');
-  
-  console.log('2. Testing Relative URL Resolution:');
-  testRelativeUrlResolution();
-  console.log('');
-  
-  console.log('3. Testing Network Allowlist:');
-  testNetworkAllowlist();
-  console.log('');
-  
-  console.log('4. Testing Expectation Matching:');
-  testExpectationMatching();
-  console.log('');
-  
-  console.log('5. Testing Target Resolution Priority:');
-  testTargetResolutionPriority();
-  console.log('');
-  
-  console.log('✅ All runner smoke tests completed!');
-  return true;
-}
-
-// Run tests if this file is executed directly
-if (require.main === module) {
-  runRunnerSmokeTests();
+// Esegui solo se chiamato direttamente
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main();
 }
