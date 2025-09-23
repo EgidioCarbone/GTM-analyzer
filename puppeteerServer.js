@@ -60,6 +60,31 @@ app.get('/api/fetchHtmlPuppeteer', async (req, res) => {
 
         await new Promise(resolve => setTimeout(resolve, 3000));
 
+        // Save complete HTML to file
+        const requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        let htmlPath = null;
+        
+        try {
+            // Ensure temp-html directory exists
+            const fs = require('fs');
+            const path = require('path');
+            const tempHtmlDir = path.join(process.cwd(), 'temp-html');
+            if (!fs.existsSync(tempHtmlDir)) {
+                fs.mkdirSync(tempHtmlDir, { recursive: true });
+                console.log('Created temp-html directory');
+            }
+            
+            // Get complete HTML
+            const html = await page.evaluate(() => document.documentElement.outerHTML);
+            htmlPath = path.join(tempHtmlDir, `${requestId}.txt`);
+            
+            // Save HTML to file
+            fs.writeFileSync(htmlPath, html, 'utf8');
+            console.log('HTML saved to:', htmlPath);
+        } catch (htmlSaveError) {
+            console.log('Error saving HTML:', htmlSaveError.message);
+        }
+
         let html;
         try {
             html = await page.content();
@@ -946,7 +971,8 @@ app.get('/api/fetchHtmlPuppeteer', async (req, res) => {
             seoScore,
             interactiveTestResults,
             interactive: interactiveTestResults?.interactive, // Backward compatibility
-            screenshots
+            screenshots,
+            htmlPath // Include the path to the saved HTML file
         });
     } catch (err) {
         console.log('Errore generale nel Puppeteer:', err.message);

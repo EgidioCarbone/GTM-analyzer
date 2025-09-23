@@ -19,6 +19,11 @@ import { createSSDLLMService } from './src/services/ssdLLMService.js';
 import { createSSDPuppeteerRunner } from './src/services/ssdPuppeteerRunner.js';
 import { validateSSDIngestRequest, validateSSDRunRequest } from './src/services/ssdValidation.js';
 
+// Helper function for uniform error responses
+function sendError(res, httpStatus, code, message) {
+  return res.status(httpStatus).json({ error: { code, message } });
+}
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
@@ -88,7 +93,7 @@ app.get('/api/fetchHtml', async (req, res) => {
 
   // ✅ Validazione veloce dell'URL
   if (typeof targetUrl !== 'string' || !/^https?:\/\//i.test(targetUrl)) {
-    return res.status(400).json({ error: 'URL non valido' });
+    return sendError(res, 400, 'URL_INVALID', 'URL non valido');
   }
 
   try {
@@ -106,7 +111,7 @@ app.get('/api/fetchHtml', async (req, res) => {
     res.setHeader('Cache-Control', 's-maxage=300');
     return res.status(200).send(html);
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    return sendError(res, 500, 'FETCH_ERROR', err.message);
   }
 });
 

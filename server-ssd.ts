@@ -22,6 +22,7 @@ import { z } from 'zod';
 import { SSDPuppeteerRunner, SSDRunnerError } from './src/services/ssdPuppeteerRunner.js';
 import { normalizeOrigin, isValidUrl } from './src/utils/url.js';
 import { extractCookieBannerWithPuppeteer } from './src/services/cookieBannerExtractor.js';
+import { llmPdfSpec } from './src/services/llmPdfSpec.js';
 import puppeteer from 'puppeteer';
 
 // Error Classes with predefined codes
@@ -174,6 +175,19 @@ export function toHttpError(e: Error): HttpError {
     message: 'Internal server error', 
     details: { originalError: e.name, originalMessage: e.message } 
   };
+}
+
+// Helper function for uniform error responses
+// Usage examples:
+// - PDF vuoto → sendError(res, 400, 'PDF_EMPTY', 'PDF text content is empty')
+// - JSON non valido da LLM → sendError(res, 422, 'INVALID_JSON', 'Invalid JSON response from OpenAI')
+// - Timeout navigazione runner → sendError(res, 504, 'NAVIGATION_TIMEOUT', 'Navigation timeout occurred')
+export function sendError(res: any, httpStatus: number, code: string, message: string, details?: any) {
+  const response: any = { error: { code, message } };
+  if (details !== undefined) {
+    response.error.details = details;
+  }
+  return res.status(httpStatus).json(response);
 }
 
 const __filename = fileURLToPath(import.meta.url);
@@ -634,7 +648,9 @@ async function executeCookieConsentTestFromDSL(dsl: any, options: any) {
     steps: [],
     error: null,
     duration: 0,
-    browserInstance: null
+    browserInstance: null,
+    cookieBtnSelector: null,
+    cookieBtnOuterHTML: null
   };
 
   const startTime = Date.now();
@@ -685,6 +701,19 @@ async function executeCookieConsentTestFromDSL(dsl: any, options: any) {
           const dataLayerBefore = await page.evaluate(() => window.dataLayer || []);
           console.log('DataLayer BEFORE click:', dataLayerBefore.length, 'events');
           console.log('DataLayer BEFORE click events:', dataLayerBefore);
+          
+          // Capture cookie button selector and outerHTML for diagnosis
+          result.cookieBtnSelector = step.target.value;
+          console.log(`Cookie button selector: ${step.target.value}`);
+          
+          // Get outerHTML of the button
+          try {
+            result.cookieBtnOuterHTML = await page.$eval(step.target.value, el => el.outerHTML);
+            console.log(`Cookie button outerHTML captured: ${result.cookieBtnOuterHTML.substring(0, 200)}...`);
+          } catch (outerHTMLError) {
+            console.log(`Warning: Could not capture outerHTML: ${outerHTMLError.message}`);
+            result.cookieBtnOuterHTML = 'Error capturing outerHTML';
+          }
           
           // Click the button
           await page.click(step.target.value);
@@ -956,7 +985,9 @@ async function executeUnifiedTestFlow(siteUrl: string, pdfContent: string, optio
     browserInstance: null,
     page: null,
     pdfTests: null,
-    pdfTestSpec: null
+    pdfTestSpec: null,
+    cookieBtnSelector: null,
+    cookieBtnOuterHTML: null
   };
 
   let browser = null;
@@ -1005,6 +1036,8 @@ async function executeUnifiedTestFlow(siteUrl: string, pdfContent: string, optio
     result.dataLayerEvents = cookieTestResult.dataLayerEvents;
     result.steps = cookieTestResult.steps;
     result.error = cookieTestResult.error;
+    result.cookieBtnSelector = cookieTestResult.cookieBtnSelector;
+    result.cookieBtnOuterHTML = cookieTestResult.cookieBtnOuterHTML;
     result.browserInstance = browser;
     result.page = page;
     
@@ -1071,7 +1104,9 @@ async function executeCookieConsentTestWithBrowser(siteUrl: string, options: any
     steps: [],
     error: null,
     browserInstance: null,
-    page: null
+    page: null,
+    cookieBtnSelector: null,
+    cookieBtnOuterHTML: null
   };
 
   let browser = null;
@@ -1115,6 +1150,8 @@ async function executeCookieConsentTestWithBrowser(siteUrl: string, options: any
     result.dataLayerEvents = cookieTestResult.dataLayerEvents;
     result.steps = cookieTestResult.steps;
     result.error = cookieTestResult.error;
+    result.cookieBtnSelector = cookieTestResult.cookieBtnSelector;
+    result.cookieBtnOuterHTML = cookieTestResult.cookieBtnOuterHTML;
     result.browserInstance = browser;
     result.page = page;
 
@@ -1140,7 +1177,9 @@ async function executeCookieConsentTest(testSpec: any, page: any) {
     dataLayerEvents: [],
     consentStatus: 'unknown',
     steps: [],
-    error: null
+    error: null,
+    cookieBtnSelector: null,
+    cookieBtnOuterHTML: null
   };
 
   // Variabili per tracciare il dataLayer prima e dopo il click
@@ -1202,6 +1241,24 @@ async function executeCookieConsentTest(testSpec: any, page: any) {
           console.log(`DataLayer BEFORE click: ${dataLayerBefore.length} events`);
           if (dataLayerBefore.length > 0) {
             console.log('DataLayer BEFORE click events:', JSON.stringify(dataLayerBefore, null, 2));
+          }
+
+          // Capture cookie button selector and outerHTML for diagnosis
+          result.cookieBtnSelector = selector;
+          console.log(`Cookie button selector: ${selector}`);
+          
+          // Get outerHTML of the button if element is found
+          if (element) {
+            try {
+              result.cookieBtnOuterHTML = await page.$eval(selector, el => el.outerHTML);
+              console.log(`Cookie button outerHTML captured: ${result.cookieBtnOuterHTML.substring(0, 200)}...`);
+            } catch (outerHTMLError) {
+              console.log(`Warning: Could not capture outerHTML: ${outerHTMLError.message}`);
+              result.cookieBtnOuterHTML = 'Error capturing outerHTML';
+            }
+          } else {
+            console.log('Warning: No element found, cannot capture outerHTML');
+            result.cookieBtnOuterHTML = 'Element not found';
           }
           
           try {
@@ -1570,8 +1627,7 @@ app.get('/api/fetchHtml', async (req, res) => {
 
   // ✅ Validazione veloce dell'URL
   if (typeof targetUrl !== 'string' || !/^https?:\/\//i.test(targetUrl)) {
-    const httpError = toHttpError(new ValidationError('URL non valido', 'URL_INVALID'));
-    return res.status(httpError.httpStatus).json({ error: { code: httpError.code, message: httpError.message, details: httpError.details } });
+    return sendError(res, 400, 'URL_INVALID', 'URL non valido');
   }
 
   try {
@@ -1610,13 +1666,11 @@ app.post('/api/spec/generate', upload.single('pdf'), async (req, res) => {
 
     // Early validation - check required fields
     if (!pdf) {
-      const httpError = toHttpError(new FileUploadError("Missing 'pdf' file field in multipart/form-data.", 'MISSING_FILE_FIELD'));
-      return res.status(httpError.httpStatus).json({ error: { code: httpError.code, message: httpError.message, details: httpError.details } });
+      return sendError(res, 400, 'MISSING_FILE_FIELD', "Missing 'pdf' file field in multipart/form-data.");
     }
 
     if (!url) {
-      const httpError = toHttpError(new ValidationError('URL is required', 'MISSING_URL'));
-      return res.status(httpError.httpStatus).json({ error: { code: httpError.code, message: httpError.message, details: httpError.details } });
+      return sendError(res, 400, 'MISSING_URL', 'URL is required');
     }
 
     // Log file information for debugging
@@ -1633,13 +1687,11 @@ app.post('/api/spec/generate', upload.single('pdf'), async (req, res) => {
     try {
       targetOrigin = normalizeOrigin(url);
     } catch (urlError) {
-      const httpError = toHttpError(new ValidationError('Target Website URL non valida. Includi http/https (es. https://example.com).', 'INVALID_URL'));
-      return res.status(httpError.httpStatus).json({ error: { code: httpError.code, message: httpError.message, details: httpError.details } });
+      return sendError(res, 400, 'INVALID_URL', 'Target Website URL non valida. Includi http/https (es. https://example.com).');
     }
 
     if (!config.openaiApiKey) {
-      const httpError = toHttpError(new ConfigurationError('OpenAI API key not configured. Please set OPENAI_API_KEY environment variable.', 'OPENAI_NOT_CONFIGURED'));
-      return res.status(httpError.httpStatus).json({ error: { code: httpError.code, message: httpError.message, details: httpError.details } });
+      return sendError(res, 500, 'OPENAI_NOT_CONFIGURED', 'OpenAI API key not configured. Please set OPENAI_API_KEY environment variable.');
     }
 
     // Magic number validation - check PDF signature
@@ -1669,8 +1721,7 @@ app.post('/api/spec/generate', upload.single('pdf'), async (req, res) => {
 
     // Check if PDF has no extractable text
     if (extractionResult.text.length === 0) {
-      const httpError = toHttpError(new PdfExtractionError('PDF has no extractable text. Please export the PPT as a text-based PDF (selectable text), not a scanned image.', 'NO_TEXT_CONTENT'));
-      return res.status(httpError.httpStatus).json({ error: { code: httpError.code, message: httpError.message, details: httpError.details } });
+      return sendError(res, 400, 'PDF_EMPTY', 'PDF has no extractable text. Please export the PPT as a text-based PDF (selectable text), not a scanned image.');
     }
 
     console.log(`[${correlationId}] PDF text extracted successfully: ${extractionResult.text.length} characters`);
@@ -1737,7 +1788,7 @@ app.post('/api/spec/generate', upload.single('pdf'), async (req, res) => {
   }
 });
 
-// POST /api/ssd/run - Execute DSL tests with strict execution (no hidden post-processing)
+// POST /api/ssd/run - Execute SSD tests following the new order
 app.post('/api/ssd/run', async (req, res) => {
   try {
     console.log('🚀 API /api/ssd/run CALLED!');
@@ -1752,14 +1803,6 @@ app.post('/api/ssd/run', async (req, res) => {
       const httpError = toHttpError(new ValidationError('DSL is required', 'MISSING_DSL'));
       return res.status(httpError.httpStatus).json({ error: { code: httpError.code, message: httpError.message, details: httpError.details } });
     }
-
-    // Debug: Check pdfContent explicitly
-    console.log('🔍 pdfContent check:', {
-      exists: !!pdfContent,
-      type: typeof pdfContent,
-      length: pdfContent?.length || 0,
-      value: pdfContent ? pdfContent.substring(0, 100) + '...' : 'null/undefined'
-    });
 
     // Validate DSL structure using our validation service
     console.info("[SSD] validating DSL for run with site:", dsl?.site);
@@ -1779,19 +1822,67 @@ app.post('/api/ssd/run', async (req, res) => {
     console.log(`Starting SSD test execution for ${validatedDSL.site}`);
     console.log(`Options:`, options);
 
-    // STEP 1: Execute cookie consent test first
-    console.log('===== STEP 1: EXECUTING COOKIE CONSENT TEST =====');
+    // ============================================================================
+    // STEP 1: Prepara requestId
+    // ============================================================================
+    const requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    console.log(`[${requestId}] Starting SSD test execution`);
+
+    // ============================================================================
+    // STEP 2: Avvia runner → fai goto e genera snapshot HTML (P0). Ottieni htmlPath
+    // ============================================================================
+    console.log('===== STEP 2: LAUNCHING RUNNER AND GENERATING HTML SNAPSHOT =====');
     
-    // Fix: Ensure pdfContent is not undefined
-    const safePdfContent = pdfContent || '';
-    console.log('📄 pdfContent fix:', {
-      original: !!pdfContent,
-      fixed: !!safePdfContent,
-      length: safePdfContent.length
-    });
+    let htmlPath = null;
+    let browser = null;
+    let page = null;
+
+    try {
+      // Launch browser
+      browser = await puppeteer.launch({
+        headless: options.headless,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-accelerated-2d-canvas',
+          '--no-first-run',
+          '--no-zygote',
+          '--disable-gpu'
+        ]
+      });
+      
+      page = await browser.newPage();
+      console.log('✓ Browser launched and page created');
+      
+      // Navigate to the site and generate HTML snapshot
+      await page.goto(validatedDSL.site, { waitUntil: 'networkidle2' });
+      await new Promise(resolve => setTimeout(resolve, 3000)); // Wait for dynamic content
+      
+      // Generate HTML snapshot
+      const html = await page.content();
+      
+      // Save HTML to file
+      const tempHtmlDir = join(process.cwd(), 'temp-html');
+      await fs.mkdir(tempHtmlDir, { recursive: true });
+      htmlPath = join(tempHtmlDir, `${requestId}.html`);
+      await fs.writeFile(htmlPath, html, 'utf8');
+      
+      console.log(`✓ HTML snapshot generated and saved to: ${htmlPath}`);
+      
+    } catch (error) {
+      console.error('Error generating HTML snapshot:', error);
+      throw new Error(`Failed to generate HTML snapshot: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+
+    // ============================================================================
+    // STEP 3: (Cookie) Esegui il test cookie ESATTAMENTE come oggi. 
+    // NON cambiarne logica, attese, matcher.
+    // Il runner ora riporterà anche cookieBtnSelector e cookieBtnOuterHTML (P1)
+    // ============================================================================
+    console.log('===== STEP 3: EXECUTING COOKIE CONSENT TEST =====');
     
-    // Create a proper cookie consent test DSL with the specific cookie banner selector
-    // This should use the selector from the cookie banner extraction, not the generic PDF selector
+    // Create cookie consent test DSL
     const cookieConsentDSL = {
       site: validatedDSL.site,
       allowed_hosts: validatedDSL.allowed_hosts,
@@ -1816,7 +1907,7 @@ app.post('/api/ssd/run', async (req, res) => {
             action: 'click',
             target: {
               kind: 'selector',
-              value: '#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll' // Specific cookie banner selector
+              value: '#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll'
             },
             expect: [{
               type: 'dataLayer',
@@ -1827,127 +1918,113 @@ app.post('/api/ssd/run', async (req, res) => {
       }]
     };
     
-    // Execute cookie consent test using the proper cookie consent DSL
+    // Execute cookie consent test using existing logic
     const cookieConsentResult = await executeCookieConsentTestFromDSL(cookieConsentDSL, options);
     
-    if (cookieConsentResult.status !== 'PASS') {
-      console.log('❌ Cookie consent test failed, cannot proceed with PDF tests');
-      
-      // Close browser instance on failure
-      if (cookieConsentResult.browserInstance) {
-        await cookieConsentResult.browserInstance.close();
-        console.log('Browser instance closed due to cookie consent test failure');
-      }
-      
-      // Create results array even for failed cookie consent test
-      const results = [{
-        section: 'Cookie Consent Test',
-        stepIndex: 0,
-        description: 'Cookie consent acceptance',
-        status: cookieConsentResult.status,
-        reasons: cookieConsentResult.status === 'FAIL' ? [cookieConsentResult.error] : [],
-        timings: {
-          duration: cookieConsentResult.duration || 0
-        },
-        evidence: {
-          dataLayerEvents: cookieConsentResult.dataLayerEvents || [],
-          trackingHits: [],
-          screenshots: []
-        }
-      }];
+    // Add cookieBtnSelector and cookieBtnOuterHTML to result (P1)
+    const cookieResult = {
+      ...cookieConsentResult,
+      cookieBtnSelector: cookieConsentResult.cookieBtnSelector,
+      cookieBtnOuterHTML: cookieConsentResult.cookieBtnOuterHTML
+    };
 
-      return res.json({ 
-        report: {
-          summary: {
-            steps: 1,
-            passed: cookieConsentResult.status === 'PASS' ? 1 : 0,
-            failed: cookieConsentResult.status !== 'PASS' ? 1 : 0,
-            duration: cookieConsentResult.duration || 0,
-            consentProfiles: ['accept']
-          },
-          results: results,
-          artifacts: {
-            screenshotsFolder: 'screenshots',
-            rawLogsPath: 'logs'
-          },
-          cookieConsentTest: cookieConsentResult,
-          pdfTests: null,
-          error: 'Cookie consent test failed - PDF tests cannot be executed'
-        }
-      });
-    }
+    console.log(`✓ Cookie consent test completed: ${cookieResult.status}`);
+    console.log(`✓ Cookie button selector: ${cookieResult.cookieBtnSelector}`);
+    console.log(`✓ Cookie button outerHTML: ${cookieResult.cookieBtnOuterHTML?.substring(0, 100)}...`);
 
-    console.log('✅ Cookie consent test passed, proceeding with PDF tests');
-
-    // STEP 2: Generate PDF test specification
-    console.log('===== STEP 2: GENERATING PDF TEST SPECIFICATION =====');
+    // ============================================================================
+    // STEP 4: (PDF) Se c'è un PDF caricato:
+    // - estrai pdfText (come fai già, vedi temp-pdf/);
+    // - se pdfText è vuoto → ritorna un warning PDF_EMPTY (non bloccare l'intero run);
+    // - altrimenti pdfSpec = await llmPdfSpec({ url, pdfText, htmlPath }) e poi esegui pdfSpec col runner
+    // ============================================================================
+    console.log('===== STEP 4: PROCESSING PDF TESTS =====');
     
-    // Get HTML content from the website for more accurate test generation
-    let htmlContent = '';
-    try {
-      console.log('🌐 Fetching HTML content for test generation...');
-      const puppeteerResponse = await fetch(`http://localhost:4001/api/fetchHtmlPuppeteer?url=${encodeURIComponent(validatedDSL.site)}`);
-      if (puppeteerResponse.ok) {
-        const puppeteerData = await puppeteerResponse.json();
-        htmlContent = puppeteerData.html || '';
-        console.log('✅ HTML content fetched successfully, length:', htmlContent.length);
-      } else {
-        console.log('⚠️ Failed to fetch HTML content, proceeding without it');
-      }
-    } catch (error) {
-      console.log('⚠️ Error fetching HTML content:', error.message, 'proceeding without it');
-    }
-    
-    // Load PDF buffer from saved file
-    let pdfBuffer = null;
-    let realPdfContent = '';
+    let pdfResult = null;
+    let pdfSpec = null;
+    let pdfTextFile = null;
+
     if (pdfBufferPath && fsSync.existsSync(pdfBufferPath)) {
-      pdfBuffer = fsSync.readFileSync(pdfBufferPath);
-      console.log('✅ PDF buffer loaded from file, size:', pdfBuffer.length, 'bytes');
-      
-      // Extract real PDF content using pdf-parse
       try {
+        // Extract PDF text
+        const pdfBuffer = fsSync.readFileSync(pdfBufferPath);
         const pdfParse = require('pdf-parse');
         const pdfData = await pdfParse(pdfBuffer);
-        realPdfContent = pdfData.text;
-        console.log('✅ Real PDF content extracted, length:', realPdfContent.length, 'characters');
-        console.log('📄 PDF content preview:', realPdfContent.substring(0, 200) + '...');
+        const pdfText = pdfData.text;
+        
+        console.log(`✓ PDF text extracted, length: ${pdfText.length} characters`);
+        
+        if (!pdfText || pdfText.trim().length === 0) {
+          console.log('⚠️ PDF text is empty, returning PDF_EMPTY warning');
+          pdfResult = {
+            status: 'WARNING',
+            error: 'PDF_EMPTY',
+            message: 'PDF text content is empty'
+          };
+        } else {
+          // Save PDF text to file
+          const tempPdfDir = join(process.cwd(), 'temp-pdf');
+          await fs.mkdir(tempPdfDir, { recursive: true });
+          pdfTextFile = join(tempPdfDir, `${requestId}_pdf.txt`);
+          await fs.writeFile(pdfTextFile, pdfText, 'utf8');
+          
+          console.log(`✓ PDF text saved to: ${pdfTextFile}`);
+          
+          // Generate PDF spec using LLM
+          console.log('🤖 Generating PDF spec using LLM...');
+          pdfSpec = await llmPdfSpec({
+            url: validatedDSL.site,
+            pdfText: pdfText,
+            htmlPath: htmlPath
+          });
+          
+          console.log('✓ PDF spec generated successfully');
+          
+          // Execute PDF spec with runner
+          console.log('🚀 Executing PDF spec with runner...');
+          const pdfTestResult = await executePdfTests(pdfSpec, options, browser);
+          
+          pdfResult = {
+            status: pdfTestResult.status,
+            spec: pdfSpec,
+            result: pdfTestResult,
+            steps: pdfTestResult.steps || []
+          };
+          
+          console.log(`✓ PDF tests executed: ${pdfTestResult.status}`);
+        }
+        
       } catch (error) {
-        console.log('❌ Error extracting PDF content:', error.message);
-        realPdfContent = 'Error extracting PDF content';
+        console.error('Error processing PDF:', error);
+        pdfResult = {
+          status: 'ERROR',
+          error: error instanceof Error ? error.message : 'Unknown error',
+          message: 'Failed to process PDF'
+        };
       }
     } else {
-      console.log('⚠️ PDF buffer file not found, proceeding without PDF file');
-    }
-    
-    // Use real PDF content if available, otherwise fallback to safePdfContent
-    const finalPdfContent = realPdfContent || safePdfContent;
-    console.log('📄 Using PDF content length:', finalPdfContent.length, 'characters');
-    
-    const pdfTestSpec = await generatePdfTestSpec(validatedDSL.site, finalPdfContent, htmlContent, pdfBuffer);
-    
-    // STEP 3: Execute PDF tests in the same browser session
-    console.log('===== STEP 3: EXECUTING PDF TESTS =====');
-    let pdfTestResult = null;
-    
-    if (pdfTestSpec) {
-      console.log('✓ PDF test specification generated, executing tests...');
-      // Use the filtered pdfTestSpec for PDF tests, not the original validatedDSL
-      pdfTestResult = await executePdfTests(pdfTestSpec, options, cookieConsentResult.browserInstance);
-      console.log('✓ PDF tests executed');
-    } else {
-      console.log('⚠️ PDF test specification skipped (empty content)');
-      pdfTestResult = {
+      console.log('⚠️ No PDF file provided, skipping PDF tests');
+      pdfResult = {
         status: 'SKIPPED',
-        steps: [],
-        error: 'PDF content was empty'
+        message: 'No PDF file provided'
       };
     }
-    
-    // Close browser instance
-    if (cookieConsentResult.browserInstance) {
-      await cookieConsentResult.browserInstance.close();
-      console.log('Browser instance closed after completing all tests');
+
+    // ============================================================================
+    // STEP 5: Rispondi con un JSON finale che contenga:
+    // {
+    //   requestId, url,
+    //   artifacts: { htmlFile: htmlPath, pdfTextFile: <se salvato> },
+    //   cookie: { ...result del runner + selector + outerHTML },
+    //   pdf: { spec: pdfSpec, result: <esito o skipped> }
+    // }
+    // ============================================================================
+    console.log('===== STEP 5: PREPARING FINAL RESPONSE =====');
+
+    // Clean up browser
+    if (browser) {
+      await browser.close();
+      console.log('✓ Browser closed');
     }
 
     // Clean up temporary PDF file
@@ -1960,75 +2037,40 @@ app.post('/api/ssd/run', async (req, res) => {
       }
     }
 
-    console.log('✅ All tests completed successfully!');
-
-    // Create unified report with compatibility for existing UI
-    const results = [];
-    
-    // Add cookie consent test result
-    results.push({
-      section: 'Cookie Consent Test',
-      stepIndex: 0,
-      description: 'Cookie consent acceptance',
-      status: cookieConsentResult.status,
-      reasons: cookieConsentResult.status === 'FAIL' ? [cookieConsentResult.error] : [],
-      timings: {
-        duration: cookieConsentResult.duration || 0
-      },
-      evidence: {
-        dataLayerEvents: cookieConsentResult.dataLayerEvents || [],
-        trackingHits: [],
-        screenshots: []
-      }
-    });
-    
-    // Add PDF test results if available
-    if (pdfTestResult && pdfTestResult.steps) {
-      pdfTestResult.steps.forEach((step: any, index: number) => {
-        results.push({
-          section: 'PDF Test',
-          stepIndex: index + 1,
-          description: step.description,
-          status: step.status,
-          reasons: step.status === 'FAIL' ? [step.error] : [],
-          timings: {
-            duration: 0 // PDF test steps don't have individual timing
-          },
-          evidence: {
-            dataLayerEvents: [],
-            trackingHits: [],
-            screenshots: []
-          }
-        });
-      });
-    }
-
-    const unifiedReport = {
-      summary: {
-        steps: 1 + (pdfTestResult ? pdfTestResult.steps?.length || 0 : 0),
-        passed: (cookieConsentResult.status === 'PASS' ? 1 : 0) + (pdfTestResult?.status === 'PASS' ? 1 : 0),
-        failed: (cookieConsentResult.status !== 'PASS' ? 1 : 0) + (pdfTestResult?.status !== 'PASS' ? 1 : 0),
-        duration: (cookieConsentResult.duration || 0) + (pdfTestResult?.duration || 0),
-        consentProfiles: ['accept'] // Default consent profile
-      },
-      results: results, // For UI compatibility
+    // Prepare final response
+    const finalResponse = {
+      requestId,
+      url: validatedDSL.site,
       artifacts: {
-        screenshotsFolder: 'screenshots',
-        rawLogsPath: 'logs'
+        htmlFile: htmlPath,
+        pdfTextFile: pdfTextFile
       },
-      cookieConsentTest: cookieConsentResult,
-      pdfTests: pdfTestResult,
-      pdfTestSpec: pdfTestSpec
+      cookie: {
+        status: cookieResult.status,
+        consentStatus: cookieResult.consentStatus,
+        dataLayerEvents: cookieResult.dataLayerEvents || [],
+        steps: cookieResult.steps || [],
+        error: cookieResult.error,
+        duration: cookieResult.duration || 0,
+        cookieBtnSelector: cookieResult.cookieBtnSelector,
+        cookieBtnOuterHTML: cookieResult.cookieBtnOuterHTML
+      },
+      pdf: {
+        spec: pdfSpec,
+        result: pdfResult
+      }
     };
 
-    console.log('===== UNIFIED TEST EXECUTION COMPLETED =====');
-    console.log('Summary:', unifiedReport.summary);
-    console.log('Cookie Consent Test Status:', cookieConsentResult.status);
-    console.log('PDF Tests Status:', pdfTestResult?.status || 'N/A');
-    console.log('PDF Test Spec Available:', !!pdfTestSpec);
-    console.log('============================================');
+    console.log('===== SSD TEST EXECUTION COMPLETED =====');
+    console.log(`Request ID: ${requestId}`);
+    console.log(`URL: ${validatedDSL.site}`);
+    console.log(`Cookie Test Status: ${cookieResult.status}`);
+    console.log(`PDF Test Status: ${pdfResult?.status || 'N/A'}`);
+    console.log(`HTML File: ${htmlPath}`);
+    console.log(`PDF Text File: ${pdfTextFile}`);
+    console.log('========================================');
 
-    res.json({ report: unifiedReport });
+    res.json(finalResponse);
 
   } catch (error) {
     console.error('SSD Run Error:', error);
