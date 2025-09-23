@@ -25,6 +25,9 @@ import { extractCookieBannerWithPuppeteer } from './src/services/cookieBannerExt
 import { llmPdfSpec } from './src/services/llmPdfSpec.js';
 import puppeteer from 'puppeteer';
 
+// Helper function for sleep
+const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
+
 // Error Classes with predefined codes
 // ============================================================================
 
@@ -650,7 +653,8 @@ async function executeCookieConsentTestFromDSL(dsl: any, options: any) {
     duration: 0,
     browserInstance: null,
     cookieBtnSelector: null,
-    cookieBtnOuterHTML: null
+    cookieBtnOuterHTML: null,
+    page: null // Add page to result
   };
 
   const startTime = Date.now();
@@ -671,6 +675,7 @@ async function executeCookieConsentTestFromDSL(dsl: any, options: any) {
     
     const page = await browser.newPage();
     console.log('✓ Browser launched and page created');
+    result.page = page; // Store page in result
     
     // Execute cookie consent test steps from DSL
     for (let i = 0; i < dsl.tests[0].steps.length; i++) {
@@ -896,130 +901,51 @@ async function resolveSelectorForHeaderLink(page: import('puppeteer').Page) {
   console.log('[resolver] Starting header link resolution...');
   
   try {
-    // Simple approach: try to find any visible link in header/nav areas
-    const result = await page.evaluate(() => {
-      // Look for header/nav containers
-      const headerSelectors = [
-        'header',
-        '[role="banner"]', 
-        '.header',
-        '#header',
-        'nav'
-      ];
-      
-      let foundElements = [];
-      
-      for (let i = 0; i < headerSelectors.length; i++) {
-        const selector = headerSelectors[i];
-        const containers = document.querySelectorAll(selector);
-        
-        for (let j = 0; j < containers.length; j++) {
-          const container = containers[j];
-          const links = container.querySelectorAll('a, button, [role="button"]');
-          
-          for (let k = 0; k < links.length; k++) {
-            const link = links[k];
-            
-            // Check if visible
-            const rect = link.getBoundingClientRect();
-            const style = window.getComputedStyle(link);
-            
-            if (rect.width > 0 && rect.height > 0 && 
-                style.display !== 'none' && 
-                style.visibility !== 'hidden' && 
-                style.opacity !== '0') {
-              
-              // Check if not in cookie banner
-              const isInCookie = link.closest('#CybotCookiebotDialog, .CybotCookiebotDialog, #onetrust-banner-sdk, .ot-sdk-container, [id*="cookie" i], [class*="cookie" i]');
-              
-              if (!isInCookie) {
-                const text = (link.textContent || '').trim();
-                const href = link.getAttribute('href') || '';
-                const aria = link.getAttribute('aria-label') || '';
-                
-                if (text || href || aria) {
-                  foundElements.push({
-                    selector: link.id ? '#' + link.id : 'a, button, [role="button"]',
-                    text: text,
-                    href: href,
-                    aria: aria,
-                    score: (aria ? 2 : 0) + (text ? 1 : 0) + (href ? 1 : 0)
-                  });
-                }
-              }
-            }
-          }
-        }
-        
-        if (foundElements.length > 0) break;
-      }
-      
-      // Sort by score and return best candidate
-      foundElements.sort(function(a, b) { return b.score - a.score; });
-      return foundElements[0] || null;
-    });
+    // Use sleep instead of page.waitForTimeout (not available in all versions)
+    await sleep(300);
     
-    if (result) {
-      console.log(`[resolver] Found header link: selector="${result.selector}" text="${result.text}" href="${result.href}" aria="${result.aria}"`);
-      return result;
-    } else {
-      console.log('[resolver] No header links found, trying global search...');
-      
-      // Try to find any visible link on the page
-      const globalResult = await page.evaluate(() => {
-        const links = document.querySelectorAll('a, button, [role="button"]');
-        for (let i = 0; i < links.length; i++) {
-          const link = links[i];
-          const rect = link.getBoundingClientRect();
-          const style = window.getComputedStyle(link);
-          
-          if (rect.width > 0 && rect.height > 0 && 
-              style.display !== 'none' && 
-              style.visibility !== 'hidden' && 
-              style.opacity !== '0') {
-            
-            // Check if not in cookie banner
-            const isInCookie = link.closest('#CybotCookiebotDialog, .CybotCookiebotDialog, #onetrust-banner-sdk, .ot-sdk-container, [id*="cookie" i], [class*="cookie" i]');
-            
-            if (!isInCookie) {
-              const text = (link.textContent || '').trim();
-              if (text && text.length > 0) {
-                return {
-                  selector: link.id ? '#' + link.id : 'a:first-of-type',
-                  text: text,
-                  href: link.getAttribute('href') || '',
-                  aria: link.getAttribute('aria-label') || ''
-                };
-              }
-            }
-          }
-        }
-        return null;
-      });
-      
-      if (globalResult) {
-        console.log(`[resolver] Found global link: selector="${globalResult.selector}" text="${globalResult.text}"`);
-        return globalResult;
+    const headerSelector = "header,[role='banner'],.header,#header,nav[aria-label*='menu' i],nav[aria-label*='navigation' i]";
+    
+    // Try to wait for header, but don't fail if it doesn't exist
+    try { 
+      await page.waitForSelector(headerSelector, { timeout: 5000 }); 
+    } catch {}
+    
+    // Check if header exists
+    const hasHeader = await page.$(headerSelector);
+    
+    if (hasHeader) {
+      // Try to find clickable elements in header
+      const headerLinksSel = `${headerSelector} a, ${headerSelector} button`;
+      const node = await page.$(headerLinksSel);
+      if (node) {
+        console.log(`[resolver] ✅ Found header link: ${headerLinksSel}`);
+        return headerLinksSel;
       }
-      
-      // Ultimate fallback - just click any link
-      return { 
-        selector: 'a', 
-        text: '', 
-        aria: '', 
-        href: '' 
-      };
     }
     
+    // Fallback to robust clickable elements
+    const fallbackSel = "a[href]:not([aria-hidden='true']):not([tabindex='-1'])";
+    const fallbackNode = await page.$(fallbackSel);
+    if (fallbackNode) {
+      console.log(`[resolver] ✅ Found fallback link: ${fallbackSel}`);
+      return fallbackSel;
+    }
+    
+    // Last resort: any clickable element
+    const anyClickable = "button, [role='button'], a[href]";
+    const anyNode = await page.$(anyClickable);
+    if (anyNode) {
+      console.log(`[resolver] ✅ Found any clickable: ${anyClickable}`);
+      return anyClickable;
+    }
+    
+    console.log('[resolver] ❌ No clickable elements found');
+    return null;
+    
   } catch (error) {
-    console.error('[resolver] Error during resolution:', error.message);
-    // Ultimate fallback
-    return { 
-      selector: 'a', 
-      text: '', 
-      aria: '', 
-      href: '' 
-    };
+    console.error('[resolver] Error in header link resolution:', error);
+    return null;
   }
 }
 
@@ -1089,16 +1015,8 @@ async function executePdfTests(testSpec: any, options: any, browserInstance: any
     let page;
     if (existingPage) {
       page = existingPage;
-      console.log('✓ Using existing page from cookie consent test');
-      
-      // Ensure we're on the correct page - if not, navigate
-      const currentUrl = page.url();
-      const targetUrl = testSpec.site || options.site;
-      if (!currentUrl.includes(new URL(targetUrl).hostname)) {
-        console.log(`🔄 Navigating existing page to ${targetUrl}`);
-        await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
-        await new Promise(resolve => setTimeout(resolve, 2000)); // Wait for page to stabilize
-      }
+      console.log('✓ Using existing page from cookie consent test - NO navigation to preserve consent state');
+      // IMPORTANT: Do NOT navigate - keep the same page with consent state
     } else {
       page = await browserInstance.newPage();
       console.log('✓ New page created in existing browser session');
@@ -2345,9 +2263,9 @@ app.post('/api/ssd/run', async (req, res) => {
           return;
         }
         
-        // Execute PDF spec with runner
+        // Execute PDF spec with runner using the same page from cookie test
         console.log('🚀 Executing PDF spec with runner...');
-        const pdfTestResult = await executePdfTests(normalizedPdfSpec, options, browser);
+        const pdfTestResult = await executePdfTests(normalizedPdfSpec, options, cookieConsentResult.browserInstance, cookieConsentResult.page);
         
         pdfResult = {
           status: pdfTestResult.status,

@@ -37,6 +37,11 @@ export class SSDTargetResolver {
     const results: TargetResolutionResult[] = [];
     const candidates: string[] = [];
 
+    // Handle special cases for ambiguous targets
+    if (target.value === 'to-be-determined' || target.value === 'TBD' || target.value === 'TODO') {
+      return this.resolveAmbiguousTarget(target);
+    }
+
     // If region is specified, try region-scoped resolution first
     if (target.region && target.region !== 'any') {
       if (target.kind === 'text') {
@@ -96,6 +101,55 @@ export class SSDTargetResolver {
     }
     
     return bestResult;
+  }
+
+  /**
+   * Resolve ambiguous targets by trying common patterns
+   */
+  private async resolveAmbiguousTarget(target: Target): Promise<TargetResolutionResult> {
+    console.log(`[resolver] Resolving ambiguous target: ${target.value}`);
+    
+    // Try common header link patterns
+    const headerPatterns = [
+      'a[href]', // Any link with href
+      'nav a', // Links in navigation
+      'header a', // Links in header
+      'button', // Any button
+      '[role="button"]', // Elements with button role
+      'a[class*="menu"]', // Menu links
+      'a[class*="nav"]', // Navigation links
+    ];
+
+    for (const pattern of headerPatterns) {
+      try {
+        console.log(`[resolver] Trying pattern: ${pattern}`);
+        const element = await this.page.waitForSelector(pattern, { timeout: 2000 }).catch(() => null);
+        
+        if (element) {
+          const isVisible = await this.isElementVisibleAndClickable(element);
+          if (isVisible) {
+            console.log(`[resolver] ✅ Found clickable element with pattern: ${pattern}`);
+            return {
+              element,
+              selector: pattern,
+              method: 'selector',
+              confidence: 0.6,
+            };
+          }
+        }
+      } catch (error) {
+        console.log(`[resolver] Pattern ${pattern} failed:`, error.message);
+      }
+    }
+
+    // If nothing found, return error with suggestions
+    return {
+      element: null,
+      selector: 'ambiguous-target',
+      method: 'selector',
+      confidence: 0.0,
+      error: `Could not resolve ambiguous target "${target.value}". Tried common patterns: ${headerPatterns.join(', ')}`,
+    };
   }
 
   /**

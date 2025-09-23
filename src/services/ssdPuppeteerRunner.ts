@@ -514,12 +514,24 @@ export class SSDPuppeteerRunner {
   private async executeClickStep(step: any, targetResolver: SSDTargetResolver): Promise<void> {
     if (!step.target) throw new SSDRunnerError('Click step requires target');
 
+    console.log(`[Click Step] Resolving target: ${JSON.stringify(step.target)}`);
     const resolution = await targetResolver.resolveTarget(step.target);
+    
     if (!resolution.element) {
-      throw new SSDRunnerError(`Could not resolve target for click: ${resolution.error}`);
+      const errorMsg = `Could not resolve target for click: ${resolution.error || 'Unknown error'}. Target: ${JSON.stringify(step.target)}`;
+      console.error(`[Click Step] ❌ ${errorMsg}`);
+      throw new SSDRunnerError(errorMsg);
     }
 
-    await resolution.element.click();
+    console.log(`[Click Step] ✅ Target resolved: ${resolution.selector} (method: ${resolution.method}, confidence: ${resolution.confidence})`);
+    
+    try {
+      await resolution.element.click();
+      console.log(`[Click Step] ✅ Click executed successfully`);
+    } catch (clickError) {
+      console.error(`[Click Step] ❌ Click failed:`, clickError);
+      throw new SSDRunnerError(`Click failed: ${clickError.message}`);
+    }
     
     // Wait for SPA route changes after click
     try {
