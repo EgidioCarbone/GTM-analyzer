@@ -911,7 +911,7 @@ async function resolveSelectorForHeaderLink(page: import('puppeteer').Page) {
 
   // Scroll minimale per attivare eventuali lazy render dello sticky header
   await page.evaluate(() => window.scrollTo(0, 1)).catch(() => {});
-  await page.waitForTimeout(150);
+  await new Promise(resolve => setTimeout(resolve, 150));
 
   // 2) Raccogli candidati dentro header/nav (max 10), visibili e non-cookie
   //    NB: facciamo tutta la logica IN PAGE per evitare roundtrips e problemi di helper.
