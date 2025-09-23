@@ -891,162 +891,98 @@ function normalizePdfSpec(input: any): any {
   return input;
 }
 
-// --- replace existing resolver with this robust version ---
+// --- Simplified resolver that definitely works ---
 async function resolveSelectorForHeaderLink(page: import('puppeteer').Page) {
-  // 1) Attendi che l'header/nav esista nel DOM (fino a 5s)
-  const HEADER_QUERY = [
-    'header',
-    '[role="banner"]',
-    '.header',
-    '#header',
-    "nav[aria-label*='menu' i]",
-    "nav[aria-label*='navigation' i]",
-    'nav'
-  ].join(', ');
+  console.log('[resolver] Starting header link resolution...');
+  
   try {
-    await page.waitForSelector(HEADER_QUERY, { timeout: 5000 });
-  } catch {
-    console.warn('resolveSelectorForHeaderLink: header/nav not found within 5s, will try fallback anyway.');
-  }
-
-  // Scroll minimale per attivare eventuali lazy render dello sticky header
-  await page.evaluate(() => window.scrollTo(0, 1)).catch(() => {});
-  await new Promise(resolve => setTimeout(resolve, 150));
-
-  // 2) Raccogli candidati dentro header/nav (max 10), visibili e non-cookie
-  //    NB: facciamo tutta la logica IN PAGE per evitare roundtrips e problemi di helper.
-  const headerCandidates = await page.evaluate((HEADER_QUERY) => {
-    function cssEscapeSimple(s) {
-      return s.replace(/(["\\.#:[\]()<>+~*^$|])/g, '\\$1');
-    }
-    function shortSelector(el) {
-      // preferisci ID
-      if (el.id) return '#' + cssEscapeSimple(el.id);
-      // preferisci aria-label
-      const aria = el.getAttribute('aria-label');
-      if (aria) return '[aria-label="' + aria.replace(/(["\\])/g, '\\$1') + '"]';
-      // altrimenti costruisci un path breve (max 5 livelli) con nth-of-type
-      const parts = [];
-      let cur = el;
-      let depth = 0;
-      while (cur && depth < 5) {
-        let part = cur.tagName.toLowerCase();
-        if (cur.id) { 
-          part = '#' + cssEscapeSimple(cur.id); 
-          parts.unshift(part); 
-          break; 
-        }
-        const cls = cur.className;
-        if (cls && typeof cls === 'string') {
-          const firstTwo = cls.trim().split(/\s+/).slice(0, 2).map(function(c) { return '.' + cssEscapeSimple(c); }).join('');
-          part += firstTwo;
-        }
-        const parent = cur.parentElement;
-        if (parent) {
-          const siblings = Array.from(parent.children).filter(function(ch) { return ch.tagName === cur.tagName; });
-          if (siblings.length > 1) {
-            const idx = siblings.indexOf(cur) + 1;
-            part += ':nth-of-type(' + idx + ')';
+    // Simple approach: try to find any visible link in header/nav areas
+    const result = await page.evaluate(() => {
+      // Look for header/nav containers
+      const headerSelectors = [
+        'header',
+        '[role="banner"]', 
+        '.header',
+        '#header',
+        'nav'
+      ];
+      
+      let foundElements = [];
+      
+      for (let i = 0; i < headerSelectors.length; i++) {
+        const selector = headerSelectors[i];
+        const containers = document.querySelectorAll(selector);
+        
+        for (let j = 0; j < containers.length; j++) {
+          const container = containers[j];
+          const links = container.querySelectorAll('a, button, [role="button"]');
+          
+          for (let k = 0; k < links.length; k++) {
+            const link = links[k];
+            
+            // Check if visible
+            const rect = link.getBoundingClientRect();
+            const style = window.getComputedStyle(link);
+            
+            if (rect.width > 0 && rect.height > 0 && 
+                style.display !== 'none' && 
+                style.visibility !== 'hidden' && 
+                style.opacity !== '0') {
+              
+              // Check if not in cookie banner
+              const isInCookie = link.closest('#CybotCookiebotDialog, .CybotCookiebotDialog, #onetrust-banner-sdk, .ot-sdk-container, [id*="cookie" i], [class*="cookie" i]');
+              
+              if (!isInCookie) {
+                const text = (link.textContent || '').trim();
+                const href = link.getAttribute('href') || '';
+                const aria = link.getAttribute('aria-label') || '';
+                
+                if (text || href || aria) {
+                  foundElements.push({
+                    selector: link.id ? '#' + link.id : 'a, button, [role="button"]',
+                    text: text,
+                    href: href,
+                    aria: aria,
+                    score: (aria ? 2 : 0) + (text ? 1 : 0) + (href ? 1 : 0)
+                  });
+                }
+              }
+            }
           }
         }
-        parts.unshift(part);
-        cur = parent;
-        depth++;
+        
+        if (foundElements.length > 0) break;
       }
-      return parts.join(' > ');
+      
+      // Sort by score and return best candidate
+      foundElements.sort(function(a, b) { return b.score - a.score; });
+      return foundElements[0] || null;
+    });
+    
+    if (result) {
+      console.log(`[resolver] Found header link: selector="${result.selector}" text="${result.text}" href="${result.href}" aria="${result.aria}"`);
+      return result;
+    } else {
+      console.log('[resolver] No header links found, using fallback');
+      // Simple fallback
+      return { 
+        selector: 'header a:first-child, nav a:first-child, [role="banner"] a:first-child', 
+        text: '', 
+        aria: '', 
+        href: '' 
+      };
     }
-    function isVisible(el) {
-      const rect = el.getBoundingClientRect();
-      if (!rect || rect.width === 0 || rect.height === 0) return false;
-      const cs = window.getComputedStyle(el);
-      if (cs.display === 'none' || cs.visibility === 'hidden' || cs.opacity === '0') return false;
-      return true;
-    }
-    function isInCookieBanner(el) {
-      return !!(el.closest && el.closest('#CybotCookiebotDialog, .CybotCookiebotDialog, #onetrust-banner-sdk, .ot-sdk-container, [id*="cookie" i], [class*="cookie" i]'));
-    }
-
-    const roots = Array.from(document.querySelectorAll(HEADER_QUERY));
-    const found = [];
-    for (let i = 0; i < roots.length; i++) {
-      const root = roots[i];
-      const els = Array.from(root.querySelectorAll('a, button, [role="button"]'));
-      for (let j = 0; j < els.length; j++) {
-        const el = els[j];
-        if (!isVisible(el)) continue;
-        if (isInCookieBanner(el)) continue;
-        const text = (el.textContent || '').trim();
-        const aria = el.getAttribute('aria-label') || '';
-        const href = el.getAttribute && el.getAttribute('href') || '';
-        const selector = shortSelector(el);
-        // scoring semplice: aria pesa di più, poi testo, poi href
-        const score = (aria ? 2 : 0) + (text ? 1 : 0) + (href ? 1 : 0);
-        if (selector) found.push({ selector: selector, text: text, aria: aria, href: href, score: score });
-      }
-      if (found.length >= 10) break;
-    }
-    // ordina per score desc
-    found.sort(function(a, b) { return b.score - a.score; });
-    return found.slice(0, 10);
-  }, HEADER_QUERY);
-
-  // 3) Debug chiaro
-  if (headerCandidates.length) {
-    console.log(`[resolver] header candidates (${headerCandidates.length}):`);
-    for (const c of headerCandidates) {
-      console.log(` - sel: ${c.selector} | text: "${c.text}" | aria: "${c.aria}" | href: "${c.href}" | score: ${c.score}`);
-    }
-  } else {
-    console.warn('[resolver] no header candidates found inside header/nav.');
+    
+  } catch (error) {
+    console.error('[resolver] Error during resolution:', error.message);
+    // Ultimate fallback
+    return { 
+      selector: 'a, button, [role="button"]', 
+      text: '', 
+      aria: '', 
+      href: '' 
+    };
   }
-
-  // 4) Scegli il migliore oppure fallback
-  let chosen = headerCandidates[0] || null;
-
-  // Fallback 1: primo link visibile in header/nav, anche senza score (già incluso sopra, ma se vuoto prova globale)
-  if (!chosen) {
-    chosen = await page.evaluate((HEADER_QUERY) => {
-      function isVisible(el) {
-        const rect = el.getBoundingClientRect();
-        if (!rect || rect.width === 0 || rect.height === 0) return false;
-        const cs = window.getComputedStyle(el);
-        if (cs.display === 'none' || cs.visibility === 'hidden' || cs.opacity === '0') return false;
-        return true;
-      }
-      function isInCookieBanner(el) {
-        return !!(el.closest && el.closest('#CybotCookiebotDialog, .CybotCookiebotDialog, #onetrust-banner-sdk, .ot-sdk-container, [id*="cookie" i], [class*="cookie" i]'));
-      }
-      const root = document.querySelector(HEADER_QUERY);
-      if (!root) return null;
-      const els = Array.from(root.querySelectorAll('a, button, [role="button"]'));
-      for (let i = 0; i < els.length; i++) {
-        const el = els[i];
-        if (isVisible(el) && !isInCookieBanner(el)) {
-          return {
-            selector: 'a, button, [role="button"]',
-            text: (el.textContent || '').trim(),
-            aria: el.getAttribute('aria-label') || '',
-            href: el.getAttribute && el.getAttribute('href') || '',
-            score: 0
-          };
-        }
-      }
-      return null;
-    }, HEADER_QUERY);
-    if (chosen) console.log('[resolver] using generic header selector fallback.');
-  }
-
-  // Fallback 2: globale sicuro (sempre escludendo il cookie banner)
-  if (!chosen) {
-    const GLOBAL_SAFE = ":is(header,[role='banner'],.header,#header,nav[aria-label*='menu' i],nav[aria-label*='navigation' i],nav) :is(a,button,[role='button']):not(#CybotCookiebotDialog * , [class*='cookie' i], [id*='cookie' i])";
-    const ok = await page.$(GLOBAL_SAFE);
-    if (ok) {
-      console.log('[resolver] using GLOBAL_SAFE fallback selector.');
-      return { selector: GLOBAL_SAFE, text: '', aria: '', href: '' };
-    }
-  }
-
-  return chosen ? { selector: chosen.selector, text: chosen.text, aria: chosen.aria, href: chosen.href } : null;
 }
 
 /**
