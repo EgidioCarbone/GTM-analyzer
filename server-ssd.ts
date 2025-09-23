@@ -966,7 +966,7 @@ async function resolveSelectorForHeaderLink(page: import('puppeteer').Page) {
       console.log('[resolver] No header links found, using fallback');
       // Simple fallback
       return { 
-        selector: 'header a:first-child, nav a:first-child, [role="banner"] a:first-child', 
+        selector: 'a, button, [role="button"]', 
         text: '', 
         aria: '', 
         href: '' 
