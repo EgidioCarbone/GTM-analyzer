@@ -1933,10 +1933,11 @@ app.post('/api/ssd/run', async (req, res) => {
     console.log(`✓ Cookie button outerHTML: ${cookieResult.cookieBtnOuterHTML?.substring(0, 100)}...`);
 
     // ============================================================================
-    // STEP 4: (PDF) Se c'è un PDF caricato:
-    // - estrai pdfText (come fai già, vedi temp-pdf/);
-    // - se pdfText è vuoto → ritorna un warning PDF_EMPTY (non bloccare l'intero run);
-    // - altrimenti pdfSpec = await llmPdfSpec({ url, pdfText, htmlPath }) e poi esegui pdfSpec col runner
+    // STEP 4: (PDF) Processing PDF Tests
+    // - Use pdfContent from req.body directly (already extracted text)
+    // - Handle empty PDF content with proper logging and status
+    // - Generate PDF spec using LLM with JSON validation
+    // - Save pdfText to disk for diagnosis purposes
     // ============================================================================
     console.log('===== STEP 4: PROCESSING PDF TESTS =====');
     
@@ -1944,70 +1945,67 @@ app.post('/api/ssd/run', async (req, res) => {
     let pdfSpec = null;
     let pdfTextFile = null;
 
-    if (pdfBufferPath && fsSync.existsSync(pdfBufferPath)) {
+    // Use pdfContent from req.body directly (already extracted text)
+    const pdfText = typeof req.body.pdfContent === 'string' ? req.body.pdfContent.trim() : '';
+    
+    if (!pdfText) {
+      console.log('PDF content empty → skipping PDF spec');
+      pdfResult = {
+        status: 'skipped',
+        reason: 'PDF_EMPTY'
+      };
+    } else {
       try {
-        // Extract PDF text
-        const pdfBuffer = fsSync.readFileSync(pdfBufferPath);
-        const pdfParse = require('pdf-parse');
-        const pdfData = await pdfParse(pdfBuffer);
-        const pdfText = pdfData.text;
+        // Ensure temp-pdf directory exists
+        const tempPdfDir = join(process.cwd(), 'temp-pdf');
+        await fs.mkdir(tempPdfDir, { recursive: true });
         
-        console.log(`✓ PDF text extracted, length: ${pdfText.length} characters`);
+        // Save pdfText to disk for diagnosis
+        pdfTextFile = join(tempPdfDir, `txt_${requestId}.txt`);
+        await fs.writeFile(pdfTextFile, pdfText, 'utf8');
+        console.log(`✓ PDF text saved for diagnosis: ${pdfTextFile}`);
         
-        if (!pdfText || pdfText.trim().length === 0) {
-          console.log('⚠️ PDF text is empty, returning PDF_EMPTY warning');
-          pdfResult = {
-            status: 'WARNING',
-            error: 'PDF_EMPTY',
-            message: 'PDF text content is empty'
-          };
-        } else {
-          // Save PDF text to file
-          const tempPdfDir = join(process.cwd(), 'temp-pdf');
-          await fs.mkdir(tempPdfDir, { recursive: true });
-          pdfTextFile = join(tempPdfDir, `${requestId}_pdf.txt`);
-          await fs.writeFile(pdfTextFile, pdfText, 'utf8');
-          
-          console.log(`✓ PDF text saved to: ${pdfTextFile}`);
-          
-          // Generate PDF spec using LLM
-          console.log('🤖 Generating PDF spec using LLM...');
-          pdfSpec = await llmPdfSpec({
-            url: validatedDSL.site,
-            pdfText: pdfText,
-            htmlPath: htmlPath
-          });
-          
-          console.log('✓ PDF spec generated successfully');
-          
-          // Execute PDF spec with runner
-          console.log('🚀 Executing PDF spec with runner...');
-          const pdfTestResult = await executePdfTests(pdfSpec, options, browser);
-          
-          pdfResult = {
-            status: pdfTestResult.status,
-            spec: pdfSpec,
-            result: pdfTestResult,
-            steps: pdfTestResult.steps || []
-          };
-          
-          console.log(`✓ PDF tests executed: ${pdfTestResult.status}`);
-        }
+        // Generate PDF spec using LLM
+        console.log('🤖 Generating PDF spec using LLM...');
+        pdfSpec = await llmPdfSpec({
+          url: validatedDSL.site,
+          pdfText: pdfText,
+          htmlPath: htmlPath
+        });
+        
+        console.log('✓ PDF spec generated successfully');
+        
+        // Execute PDF spec with runner
+        console.log('🚀 Executing PDF spec with runner...');
+        const pdfTestResult = await executePdfTests(pdfSpec, options, browser);
+        
+        pdfResult = {
+          status: pdfTestResult.status,
+          spec: pdfSpec,
+          result: pdfTestResult,
+          steps: pdfTestResult.steps || []
+        };
+        
+        console.log(`✓ PDF tests executed: ${pdfTestResult.status}`);
         
       } catch (error) {
         console.error('Error processing PDF:', error);
-        pdfResult = {
-          status: 'ERROR',
-          error: error instanceof Error ? error.message : 'Unknown error',
-          message: 'Failed to process PDF'
-        };
+        
+        // Check if it's a JSON parsing error
+        if (error instanceof Error && error.message.includes('JSON')) {
+          pdfResult = {
+            status: 'error',
+            code: 'INVALID_JSON',
+            message: 'Lo spec generato non è JSON valido'
+          };
+        } else {
+          pdfResult = {
+            status: 'error',
+            code: 'PDF_PROCESSING_ERROR',
+            message: error instanceof Error ? error.message : 'Unknown error'
+          };
+        }
       }
-    } else {
-      console.log('⚠️ No PDF file provided, skipping PDF tests');
-      pdfResult = {
-        status: 'SKIPPED',
-        message: 'No PDF file provided'
-      };
     }
 
     // ============================================================================
@@ -2055,10 +2053,7 @@ app.post('/api/ssd/run', async (req, res) => {
         cookieBtnSelector: cookieResult.cookieBtnSelector,
         cookieBtnOuterHTML: cookieResult.cookieBtnOuterHTML
       },
-      pdf: {
-        spec: pdfSpec,
-        result: pdfResult
-      }
+      pdf: pdfResult
     };
 
     console.log('===== SSD TEST EXECUTION COMPLETED =====');
