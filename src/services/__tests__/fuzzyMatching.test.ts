@@ -246,6 +246,50 @@ describe('Fuzzy Matching per params_subset', () => {
     });
   });
 
+  describe('Wildcard support', () => {
+    beforeEach(() => {
+      matcher = new SSDExpectationMatcher(mockPage, { fuzzy: false });
+    });
+
+    it('dovrebbe supportare wildcard "*" per qualsiasi valore non-empty', () => {
+      const expected = { link_text: '*', link_url: '*' };
+      const actual = { link_text: 'Home', link_url: '/home' };
+      
+      const result = (matcher as any).isSubsetMatch(expected, actual);
+      expect(result).toBe(true);
+    });
+
+    it('dovrebbe fallire per wildcard "*" con valori empty', () => {
+      const expected = { link_text: '*' };
+      const actual = { link_text: '' };
+      
+      const result = (matcher as any).isSubsetMatch(expected, actual);
+      expect(result).toBe(false);
+    });
+
+    it('dovrebbe fornire errori chiari per parametri mancanti', () => {
+      const expected = { link_text: 'Home', missing_param: 'value' };
+      const actual = { link_text: 'Home' };
+      
+      const missingParams = (matcher as any).findMissingParams(expected, actual);
+      expect(missingParams).toContain('missing_param');
+    });
+  });
+
+  describe('Case-insensitive support (fuzzy mode)', () => {
+    beforeEach(() => {
+      matcher = new SSDExpectationMatcher(mockPage, { fuzzy: true });
+    });
+
+    it('dovrebbe supportare confronto case-insensitive per stringhe', () => {
+      const expected = { link_text: 'HOME' };
+      const actual = { link_text: 'home' };
+      
+      const result = (matcher as any).isSubsetMatch(expected, actual);
+      expect(result).toBe(true);
+    });
+  });
+
   describe('Test di integrazione con params_subset', () => {
     beforeEach(() => {
       matcher = new SSDExpectationMatcher(mockPage, { fuzzy: true });

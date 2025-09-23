@@ -104,9 +104,15 @@ export class SSDExpectationMatcher {
         );
 
         if (validEvents.length === 0) {
+          // Find specific missing parameters for better error messages
+          const missingParams = this.findMissingParams(expectation.params_subset!, matchingEvents[0]?.payload);
+          const reason = missingParams.length > 0 
+            ? `Expected dataLayer event '${expectation.event}' found but missing params: ${missingParams.join(', ')}`
+            : `Expected dataLayer event '${expectation.event}' found but params don't match expected subset`;
+          
           return {
             passed: false,
-            reason: `Expected dataLayer event '${expectation.event}' found but params don't match expected subset`,
+            reason,
           };
         }
       }
@@ -126,9 +132,15 @@ export class SSDExpectationMatcher {
       );
 
       if (matchingEvents.length === 0) {
+        // Find specific missing parameters for better error messages
+        const missingParams = this.findMissingParams(expectation.params_subset!, relevantEvents[0]?.payload);
+        const reason = missingParams.length > 0 
+          ? `Expected dataLayer params subset not found - missing params: ${missingParams.join(', ')}`
+          : `Expected dataLayer params subset not found`;
+        
         return {
           passed: false,
-          reason: `Expected dataLayer params subset not found`,
+          reason,
         };
       }
 
@@ -481,9 +493,9 @@ export class SSDExpectationMatcher {
       return this.isFuzzySubsetMatch(expected, actual);
     }
 
-    // Original strict matching
+    // Enhanced matching with wildcard and case-insensitive support
     if (typeof expected !== 'object' || expected === null) {
-      return expected === actual;
+      return this.isValueMatch(expected, actual);
     }
 
     if (typeof actual !== 'object' || actual === null) {
@@ -501,6 +513,53 @@ export class SSDExpectationMatcher {
     }
 
     return true;
+  }
+
+  /**
+   * Check if expected value matches actual value with wildcard support
+   */
+  private isValueMatch(expected: any, actual: any): boolean {
+    // Wildcard support: '*' matches any non-empty value
+    if (expected === '*') {
+      return actual !== null && actual !== undefined && actual !== '';
+    }
+
+    // Exact match for all types (including case-sensitive strings)
+    return expected === actual;
+  }
+
+  /**
+   * Find missing parameters in actual payload compared to expected subset
+   */
+  private findMissingParams(expected: any, actual: any): string[] {
+    const missing: string[] = [];
+    
+    if (typeof expected !== 'object' || expected === null) {
+      return missing;
+    }
+    
+    if (typeof actual !== 'object' || actual === null) {
+      // All expected keys are missing
+      return Object.keys(expected);
+    }
+    
+    for (const key in expected) {
+      if (!(key in actual)) {
+        missing.push(key);
+      } else if (!this.isSubsetMatch(expected[key], actual[key])) {
+        // Check if it's a value mismatch or nested missing param
+        if (typeof expected[key] === 'object' && expected[key] !== null) {
+          const nestedMissing = this.findMissingParams(expected[key], actual[key]);
+          if (nestedMissing.length > 0) {
+            missing.push(`${key}.${nestedMissing.join(', ')}`);
+          }
+        } else {
+          missing.push(key);
+        }
+      }
+    }
+    
+    return missing;
   }
 
   /**
@@ -531,9 +590,14 @@ export class SSDExpectationMatcher {
   }
 
   /**
-   * Fuzzy value matching with case-insensitive strings and numeric tolerance
+   * Fuzzy value matching with case-insensitive strings, wildcards, and numeric tolerance
    */
   private isFuzzyValueMatch(expected: any, actual: any): boolean {
+    // Wildcard support: '*' matches any non-empty value
+    if (expected === '*') {
+      return actual !== null && actual !== undefined && actual !== '';
+    }
+
     // Exact match for non-string, non-number types
     if (typeof expected !== 'string' && typeof expected !== 'number') {
       return expected === actual;

@@ -892,6 +892,73 @@ function normalizePdfSpec(input: any): any {
 }
 
 /**
+ * Helper function to resolve selector for header link
+ */
+async function resolveSelectorForHeaderLink(page: import('puppeteer').Page) {
+  return await page.evaluate(() => {
+    const isVisible = (el) => {
+      if (!el) return false;
+      const rect = el.getBoundingClientRect();
+      const style = window.getComputedStyle(el);
+      return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none' && style.opacity !== '0';
+    };
+
+    // regioni header/nav comuni
+    const headerRoots = Array.from(document.querySelectorAll("header,[role='banner'],.header,#header,nav[aria-label*='menu' i],nav[aria-label*='navigation' i],nav"));
+
+    // escludi elementi dentro il cookie dialog
+    const isInCookie = (el) => !!el.closest('#CybotCookiebotDialog, .CybotCookiebotDialog, #onetrust-banner-sdk, .ot-sdk-container, [id*="cookie" i], [class*="cookie" i]');
+
+    // candidati: link o bottoni nell'header
+    const candidates = [];
+    for (const root of headerRoots) {
+      for (const el of root.querySelectorAll('a,button,[role="button"]')) {
+        if (!isVisible(el)) continue;
+        if (isInCookie(el)) continue;
+        const aria = el.getAttribute('aria-label') || '';
+        const txt = (el.textContent || '').trim();
+        const href = el.getAttribute('href') || '';
+        candidates.push({ el, score: (aria ? 2 : 0) + (txt ? 1 : 0) + (href ? 1 : 0) });
+      }
+    }
+    // scegli il candidato con score maggiore (più informativo/visibile)
+    candidates.sort((a,b) => b.score - a.score);
+    const chosen = candidates[0]?.el;
+    if (!chosen) return null;
+
+    // genera un selettore CSS robusto
+    const buildSelector = (node) => {
+      if (!node) return null;
+      if (node.id) return `#${CSS.escape(node.id)}`;
+      const parts = [];
+      let el = node;
+      while (el && el.nodeType === 1 && parts.length < 5) {
+        let part = el.tagName.toLowerCase();
+        if (el.id) { part = `#${CSS.escape(el.id)}`; parts.unshift(part); break; }
+        if (el.className && typeof el.className === 'string') {
+          const cls = el.className.trim().split(/\s+/).slice(0,2).map(c => `.${CSS.escape(c)}`).join('');
+          part += cls;
+        }
+        const same = Array.from(el.parentElement?.children || []).filter(x => x.tagName === el.tagName);
+        if (same.length > 1) {
+          const idx = same.indexOf(el) + 1;
+          part += `:nth-of-type(${idx})`;
+        }
+        parts.unshift(part);
+        el = el.parentElement;
+      }
+      return parts.join(' > ');
+    };
+
+    const selector = buildSelector(chosen);
+    const text = (chosen.textContent || '').trim();
+    const aria = chosen.getAttribute('aria-label') || '';
+    const href = chosen.getAttribute('href') || '';
+    return selector ? { selector, text, aria, href } : null;
+  });
+}
+
+/**
  * Esegue i test PDF nella stessa sessione browser
  */
 async function executePdfTests(testSpec: any, options: any, browserInstance: any) {
@@ -999,6 +1066,45 @@ async function executePdfTests(testSpec: any, options: any, browserInstance: any
       };
 
       try {
+        // Check if we need to resolve selector for header link
+        if (step.target?.kind === 'selector' && step.target?.value === 'to-be-determined') {
+          console.log(`🔍 Resolving selector in runtime for step ${i + 1}`);
+          const resolved = await resolveSelectorForHeaderLink(page);
+          
+          if (resolved?.selector) {
+            console.log(`✅ Resolved selector: ${resolved.selector}`);
+            console.log(`✅ Resolved text: ${resolved.text}`);
+            console.log(`✅ Resolved aria: ${resolved.aria}`);
+            console.log(`✅ Resolved href: ${resolved.href}`);
+            
+            // Override the step target value
+            step.target.value = resolved.selector;
+            
+            // Populate wildcards in expect events if needed
+            if (step.expect && Array.isArray(step.expect)) {
+              step.expect.forEach(expectation => {
+                if (expectation.type === 'dataLayer' && expectation.event === 'header_menu_click' && expectation.params_subset) {
+                  if (expectation.params_subset.link_text === '*') {
+                    expectation.params_subset.link_text = resolved.aria || resolved.text || '*';
+                  }
+                  if (expectation.params_subset.link_url === '*') {
+                    expectation.params_subset.link_url = resolved.href || '*';
+                  }
+                  if (expectation.params_subset.index === '*') {
+                    expectation.params_subset.index = '*';
+                  }
+                }
+              });
+            }
+          } else {
+            console.log(`❌ Header link selector could not be resolved`);
+            stepResult.status = 'FAIL';
+            stepResult.error = 'Header link selector could not be resolved';
+            result.steps.push(stepResult);
+            continue; // Skip to next step without throwing exception
+          }
+        }
+
         if (step.action === 'navigate') {
           console.log(`🌐 Action: Navigate`);
           console.log(`🌐 Target URL: ${step.target.value}`);
