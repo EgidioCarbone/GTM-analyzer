@@ -187,6 +187,13 @@ IMPORTANT:
    * Get the user prompt with target URL and PDF text
    */
   private getUserPrompt(targetUrl: string, pdfText: string): string {
+    // Log PDF content to console for debugging
+    console.log('📄 PDF Content being sent to ChatGPT:');
+    console.log('=====================================');
+    console.log(pdfText);
+    console.log('=====================================');
+    console.log(`📏 PDF Content length: ${pdfText.length} characters`);
+    
     return `TARGET URL:
 ${targetUrl}
 
