@@ -1026,7 +1026,7 @@ async function resolveSelectorForHeaderLink(page: import('puppeteer').Page) {
 /**
  * Esegue i test PDF nella stessa sessione browser
  */
-async function executePdfTests(testSpec: any, options: any, browserInstance: any) {
+async function executePdfTests(testSpec: any, options: any, browserInstance: any, existingPage?: any) {
   const result = {
     status: 'FAIL',
     steps: [],
@@ -1085,9 +1085,24 @@ async function executePdfTests(testSpec: any, options: any, browserInstance: any
       return result;
     }
     
-    // Use the existing browser instance
-    const page = await browserInstance.newPage();
-    console.log('✓ New page created in existing browser session');
+    // Use existing page if provided, otherwise create new page
+    let page;
+    if (existingPage) {
+      page = existingPage;
+      console.log('✓ Using existing page from cookie consent test');
+      
+      // Ensure we're on the correct page - if not, navigate
+      const currentUrl = page.url();
+      const targetUrl = testSpec.site || options.site;
+      if (!currentUrl.includes(new URL(targetUrl).hostname)) {
+        console.log(`🔄 Navigating existing page to ${targetUrl}`);
+        await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        await new Promise(resolve => setTimeout(resolve, 2000)); // Wait for page to stabilize
+      }
+    } else {
+      page = await browserInstance.newPage();
+      console.log('✓ New page created in existing browser session');
+    }
     
     // Execute each test step
     console.log(`🚀 Starting execution of ${normalized.tests[0].steps?.length || 0} test steps`);
@@ -1403,7 +1418,7 @@ async function executeUnifiedTestFlow(siteUrl: string, pdfContent: string, optio
     
     let pdfTestResult = null;
     if (pdfTestSpec) {
-      pdfTestResult = await executePdfTests(pdfTestSpec, options, browser);
+      pdfTestResult = await executePdfTests(pdfTestSpec, options, browser, page);
       console.log('✓ PDF tests executed');
     } else {
       console.log('⚠️ PDF tests skipped (no specification)');
