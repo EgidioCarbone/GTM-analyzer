@@ -891,77 +891,56 @@ function normalizePdfSpec(input: any): any {
   return input;
 }
 
+// --- replace existing resolver with this robust version ---
 async function resolveSelectorForHeaderLink(page: import('puppeteer').Page) {
-  // Trova container plausibili di header/nav
-  const headerRoots = await page.$$('header, [role="banner"], .header, #header, nav[aria-label*="menu" i], nav[aria-label*="navigation" i], nav');
-  const candidates: Array<{handle: import('puppeteer').ElementHandle<Element>, rootIdx: number}> = [];
+  // 1) Attendi che l'header/nav esista nel DOM (fino a 5s)
+  const HEADER_QUERY = [
+    'header',
+    '[role="banner"]',
+    '.header',
+    '#header',
+    "nav[aria-label*='menu' i]",
+    "nav[aria-label*='navigation' i]",
+    'nav'
+  ].join(', ');
+  try {
+    await page.waitForSelector(HEADER_QUERY, { timeout: 5000 });
+  } catch {
+    console.warn('resolveSelectorForHeaderLink: header/nav not found within 5s, will try fallback anyway.');
+  }
 
-  // Colleziona link/bottoni visibili (ed escludi cookie banner)
-  for (let i = 0; i < headerRoots.length; i++) {
-    const root = headerRoots[i];
-    const els = await root.$$('a, button, [role="button"]');
-    for (const el of els) {
-      const visible = await isVisible(el);
-      const inCookie = await isInCookieBanner(el);
-      if (visible && !inCookie) candidates.push({ handle: el, rootIdx: i });
-      else await el.dispose().catch(() => {});
+  // Scroll minimale per attivare eventuali lazy render dello sticky header
+  await page.evaluate(() => window.scrollTo(0, 1)).catch(() => {});
+  await page.waitForTimeout(150);
+
+  // 2) Raccogli candidati dentro header/nav (max 10), visibili e non-cookie
+  //    NB: facciamo tutta la logica IN PAGE per evitare roundtrips e problemi di helper.
+  type Candidate = { selector: string, text: string, aria: string, href: string, score: number };
+  const headerCandidates: Candidate[] = await page.evaluate((HEADER_QUERY) => {
+    function cssEscapeSimple(s: string) {
+      return s.replace(/(["\\.#:[\]()<>+~*^$|])/g, '\\$1');
     }
-    await root.dispose().catch(() => {});
-  }
-
-  // Ordina i candidati per "qualità" (aria-label / testo / href)
-  const scored: Array<{
-    handle: import('puppeteer').ElementHandle<Element>,
-    score: number,
-    text: string,
-    aria: string,
-    href: string
-  }> = [];
-  for (const c of candidates) {
-    const { text, aria, href } = await page.evaluate((el) => {
-      const aria = el.getAttribute('aria-label') || '';
-      const txt = (el.textContent || '').trim();
-      const href = (el as HTMLAnchorElement).getAttribute?.('href') || '';
-      return { text: txt, aria, href };
-    }, c.handle);
-    const score = (aria ? 2 : 0) + (text ? 1 : 0) + (href ? 1 : 0);
-    scored.push({ handle: c.handle, score, text, aria, href });
-  }
-  scored.sort((a, b) => b.score - a.score);
-  const chosen = scored[0];
-  if (!chosen) return null;
-
-  // Costruisci un selettore robusto senza helpers esterni
-  // 1) preferisci ID
-  const id = await page.evaluate(el => el.id || '', chosen.handle);
-  if (id) {
-    await disposeAll(scored);
-    return { selector: `#${cssEscape(id)}`, text: chosen.text, aria: chosen.aria, href: chosen.href };
-  }
-
-  // 2) fallback: usa aria-label
-  if (chosen.aria) {
-    await disposeAll(scored);
-    return { selector: `[aria-label="${cssEscapeAttr(chosen.aria)}"]`, text: chosen.text, aria: chosen.aria, href: chosen.href };
-  }
-
-  // 3) fallback: costruisci un path CSS corto con nth-of-type (max 5 livelli)
-  const selector = await page.evaluate((el) => {
-    function cssEscapeSimple(s:string){ return s.replace(/(["\\.#:[\]()<>+~*^$|])/g, '\\$1'); }
-    function shortPath(node: Element): string {
+    function shortSelector(el: Element): string {
+      // preferisci ID
+      if ((el as HTMLElement).id) return `#${cssEscapeSimple((el as HTMLElement).id)}`;
+      // preferisci aria-label
+      const aria = el.getAttribute('aria-label');
+      if (aria) return `[aria-label="${aria.replace(/(["\\])/g, '\\$1')}"]`;
+      // altrimenti costruisci un path breve (max 5 livelli) con nth-of-type
       const parts: string[] = [];
-      let cur: Element | null = node;
+      let cur: Element | null = el;
       let depth = 0;
       while (cur && depth < 5) {
         let part = cur.tagName.toLowerCase();
-        if (cur.id) { part = `#${cssEscapeSimple(cur.id)}`; parts.unshift(part); break; }
-        const cls = (cur.className && typeof cur.className === 'string')
-          ? cur.className.trim().split(/\s+/).slice(0,2).map(c => `.${cssEscapeSimple(c)}`).join('')
-          : '';
-        part += cls;
+        if ((cur as HTMLElement).id) { part = `#${cssEscapeSimple((cur as HTMLElement).id)}`; parts.unshift(part); break; }
+        const cls = (cur as HTMLElement).className;
+        if (cls && typeof cls === 'string') {
+          const firstTwo = cls.trim().split(/\s+/).slice(0, 2).map(c => `.${cssEscapeSimple(c)}`).join('');
+          part += firstTwo;
+        }
         const parent = cur.parentElement;
         if (parent) {
-          const siblings = Array.from(parent.children).filter(ch => ch.tagName === cur!.tagName);
+          const siblings = Array.from(parent.children).filter(ch => (ch as Element).tagName === cur!.tagName);
           if (siblings.length > 1) {
             const idx = siblings.indexOf(cur) + 1;
             part += `:nth-of-type(${idx})`;
@@ -973,31 +952,91 @@ async function resolveSelectorForHeaderLink(page: import('puppeteer').Page) {
       }
       return parts.join(' > ');
     }
-    return shortPath(el);
-  }, chosen.handle);
+    function isVisible(el: Element) {
+      const rect = (el as HTMLElement).getBoundingClientRect();
+      if (!rect || rect.width === 0 || rect.height === 0) return false;
+      const cs = window.getComputedStyle(el as HTMLElement);
+      if (cs.display === 'none' || cs.visibility === 'hidden' || cs.opacity === '0') return false;
+      return true;
+    }
+    function isInCookieBanner(el: Element) {
+      return !!(el.closest?.('#CybotCookiebotDialog, .CybotCookiebotDialog, #onetrust-banner-sdk, .ot-sdk-container, [id*="cookie" i], [class*="cookie" i]'));
+    }
 
-  await disposeAll(scored);
-  if (!selector) return null;
-  return { selector, text: chosen.text, aria: chosen.aria, href: chosen.href };
+    const roots = Array.from(document.querySelectorAll(HEADER_QUERY));
+    const found: Candidate[] = [];
+    for (const root of roots) {
+      const els = Array.from(root.querySelectorAll('a, button, [role="button"]')) as Element[];
+      for (const el of els) {
+        if (!isVisible(el)) continue;
+        if (isInCookieBanner(el)) continue;
+        const text = (el.textContent || '').trim();
+        const aria = el.getAttribute('aria-label') || '';
+        const href = (el as HTMLAnchorElement).getAttribute?.('href') || '';
+        const selector = shortSelector(el);
+        // scoring semplice: aria pesa di più, poi testo, poi href
+        const score = (aria ? 2 : 0) + (text ? 1 : 0) + (href ? 1 : 0);
+        if (selector) found.push({ selector, text, aria, href, score });
+      }
+      if (found.length >= 10) break;
+    }
+    // ordina per score desc
+    found.sort((a, b) => b.score - a.score);
+    return found.slice(0, 10);
+  }, HEADER_QUERY);
 
-  // Helpers locali, semplici e usati solo lato Node + evaluate minima
-  async function isVisible(el: import('puppeteer').ElementHandle<Element>) {
-    const box = await el.boundingBox();
-    if (!box || box.width === 0 || box.height === 0) return false;
-    const styles = await el.evaluate((e) => {
-      const cs = window.getComputedStyle(e);
-      return { vis: cs.visibility, disp: cs.display, op: cs.opacity };
-    });
-    return styles.vis !== 'hidden' && styles.disp !== 'none' && styles.op !== '0';
+  // 3) Debug chiaro
+  if (headerCandidates.length) {
+    console.log(`[resolver] header candidates (${headerCandidates.length}):`);
+    for (const c of headerCandidates) {
+      console.log(` - sel: ${c.selector} | text: "${c.text}" | aria: "${c.aria}" | href: "${c.href}" | score: ${c.score}`);
+    }
+  } else {
+    console.warn('[resolver] no header candidates found inside header/nav.');
   }
-  async function isInCookieBanner(el: import('puppeteer').ElementHandle<Element>) {
-    return await el.evaluate((node) => !!(node.closest?.('#CybotCookiebotDialog, .CybotCookiebotDialog, #onetrust-banner-sdk, .ot-sdk-container, [id*="cookie" i], [class*="cookie" i]')));
+
+  // 4) Scegli il migliore oppure fallback
+  let chosen = headerCandidates[0] || null;
+
+  // Fallback 1: primo link visibile in header/nav, anche senza score (già incluso sopra, ma se vuoto prova globale)
+  if (!chosen) {
+    chosen = await page.evaluate((HEADER_QUERY) => {
+      function isVisible(el: Element) {
+        const rect = (el as HTMLElement).getBoundingClientRect();
+        if (!rect || rect.width === 0 || rect.height === 0) return false;
+        const cs = window.getComputedStyle(el as HTMLElement);
+        if (cs.display === 'none' || cs.visibility === 'hidden' || cs.opacity === '0') return false;
+        return true;
+      }
+      function isInCookieBanner(el: Element) {
+        return !!(el.closest?.('#CybotCookiebotDialog, .CybotCookiebotDialog, #onetrust-banner-sdk, .ot-sdk-container, [id*="cookie" i], [class*="cookie" i]'));
+      }
+      const root = document.querySelector(HEADER_QUERY);
+      if (!root) return null;
+      const el = Array.from(root.querySelectorAll('a, button, [role="button"]')).find(e => isVisible(e) && !isInCookieBanner(e));
+      if (!el) return null;
+      return {
+        selector: 'a, button, [role="button"]',
+        text: (el.textContent || '').trim(),
+        aria: el.getAttribute('aria-label') || '',
+        href: (el as HTMLAnchorElement).getAttribute?.('href') || '',
+        score: 0
+      };
+    }, HEADER_QUERY);
+    if (chosen) console.log('[resolver] using generic header selector fallback.');
   }
-  async function disposeAll(arr: Array<{handle: import('puppeteer').ElementHandle<Element>}>) {
-    await Promise.allSettled(arr.map(x => x.handle.dispose()));
+
+  // Fallback 2: globale sicuro (sempre escludendo il cookie banner)
+  if (!chosen) {
+    const GLOBAL_SAFE = ":is(header,[role='banner'],.header,#header,nav[aria-label*='menu' i],nav[aria-label*='navigation' i],nav) :is(a,button,[role='button']):not(#CybotCookiebotDialog * , [class*='cookie' i], [id*='cookie' i])";
+    const ok = await page.$(GLOBAL_SAFE);
+    if (ok) {
+      console.log('[resolver] using GLOBAL_SAFE fallback selector.');
+      return { selector: GLOBAL_SAFE, text: '', aria: '', href: '' };
+    }
   }
-  function cssEscape(s: string) { return s.replace(/([ !"#$%&'()*+,./:;<=>?@[\\\]^`{|}~])/g, '\\$1'); }
-  function cssEscapeAttr(s: string) { return s.replace(/(["\\])/g, '\\$1'); }
+
+  return chosen ? { selector: chosen.selector, text: chosen.text, aria: chosen.aria, href: chosen.href } : null;
 }
 
 /**
@@ -1110,16 +1149,17 @@ async function executePdfTests(testSpec: any, options: any, browserInstance: any
       try {
         // Check if we need to resolve selector for header link
         if (step.target?.kind === 'selector' && step.target?.value === 'to-be-determined') {
-          console.log(`🔍 Resolving selector in runtime for step ${i + 1}`);
+          console.log('🔍 Resolving selector in runtime for step 1');
           const resolved = await resolveSelectorForHeaderLink(page);
           
-          if (resolved?.selector) {
-            console.log(`✅ Resolved selector: ${resolved.selector}`);
-            console.log(`✅ Resolved text: ${resolved.text}`);
-            console.log(`✅ Resolved aria: ${resolved.aria}`);
-            console.log(`✅ Resolved href: ${resolved.href}`);
-            
-            // Override the step target value
+          if (!resolved) {
+            console.error('❌ Header link selector could not be resolved');
+            stepResult.status = 'FAIL';
+            stepResult.error = 'Header link selector could not be resolved';
+            result.steps.push(stepResult);
+            continue; // Skip to next step without throwing exception
+          } else {
+            console.log(`✅ Resolved header link => selector: ${resolved.selector} | text: "${resolved.text}" | aria: "${resolved.aria}" | href: "${resolved.href}"`);
             step.target.value = resolved.selector;
             
             // Populate wildcards in expect events if needed
@@ -1138,12 +1178,6 @@ async function executePdfTests(testSpec: any, options: any, browserInstance: any
                 }
               });
             }
-          } else {
-            console.log(`❌ Header link selector could not be resolved`);
-            stepResult.status = 'FAIL';
-            stepResult.error = 'Header link selector could not be resolved';
-            result.steps.push(stepResult);
-            continue; // Skip to next step without throwing exception
           }
         }
 
