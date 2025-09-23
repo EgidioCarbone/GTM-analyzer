@@ -916,33 +916,37 @@ async function resolveSelectorForHeaderLink(page: import('puppeteer').Page) {
   // 2) Raccogli candidati dentro header/nav (max 10), visibili e non-cookie
   //    NB: facciamo tutta la logica IN PAGE per evitare roundtrips e problemi di helper.
   const headerCandidates = await page.evaluate((HEADER_QUERY) => {
-    function cssEscapeSimple(s: string) {
+    function cssEscapeSimple(s) {
       return s.replace(/(["\\.#:[\]()<>+~*^$|])/g, '\\$1');
     }
-    function shortSelector(el: Element): string {
+    function shortSelector(el) {
       // preferisci ID
-      if ((el as HTMLElement).id) return `#${cssEscapeSimple((el as HTMLElement).id)}`;
+      if (el.id) return '#' + cssEscapeSimple(el.id);
       // preferisci aria-label
       const aria = el.getAttribute('aria-label');
-      if (aria) return `[aria-label="${aria.replace(/(["\\])/g, '\\$1')}"]`;
+      if (aria) return '[aria-label="' + aria.replace(/(["\\])/g, '\\$1') + '"]';
       // altrimenti costruisci un path breve (max 5 livelli) con nth-of-type
-      const parts: string[] = [];
-      let cur: Element | null = el;
+      const parts = [];
+      let cur = el;
       let depth = 0;
       while (cur && depth < 5) {
         let part = cur.tagName.toLowerCase();
-        if ((cur as HTMLElement).id) { part = `#${cssEscapeSimple((cur as HTMLElement).id)}`; parts.unshift(part); break; }
-        const cls = (cur as HTMLElement).className;
+        if (cur.id) { 
+          part = '#' + cssEscapeSimple(cur.id); 
+          parts.unshift(part); 
+          break; 
+        }
+        const cls = cur.className;
         if (cls && typeof cls === 'string') {
-          const firstTwo = cls.trim().split(/\s+/).slice(0, 2).map(c => `.${cssEscapeSimple(c)}`).join('');
+          const firstTwo = cls.trim().split(/\s+/).slice(0, 2).map(function(c) { return '.' + cssEscapeSimple(c); }).join('');
           part += firstTwo;
         }
         const parent = cur.parentElement;
         if (parent) {
-          const siblings = Array.from(parent.children).filter(ch => (ch as Element).tagName === cur!.tagName);
+          const siblings = Array.from(parent.children).filter(function(ch) { return ch.tagName === cur.tagName; });
           if (siblings.length > 1) {
             const idx = siblings.indexOf(cur) + 1;
-            part += `:nth-of-type(${idx})`;
+            part += ':nth-of-type(' + idx + ')';
           }
         }
         parts.unshift(part);
@@ -951,38 +955,40 @@ async function resolveSelectorForHeaderLink(page: import('puppeteer').Page) {
       }
       return parts.join(' > ');
     }
-    function isVisible(el: Element) {
-      const rect = (el as HTMLElement).getBoundingClientRect();
+    function isVisible(el) {
+      const rect = el.getBoundingClientRect();
       if (!rect || rect.width === 0 || rect.height === 0) return false;
-      const cs = window.getComputedStyle(el as HTMLElement);
+      const cs = window.getComputedStyle(el);
       if (cs.display === 'none' || cs.visibility === 'hidden' || cs.opacity === '0') return false;
       return true;
     }
-    function isInCookieBanner(el: Element) {
-      return !!(el.closest?.('#CybotCookiebotDialog, .CybotCookiebotDialog, #onetrust-banner-sdk, .ot-sdk-container, [id*="cookie" i], [class*="cookie" i]'));
+    function isInCookieBanner(el) {
+      return !!(el.closest && el.closest('#CybotCookiebotDialog, .CybotCookiebotDialog, #onetrust-banner-sdk, .ot-sdk-container, [id*="cookie" i], [class*="cookie" i]'));
     }
 
     const roots = Array.from(document.querySelectorAll(HEADER_QUERY));
-    const found: Candidate[] = [];
-    for (const root of roots) {
-      const els = Array.from(root.querySelectorAll('a, button, [role="button"]')) as Element[];
-      for (const el of els) {
+    const found = [];
+    for (let i = 0; i < roots.length; i++) {
+      const root = roots[i];
+      const els = Array.from(root.querySelectorAll('a, button, [role="button"]'));
+      for (let j = 0; j < els.length; j++) {
+        const el = els[j];
         if (!isVisible(el)) continue;
         if (isInCookieBanner(el)) continue;
         const text = (el.textContent || '').trim();
         const aria = el.getAttribute('aria-label') || '';
-        const href = (el as HTMLAnchorElement).getAttribute?.('href') || '';
+        const href = el.getAttribute && el.getAttribute('href') || '';
         const selector = shortSelector(el);
         // scoring semplice: aria pesa di più, poi testo, poi href
         const score = (aria ? 2 : 0) + (text ? 1 : 0) + (href ? 1 : 0);
-        if (selector) found.push({ selector, text, aria, href, score });
+        if (selector) found.push({ selector: selector, text: text, aria: aria, href: href, score: score });
       }
       if (found.length >= 10) break;
     }
     // ordina per score desc
-    found.sort((a, b) => b.score - a.score);
+    found.sort(function(a, b) { return b.score - a.score; });
     return found.slice(0, 10);
-  }, HEADER_QUERY) as Array<{ selector: string, text: string, aria: string, href: string, score: number }>;
+  }, HEADER_QUERY);
 
   // 3) Debug chiaro
   if (headerCandidates.length) {
@@ -1000,27 +1006,32 @@ async function resolveSelectorForHeaderLink(page: import('puppeteer').Page) {
   // Fallback 1: primo link visibile in header/nav, anche senza score (già incluso sopra, ma se vuoto prova globale)
   if (!chosen) {
     chosen = await page.evaluate((HEADER_QUERY) => {
-      function isVisible(el: Element) {
-        const rect = (el as HTMLElement).getBoundingClientRect();
+      function isVisible(el) {
+        const rect = el.getBoundingClientRect();
         if (!rect || rect.width === 0 || rect.height === 0) return false;
-        const cs = window.getComputedStyle(el as HTMLElement);
+        const cs = window.getComputedStyle(el);
         if (cs.display === 'none' || cs.visibility === 'hidden' || cs.opacity === '0') return false;
         return true;
       }
-      function isInCookieBanner(el: Element) {
-        return !!(el.closest?.('#CybotCookiebotDialog, .CybotCookiebotDialog, #onetrust-banner-sdk, .ot-sdk-container, [id*="cookie" i], [class*="cookie" i]'));
+      function isInCookieBanner(el) {
+        return !!(el.closest && el.closest('#CybotCookiebotDialog, .CybotCookiebotDialog, #onetrust-banner-sdk, .ot-sdk-container, [id*="cookie" i], [class*="cookie" i]'));
       }
       const root = document.querySelector(HEADER_QUERY);
       if (!root) return null;
-      const el = Array.from(root.querySelectorAll('a, button, [role="button"]')).find(e => isVisible(e) && !isInCookieBanner(e));
-      if (!el) return null;
-      return {
-        selector: 'a, button, [role="button"]',
-        text: (el.textContent || '').trim(),
-        aria: el.getAttribute('aria-label') || '',
-        href: (el as HTMLAnchorElement).getAttribute?.('href') || '',
-        score: 0
-      };
+      const els = Array.from(root.querySelectorAll('a, button, [role="button"]'));
+      for (let i = 0; i < els.length; i++) {
+        const el = els[i];
+        if (isVisible(el) && !isInCookieBanner(el)) {
+          return {
+            selector: 'a, button, [role="button"]',
+            text: (el.textContent || '').trim(),
+            aria: el.getAttribute('aria-label') || '',
+            href: el.getAttribute && el.getAttribute('href') || '',
+            score: 0
+          };
+        }
+      }
+      return null;
     }, HEADER_QUERY);
     if (chosen) console.log('[resolver] using generic header selector fallback.');
   }
