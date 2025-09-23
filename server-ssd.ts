@@ -1002,9 +1002,9 @@ async function resolveSelectorForHeaderLink(page: import('puppeteer').Page) {
         return globalResult;
       }
       
-      // Ultimate fallback - just click the first visible link
+      // Ultimate fallback - just click any link
       return { 
-        selector: 'a:first-of-type', 
+        selector: 'a', 
         text: '', 
         aria: '', 
         href: '' 
@@ -1015,7 +1015,7 @@ async function resolveSelectorForHeaderLink(page: import('puppeteer').Page) {
     console.error('[resolver] Error during resolution:', error.message);
     // Ultimate fallback
     return { 
-      selector: 'a, button, [role="button"]', 
+      selector: 'a', 
       text: '', 
       aria: '', 
       href: '' 
