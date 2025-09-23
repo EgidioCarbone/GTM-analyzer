@@ -780,6 +780,118 @@ async function executeCookieConsentTestFromDSL(dsl: any, options: any) {
 }
 
 /**
+ * Normalizza la specifica PDF per il formato runner
+ * Accetta sia il formato "LLM" che quello "interno" e li mappa al formato runner
+ */
+function normalizePdfSpec(input: any): any {
+  // Se input?.tests è già un array → restituisci così com'è (già formato runner)
+  if (input?.tests && Array.isArray(input.tests)) {
+    return input;
+  }
+  
+  // Se input?.test_spec esiste, processa il formato interno
+  if (input?.test_spec) {
+    const testSpec = input.test_spec;
+    
+    if (!testSpec.steps || !Array.isArray(testSpec.steps)) {
+      const error = new Error('Spec PDF priva di test/steps');
+      (error as any).code = 'INVALID_PDF_SPEC';
+      throw error;
+    }
+    
+    // Mappa ogni item con { section, steps }
+    const mappedTests = testSpec.steps.map((item: any) => {
+      if (!item.section || !item.steps || !Array.isArray(item.steps)) {
+        const error = new Error('Spec PDF priva di test/steps');
+        (error as any).code = 'INVALID_PDF_SPEC';
+        throw error;
+      }
+      
+      return {
+        section: item.section,
+        steps: item.steps.map((step: any) => {
+          const normalizedStep: any = {
+            action: step.action,
+            target: step.target,
+            value: step.value
+          };
+          
+          // Processa expectations se esistono
+          if (step.expectations) {
+            const expectArray: any[] = [];
+            
+            // Se c'è expectations.dataLayer
+            if (step.expectations.dataLayer) {
+              const dataLayer = step.expectations.dataLayer;
+              let event = '';
+              let params_subset = {};
+              
+              if (typeof dataLayer === 'string') {
+                event = dataLayer;
+              } else if (typeof dataLayer === 'object' && dataLayer !== null) {
+                // Se dataLayer è un oggetto con chiavi (event + params)
+                if (dataLayer.event) {
+                  event = dataLayer.event;
+                  // Metti le altre chiavi in params_subset
+                  const { event: _, ...rest } = dataLayer;
+                  params_subset = rest;
+                } else {
+                  // Se non c'è event, usa la prima chiave come event
+                  const keys = Object.keys(dataLayer);
+                  if (keys.length > 0) {
+                    event = keys[0];
+                    const { [keys[0]]: _, ...rest } = dataLayer;
+                    params_subset = rest;
+                  }
+                }
+              }
+              
+              if (event) {
+                expectArray.push({
+                  type: 'dataLayer',
+                  event: event,
+                  params_subset: Object.keys(params_subset).length > 0 ? params_subset : undefined
+                });
+              }
+            }
+            
+            // Se c'è expectations.network_requests (array)
+            if (step.expectations.network_requests && Array.isArray(step.expectations.network_requests)) {
+              step.expectations.network_requests.forEach((url: string) => {
+                expectArray.push({
+                  type: 'network',
+                  url_contains: url
+                });
+              });
+            }
+            
+            if (expectArray.length > 0) {
+              normalizedStep.expect = expectArray;
+            }
+          }
+          
+          // Rimuovi il campo expectations
+          delete normalizedStep.expectations;
+          
+          return normalizedStep;
+        })
+      };
+    });
+    
+    return { tests: mappedTests };
+  }
+  
+  // Se dopo la normalizzazione tests è vuoto o non-array, lancia errore
+  if (!input?.tests || !Array.isArray(input.tests) || input.tests.length === 0) {
+    const error = new Error('Spec PDF priva di test/steps');
+    (error as any).code = 'INVALID_PDF_SPEC';
+    throw error;
+  }
+  
+  return input;
+}
+
+/**
  * Esegue i test PDF nella stessa sessione browser
  */
 async function executePdfTests(testSpec: any, options: any, browserInstance: any) {
@@ -800,10 +912,24 @@ async function executePdfTests(testSpec: any, options: any, browserInstance: any
     console.log('Test specification keys:', Object.keys(testSpec || {}));
     console.log('Number of tests:', testSpec?.tests?.length || 0);
     
+    // Guard-rails: Check if spec is valid and has tests
+    if (!testSpec || !Array.isArray(testSpec.tests) || testSpec.tests.length === 0) {
+      console.warn('[PDF] No tests in spec, skipping');
+      return { 
+        status: 'error', 
+        code: 'INVALID_PDF_SPEC', 
+        message: 'Nessun test trovato nella spec PDF',
+        steps: [],
+        error: 'Nessun test trovato nella spec PDF',
+        duration: Date.now() - startTime
+      };
+    }
+    
     if (testSpec?.tests && testSpec.tests.length > 0) {
       testSpec.tests.forEach((test, index) => {
         console.log(`📋 Test ${index + 1}: ${test.section}`);
         console.log(`📋 Steps in test ${index + 1}: ${test.steps?.length || 0}`);
+        // Protect access to test.steps with optional chaining
         test.steps?.forEach((step, stepIndex) => {
           console.log(`  📝 Step ${stepIndex + 1}: ${step.description}`);
           console.log(`  🎯 Action: ${step.action}`);
@@ -815,17 +941,47 @@ async function executePdfTests(testSpec: any, options: any, browserInstance: any
     console.log('Full test specification:', JSON.stringify(testSpec, null, 2));
     console.log('================================');
     
+    // Normalize PDF spec to runner format
+    let normalized;
+    try {
+      normalized = normalizePdfSpec(testSpec);
+      console.log('🔧 Normalized PDF spec (runner shape):', JSON.stringify(normalized, null, 2));
+    } catch (error) {
+      console.error('❌ Error normalizing PDF spec:', error.message);
+      result.error = error.message;
+      result.status = 'FAIL';
+      return result;
+    }
+    
     // Use the existing browser instance
     const page = await browserInstance.newPage();
     console.log('✓ New page created in existing browser session');
     
     // Execute each test step
-    console.log(`🚀 Starting execution of ${testSpec.tests[0].steps.length} test steps`);
+    console.log(`🚀 Starting execution of ${normalized.tests[0].steps?.length || 0} test steps`);
     
-    for (let i = 0; i < testSpec.tests[0].steps.length; i++) {
-      const step = testSpec.tests[0].steps[i];
+    // Protect access to steps with optional chaining and fallback to empty array
+    const steps = normalized.tests[0]?.steps || [];
+    
+    for (let i = 0; i < steps.length; i++) {
+      const step = steps[i];
+      
+      // Check if step has required action and target properties
+      if (!step?.action || !step?.target) {
+        console.warn(`[PDF] Step ${i + 1} missing required action or target, skipping`);
+        const stepResult = {
+          step: i + 1,
+          description: step?.description || 'Unknown step',
+          action: step?.action || 'unknown',
+          status: 'FAIL',
+          error: 'Step missing required action or target properties'
+        };
+        result.steps.push(stepResult);
+        continue;
+      }
+      
       console.log(`===== PDF TEST STEP ${i + 1} =====`);
-      console.log(`📝 Description: ${step.description}`);
+      console.log(`📝 Description: ${step.description || 'No description'}`);
       console.log(`🎯 Action: ${step.action}`);
       console.log(`🎯 Target:`, step.target);
       console.log(`🎯 Target kind: ${step.target?.kind}`);
@@ -836,7 +992,7 @@ async function executePdfTests(testSpec: any, options: any, browserInstance: any
       
       const stepResult = {
         step: i + 1,
-        description: step.description,
+        description: step.description || 'No description',
         action: step.action,
         status: 'FAIL',
         error: null
@@ -882,16 +1038,26 @@ async function executePdfTests(testSpec: any, options: any, browserInstance: any
           console.log(`✓ Type completed`);
         }
 
-        // Check expectations
-        if (step.expect && step.expect.length > 0) {
+        // Check expectations with protection
+        if (step.expect && Array.isArray(step.expect) && step.expect.length > 0) {
           console.log(`→ Checking ${step.expect.length} expectations...`);
           for (const expectation of step.expect) {
-            console.log(`  → Expectation: ${expectation.type} - ${JSON.stringify(expectation)}`);
+            // Protect access to expectation properties
+            if (!expectation || typeof expectation !== 'object') {
+              console.warn(`[PDF] Invalid expectation object, skipping`);
+              continue;
+            }
+            
+            console.log(`  → Expectation: ${expectation.type || 'unknown'} - ${JSON.stringify(expectation)}`);
             
             if (expectation.type === 'dataLayer') {
+              if (!expectation.event) {
+                console.warn(`[PDF] DataLayer expectation missing event property, skipping`);
+                continue;
+              }
               const dataLayer = await page.evaluate(() => window.dataLayer || []);
-              console.log(`  → Current dataLayer events:`, dataLayer.map(e => e.event).filter(Boolean));
-              const hasEvent = dataLayer.some(event => event.event === expectation.event);
+              console.log(`  → Current dataLayer events:`, dataLayer.map(e => e?.event).filter(Boolean));
+              const hasEvent = dataLayer.some(event => event?.event === expectation.event);
               if (!hasEvent) {
                 stepResult.status = 'FAIL';
                 stepResult.error = `Expected dataLayer event '${expectation.event}' not found`;
@@ -901,6 +1067,10 @@ async function executePdfTests(testSpec: any, options: any, browserInstance: any
                 console.log(`  ✓ Found expected dataLayer event '${expectation.event}'`);
               }
             } else if (expectation.type === 'element') {
+              if (!expectation.selector) {
+                console.warn(`[PDF] Element expectation missing selector property, skipping`);
+                continue;
+              }
               const element = await page.$(expectation.selector);
               if (!element) {
                 stepResult.status = 'FAIL';
@@ -911,8 +1081,12 @@ async function executePdfTests(testSpec: any, options: any, browserInstance: any
                 console.log(`  ✓ Found expected element '${expectation.selector}'`);
               }
             } else if (expectation.type === 'text') {
+              if (!expectation.text_contains) {
+                console.warn(`[PDF] Text expectation missing text_contains property, skipping`);
+                continue;
+              }
               const text = await page.textContent('body');
-              if (!text.includes(expectation.text_contains)) {
+              if (!text || !text.includes(expectation.text_contains)) {
                 stepResult.status = 'FAIL';
                 stepResult.error = `Expected text '${expectation.text_contains}' not found`;
                 console.log(`  ✗ Expected text '${expectation.text_contains}' not found`);
@@ -1975,9 +2149,24 @@ app.post('/api/ssd/run', async (req, res) => {
         
         console.log('✓ PDF spec generated successfully');
         
+        // Normalize PDF spec to runner format
+        let normalizedPdfSpec;
+        try {
+          normalizedPdfSpec = normalizePdfSpec(pdfSpec);
+          console.log('🔧 Normalized PDF spec (runner shape):', JSON.stringify(normalizedPdfSpec, null, 2));
+        } catch (error) {
+          console.error('❌ Error normalizing PDF spec:', error.message);
+          pdfResult = {
+            status: 'error',
+            code: 'INVALID_PDF_SPEC',
+            message: error.message
+          };
+          return;
+        }
+        
         // Execute PDF spec with runner
         console.log('🚀 Executing PDF spec with runner...');
-        const pdfTestResult = await executePdfTests(pdfSpec, options, browser);
+        const pdfTestResult = await executePdfTests(normalizedPdfSpec, options, browser);
         
         pdfResult = {
           status: pdfTestResult.status,

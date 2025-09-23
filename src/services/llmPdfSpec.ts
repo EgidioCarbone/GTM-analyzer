@@ -101,13 +101,34 @@ export class LLMPdfSpecService {
 Your task is to convert PDF slide deck content into a structured test specification that can be executed by an automated testing framework.
 
 CRITICAL REQUIREMENTS:
-1. Output ONLY valid JSON conforming to the TestSpec schema
-2. Do NOT include any explanatory text outside the JSON
-3. Use response_format: json_object as specified
-4. Assign confidence scores (0-1) to each step based on clarity
-5. Flag ambiguous targets with confidence < 0.6
-6. Never include PII, credentials, or sensitive data in targets
-7. Focus on user-facing actions and measurable outcomes
+1. Output SOLO JSON valido con questa struttura ESATTA:
+{
+  "tests": [
+    {
+      "section": "Header Navigation",
+      "steps": [
+        {
+          "action": "click",
+          "target": { "kind": "selector", "value": "<css selector>" },
+          "expect": [
+            { "type": "dataLayer", "event": "header_menu_click", "params_subset": { "link_text": "*", "link_url": "*", "index": "*" } }
+          ]
+        }
+      ]
+    }
+  ]
+}
+
+2. Non usare proprietà chiamate "test_spec" o "expectations".
+3. Non generare codice eseguibile, SOLO JSON.
+4. Se un selettore non è certo dal PDF, usa "selector": "to-be-determined" e metti una nota in un campo "notes" a livello di test (NON serve per il runner).
+5. IGNORA completamente il cookie banner (già testato altrove).
+6. Do NOT include any explanatory text outside the JSON
+7. Use response_format: json_object as specified
+8. Assign confidence scores (0-1) to each step based on clarity
+9. Flag ambiguous targets with confidence < 0.6
+10. Never include PII, credentials, or sensitive data in targets
+11. Focus on user-facing actions and measurable outcomes
 
 TARGET RESOLUTION GUIDELINES:
 - Prefer semantic selectors (aria-label, data-testid) over CSS selectors
@@ -158,8 +179,28 @@ Please analyze the HTML to generate accurate selectors for the test specificatio
 5. Add network request expectations for tracking (GA4, GTM, etc.)
 6. Mark ambiguous targets with low confidence scores
 7. Ensure all steps are executable and measurable
+8. IGNORA completamente il cookie banner (già testato altrove)
+9. Se un selettore non è certo dal PDF, usa "selector": "to-be-determined" e metti una nota in un campo "notes" a livello di test
 
-OUTPUT: Valid JSON conforming to the TestSpec schema.`;
+OUTPUT: SOLO JSON valido con la struttura ESATTA del runner:
+{
+  "tests": [
+    {
+      "section": "Header Navigation",
+      "steps": [
+        {
+          "action": "click",
+          "target": { "kind": "selector", "value": "<css selector>" },
+          "expect": [
+            { "type": "dataLayer", "event": "header_menu_click", "params_subset": { "link_text": "*", "link_url": "*", "index": "*" } }
+          ]
+        }
+      ]
+    }
+  ]
+}
+
+Non usare proprietà chiamate "test_spec" o "expectations". Non generare codice eseguibile, SOLO JSON.`;
 
     return prompt;
   }
