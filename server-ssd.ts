@@ -915,8 +915,7 @@ async function resolveSelectorForHeaderLink(page: import('puppeteer').Page) {
 
   // 2) Raccogli candidati dentro header/nav (max 10), visibili e non-cookie
   //    NB: facciamo tutta la logica IN PAGE per evitare roundtrips e problemi di helper.
-  type Candidate = { selector: string, text: string, aria: string, href: string, score: number };
-  const headerCandidates: Candidate[] = await page.evaluate((HEADER_QUERY) => {
+  const headerCandidates = await page.evaluate((HEADER_QUERY) => {
     function cssEscapeSimple(s: string) {
       return s.replace(/(["\\.#:[\]()<>+~*^$|])/g, '\\$1');
     }
@@ -983,7 +982,7 @@ async function resolveSelectorForHeaderLink(page: import('puppeteer').Page) {
     // ordina per score desc
     found.sort((a, b) => b.score - a.score);
     return found.slice(0, 10);
-  }, HEADER_QUERY);
+  }, HEADER_QUERY) as Array<{ selector: string, text: string, aria: string, href: string, score: number }>;
 
   // 3) Debug chiaro
   if (headerCandidates.length) {
