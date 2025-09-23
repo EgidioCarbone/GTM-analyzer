@@ -963,10 +963,48 @@ async function resolveSelectorForHeaderLink(page: import('puppeteer').Page) {
       console.log(`[resolver] Found header link: selector="${result.selector}" text="${result.text}" href="${result.href}" aria="${result.aria}"`);
       return result;
     } else {
-      console.log('[resolver] No header links found, using fallback');
-      // Simple fallback
+      console.log('[resolver] No header links found, trying global search...');
+      
+      // Try to find any visible link on the page
+      const globalResult = await page.evaluate(() => {
+        const links = document.querySelectorAll('a, button, [role="button"]');
+        for (let i = 0; i < links.length; i++) {
+          const link = links[i];
+          const rect = link.getBoundingClientRect();
+          const style = window.getComputedStyle(link);
+          
+          if (rect.width > 0 && rect.height > 0 && 
+              style.display !== 'none' && 
+              style.visibility !== 'hidden' && 
+              style.opacity !== '0') {
+            
+            // Check if not in cookie banner
+            const isInCookie = link.closest('#CybotCookiebotDialog, .CybotCookiebotDialog, #onetrust-banner-sdk, .ot-sdk-container, [id*="cookie" i], [class*="cookie" i]');
+            
+            if (!isInCookie) {
+              const text = (link.textContent || '').trim();
+              if (text && text.length > 0) {
+                return {
+                  selector: link.id ? '#' + link.id : 'a:first-of-type',
+                  text: text,
+                  href: link.getAttribute('href') || '',
+                  aria: link.getAttribute('aria-label') || ''
+                };
+              }
+            }
+          }
+        }
+        return null;
+      });
+      
+      if (globalResult) {
+        console.log(`[resolver] Found global link: selector="${globalResult.selector}" text="${globalResult.text}"`);
+        return globalResult;
+      }
+      
+      // Ultimate fallback - just click the first visible link
       return { 
-        selector: 'a, button, [role="button"]', 
+        selector: 'a:first-of-type', 
         text: '', 
         aria: '', 
         href: '' 
