@@ -102,6 +102,9 @@ export interface TestReport {
     screenshotsFolder: string;
     rawLogsPath: string;
   };
+  cookieConsentTest?: any;           // Results of cookie consent test
+  pdfTests?: any;                    // Results of PDF tests
+  pdfTestSpec?: any;                 // PDF test specification
 }
 
 export interface TestResult {
@@ -143,6 +146,7 @@ export interface SSDTestState {
   url: string;
   pdfFile: File | null;
   dsl: TestSpec | null;
+  pdfContent: string | null;
   report: TestReport | null;
   isLoading: boolean;
   error: string | null;

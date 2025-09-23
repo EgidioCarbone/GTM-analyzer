@@ -53,6 +53,7 @@ export default function SSDTestPage() {
     url: '',
     pdfFile: null,
     dsl: null,
+    pdfContent: null,
     report: null,
     isLoading: false,
     error: null,
@@ -63,6 +64,7 @@ export default function SSDTestPage() {
   const [isEditingDsl, setIsEditingDsl] = useState(false);
   const [dslValidationError, setDslValidationError] = useState<string | null>(null);
   const [originalDsl, setOriginalDsl] = useState<TestSpec | null>(null);
+
 
   // API base URL configuration
   const apiBaseUrl = import.meta.env.VITE_API_BASE || (window.location.origin === 'http://localhost:5173' ? 'http://localhost:4000' : '');
@@ -198,10 +200,23 @@ export default function SSDTestPage() {
       setState(prev => ({
         ...prev,
         dsl: result.dsl,
-        currentStep: 'review',
+        pdfContent: result.pdfContent,
+        currentStep: 'upload', // Keep on upload, we'll auto-run
         isLoading: false,
       }));
       setOriginalDsl(result.dsl);
+      
+      // Store the data for auto-run
+      console.log('Auto-running tests after specification generation...');
+      console.log('DSL generated:', result.dsl);
+      console.log('PDF Content length:', result.pdfContent?.length);
+      console.log('PDF Buffer Path:', result.pdfBufferPath);
+      
+      // Use setTimeout to ensure state is updated
+      setTimeout(() => {
+        console.log('About to call handleRunTests with stored data...');
+        handleRunTestsWithData(result.dsl, result.pdfContent, result.pdfBufferPath);
+      }, 1000);
       setEditableDsl(JSON.stringify(result.dsl, null, 2));
       setLoadingType(null);
 
@@ -219,11 +234,113 @@ export default function SSDTestPage() {
 
   // Step 2: Review (universal mode - no disambiguation needed)
 
-  const handleRunTests = async () => {
-    if (!state.dsl) return;
+  const handleRunTestsWithData = async (dsl: any, pdfContent: string, pdfBufferPath?: string) => {
+    console.log('handleRunTestsWithData called');
+    console.log('dsl:', dsl);
+    console.log('pdfContent:', pdfContent);
+    console.log('pdfBufferPath:', pdfBufferPath);
+    
+    if (!dsl) {
+      console.log('No DSL provided, returning');
+      return;
+    }
 
+    console.log('Starting test execution with provided data...');
     setLoadingType('test');
-    setState(prev => ({ ...prev, isLoading: true, error: null }));
+    
+    // Update state with the provided data
+    setState(prev => ({ 
+      ...prev, 
+      dsl: dsl,
+      pdfContent: pdfContent,
+      isLoading: true, 
+      error: null 
+    }));
+
+    try {
+      const requestBody = {
+        dsl: dsl,
+        pdfContent: pdfContent,
+        pdfBufferPath: pdfBufferPath,
+        runOptions: {
+          headless: true,
+          consent: 'both',
+        },
+      };
+      
+      console.log('Frontend sending request body:', {
+        dsl: !!requestBody.dsl,
+        pdfContent: !!requestBody.pdfContent,
+        pdfContentLength: requestBody.pdfContent?.length || 0,
+        pdfContentPreview: requestBody.pdfContent?.substring(0, 100) + '...',
+        runOptions: requestBody.runOptions
+      });
+      
+      // Test JSON serialization
+      let jsonBody;
+      try {
+        jsonBody = JSON.stringify(requestBody);
+        console.log('✅ JSON serialization successful, length:', jsonBody.length);
+      } catch (jsonError) {
+        console.error('❌ JSON serialization failed:', jsonError);
+        throw new Error(`JSON serialization failed: ${jsonError.message}`);
+      }
+      
+      const response = await fetch(`${apiBaseUrl}/api/ssd/run`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: jsonBody,
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const result = await response.json();
+      
+      setState(prev => ({
+        ...prev,
+        report: result.report,
+        currentStep: 'run',
+        isLoading: false,
+      }));
+      setLoadingType(null);
+
+      toast.success('Tests completed successfully!');
+    } catch (error) {
+      setState(prev => ({
+        ...prev,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        isLoading: false,
+      }));
+      setLoadingType(null);
+      toast.error('Failed to run tests');
+    }
+  };
+
+  const handleRunTests = async () => {
+    console.log('handleRunTests called');
+    console.log('state.dsl:', state.dsl);
+    console.log('state.pdfContent:', state.pdfContent);
+    
+    if (!state.dsl) {
+      console.log('No DSL found, returning');
+      return;
+    }
+
+    console.log('Starting test execution...');
+    setLoadingType('test');
+    
+    // Update state with the provided data
+    setState(prev => ({ 
+      ...prev, 
+      dsl: dsl,
+      pdfContent: pdfContent,
+      isLoading: true, 
+      error: null 
+    }));
 
     try {
       const response = await fetch(`${apiBaseUrl}/api/ssd/run`, {
@@ -232,7 +349,8 @@ export default function SSDTestPage() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          dsl: state.dsl,
+          dsl: dsl,
+          pdfContent: pdfContent,
           runOptions: {
             headless: true,
             consent: 'both',
@@ -388,15 +506,14 @@ export default function SSDTestPage() {
         <div className="mb-8">
           <div className="flex items-center justify-center space-x-8">
             {[
-              { key: 'upload', label: 'Upload', icon: Upload },
-              { key: 'review', label: 'Review', icon: Eye },
-              { key: 'run', label: 'Run', icon: Play },
+              { key: 'upload', label: 'Upload & Process', icon: Upload },
+              { key: 'run', label: 'Results', icon: Play },
             ].map(({ key, label, icon: Icon }, index) => (
               <div key={key} className="flex items-center">
                 <div className={`flex items-center justify-center w-10 h-10 rounded-full ${
                   state.currentStep === key
                     ? 'bg-blue-600 text-white'
-                    : ['upload', 'review', 'run'].indexOf(state.currentStep) > index
+                    : (key === 'upload' && state.currentStep === 'run')
                     ? 'bg-green-600 text-white'
                     : 'bg-gray-300 text-gray-600'
                 }`}>
@@ -407,9 +524,9 @@ export default function SSDTestPage() {
                 }`}>
                   {label}
                 </span>
-                {index < 2 && (
+                {index < 1 && (
                   <div className={`w-8 h-0.5 mx-4 ${
-                    ['upload', 'review', 'run'].indexOf(state.currentStep) > index
+                    state.currentStep === 'run'
                       ? 'bg-green-600'
                       : 'bg-gray-300'
                   }`} />
@@ -444,6 +561,9 @@ export default function SSDTestPage() {
         {state.currentStep === 'upload' && (
           <Card className="p-6">
             <h2 className="text-xl font-semibold mb-4">Upload PDF and Target URL</h2>
+            <p className="text-sm text-gray-600 mb-6">
+              Upload your PDF specification and the system will automatically process it and run the tests.
+            </p>
             
             <div className="space-y-6">
               {/* URL Input */}
@@ -524,15 +644,15 @@ export default function SSDTestPage() {
                   ) : (
                     <FileText className="w-5 h-5 mr-3" />
                   )}
-                  {state.isLoading ? 'Processing PDF...' : 'Process PDF'}
+                  {state.isLoading ? 'Processing PDF & Running Tests...' : 'Process PDF & Run Tests'}
                 </Button>
               </div>
             </div>
           </Card>
         )}
 
-        {/* Step 2: Review & Disambiguation */}
-        {state.currentStep === 'review' && state.dsl && (
+        {/* Step 2: Review & Disambiguation - REMOVED - now auto-executes */}
+        {false && state.currentStep === 'review' && state.dsl && (
           <div className="space-y-6">
             {/* DSL Preview */}
             <Card className="p-6">
@@ -638,23 +758,11 @@ export default function SSDTestPage() {
               </Button>
               <div className="text-center">
                 <p className="text-sm text-gray-600 mb-2">
-                  Ready to execute the generated test specification?
+                  Test execution will start automatically...
                 </p>
                 <p className="text-xs text-gray-500 mb-3">
-                  The runner will execute exactly what the LLM generated - no hidden modifications
+                  The system will execute the generated test specification automatically
                 </p>
-                <Button
-                  onClick={handleRunTests}
-                  disabled={state.isLoading || !!dslValidationError}
-                  className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white font-semibold py-3 px-8 rounded-lg shadow-lg hover:shadow-xl transition-all duration-200 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
-                >
-                  {state.isLoading ? (
-                    <RefreshCw className="w-5 h-5 mr-3 animate-spin" />
-                  ) : (
-                    <Play className="w-5 h-5 mr-3" />
-                  )}
-                  {state.isLoading ? 'Running Tests...' : 'Run Tests'}
-                </Button>
               </div>
             </div>
           </div>
@@ -692,7 +800,7 @@ export default function SSDTestPage() {
             <Card className="p-6">
               <h2 className="text-xl font-semibold mb-4">Detailed Results</h2>
               <div className="space-y-4">
-                {state.report.results.map((result, index) => (
+                {state.report.results?.map((result, index) => (
                   <div
                     key={index}
                     className={`border rounded-lg p-4 ${
@@ -717,7 +825,7 @@ export default function SSDTestPage() {
                         </Badge>
                       </div>
                       <span className="text-sm text-gray-600">
-                        {result.timings.duration}ms
+                        {result.timings?.duration || 0}ms
                       </span>
                     </div>
                     
@@ -842,7 +950,7 @@ export default function SSDTestPage() {
                   Export Report
                 </Button>
                 <Button 
-                  onClick={handleRunTests} 
+                  onClick={() => handleRunTestsWithData(originalDsl, state.pdfContent || '', undefined)} 
                   className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold py-3 px-8 rounded-lg shadow-lg hover:shadow-xl transition-all duration-200 transform hover:scale-105 w-full sm:w-auto"
                 >
                   <RefreshCw className="w-4 h-4 mr-2" />

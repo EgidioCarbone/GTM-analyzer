@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import fsSync from 'fs';
 
 export interface OpenAISpecResponse {
   dsl: any;
@@ -45,7 +46,7 @@ export class OpenAISpecService {
    * @param targetUrl Target website URL
    * @returns Generated DSL and metadata
    */
-  async convertPDFToTestSpec(pdfText: string, targetUrl: string): Promise<OpenAISpecResponse> {
+  async convertPDFToTestSpec(pdfText: string, targetUrl: string, customPrompt?: string): Promise<OpenAISpecResponse> {
     try {
       // Validate inputs
       if (!pdfText || pdfText.trim().length === 0) {
@@ -58,7 +59,7 @@ export class OpenAISpecService {
 
       // Prepare the universal prompt
       const systemPrompt = this.getSystemPrompt();
-      const userPrompt = this.getUserPrompt(targetUrl, pdfText);
+      const userPrompt = customPrompt || this.getUserPrompt(targetUrl, pdfText);
 
       // Call OpenAI with structured output
       const response = await this.client.chat.completions.create({
@@ -232,6 +233,203 @@ YOUR TASK:
 - IMPORTANT: The "consent" field must be an array of strings like ["accept", "reject"] or ["accept"] - never a single string.
 - EXAMPLE: "consent": ["accept"] or "consent": ["accept", "reject"] - NOT "consent": "accept"
 - Return ONLY JSON. No comments.`;
+  }
+
+  /**
+   * Convert PDF and HTML files to TestSpec using OpenAI with file attachments
+   * @param pdfFilePath Path to PDF file
+   * @param htmlFilePath Path to HTML file
+   * @param prompt Custom prompt for the test generation
+   * @param targetUrl Target website URL
+   * @returns Generated DSL and metadata
+   */
+  async convertPDFToTestSpecWithFiles(pdfFilePath: string, htmlFilePath: string, prompt: string, targetUrl: string): Promise<OpenAISpecResponse> {
+    try {
+      // Validate inputs (PDF file path is optional now, we use extracted text in prompt)
+      if (!htmlFilePath) {
+        throw new OpenAIError('HTML file path is required', 'INVALID_RESPONSE');
+      }
+
+      if (!targetUrl || !this.isValidUrl(targetUrl)) {
+        throw new OpenAIError('Invalid target URL', 'INVALID_RESPONSE');
+      }
+
+      console.log('📝 Preparing HTML file for attachment...');
+      
+      // Create HTML file object for OpenAI
+      const htmlFile = await this.client.files.create({
+        file: fsSync.createReadStream(htmlFilePath),
+        purpose: 'assistants'
+      });
+
+      console.log('✅ HTML file uploaded to OpenAI:', {
+        htmlFileId: htmlFile.id
+      });
+
+      // Create enhanced prompt (without HTML content in text)
+      const enhancedPrompt = `${prompt}
+
+Note: I've attached the HTML content as a separate file. Use the HTML file to generate accurate selectors for the test specification.`;
+
+      console.log('📤 Using Assistants API with HTML file attachment...');
+      console.log('📋 Enhanced prompt length:', enhancedPrompt.length);
+
+      // Create assistant
+      const assistant = await this.client.beta.assistants.create({
+        name: 'Web Test Generator',
+        instructions: 'You are an expert in web testing. Generate test specifications based on PDF content and HTML files.',
+        model: this.model,
+        tools: [{ type: 'file_search' }],
+      });
+
+      console.log('✅ Assistant created:', assistant.id);
+
+      // Create thread
+      console.log('🔍 About to create thread...');
+      const thread = await this.client.beta.threads.create();
+      console.log('✅ Thread created:', thread.id);
+      console.log('🔍 Thread object:', JSON.stringify(thread, null, 2));
+      console.log('🔍 Thread ID type:', typeof thread.id, 'value:', thread.id);
+      
+      if (!thread.id) {
+        throw new OpenAIError('Failed to create thread: thread.id is undefined', 'API_ERROR');
+      }
+
+      // Save thread ID to avoid reference issues
+      const threadId = thread.id;
+      console.log('🔒 Thread ID saved:', threadId);
+      console.log('🔒 Thread ID type after save:', typeof threadId, 'value:', threadId);
+
+      // Add message with file attachment
+      await this.client.beta.threads.messages.create(threadId, {
+        role: 'user',
+        content: enhancedPrompt,
+        attachments: [{ 
+          file_id: htmlFile.id,
+          tools: [{ type: 'file_search' }]
+        }]
+      });
+
+      console.log('✅ Message with HTML file attachment added to thread');
+
+      // Run assistant
+      console.log('🔍 About to create run with threadId:', threadId);
+      const run = await this.client.beta.threads.runs.create(threadId, {
+        assistant_id: assistant.id,
+      });
+
+      console.log('✅ Run started:', run.id);
+      console.log('🔍 Run object:', JSON.stringify(run, null, 2));
+      console.log('🔍 Run ID type:', typeof run.id, 'value:', run.id);
+      
+      if (!run.id) {
+        throw new OpenAIError('Failed to create run: run.id is undefined', 'API_ERROR');
+      }
+
+      // Save run ID to avoid reference issues
+      const runId = run.id;
+      console.log('🔒 Run ID saved:', runId);
+      console.log('🔒 Run ID type after save:', typeof runId, 'value:', runId);
+
+      // Wait for completion
+      console.log('🔍 About to retrieve run status with:', { threadId, runId });
+      console.log('🔍 Thread ID type:', typeof threadId, 'value:', threadId);
+      console.log('🔍 Run ID type:', typeof runId, 'value:', runId);
+      console.log('🔍 Client type:', typeof this.client);
+      console.log('🔍 Client beta type:', typeof this.client.beta);
+      console.log('🔍 Client beta threads type:', typeof this.client.beta.threads);
+      console.log('🔍 Client beta threads runs type:', typeof this.client.beta.threads.runs);
+      console.log('🔍 Client beta threads runs retrieve type:', typeof this.client.beta.threads.runs.retrieve);
+      
+      let runStatus = await this.client.beta.threads.runs.retrieve(threadId, runId);
+      while (runStatus.status === 'queued' || runStatus.status === 'in_progress') {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        runStatus = await this.client.beta.threads.runs.retrieve(threadId, runId);
+      }
+
+      if (runStatus.status === 'failed') {
+        throw new OpenAIError(`Assistant run failed: ${runStatus.last_error?.message}`, 'API_ERROR');
+      }
+
+      console.log('✅ Run completed with status:', runStatus.status);
+
+      // Get messages
+      const messages = await this.client.beta.threads.messages.list(threadId);
+      const lastMessage = messages.data[0];
+      
+      if (!lastMessage || lastMessage.role !== 'assistant') {
+        throw new OpenAIError('No response from assistant', 'INVALID_RESPONSE');
+      }
+
+      const content = lastMessage.content[0];
+      if (content.type !== 'text') {
+        throw new OpenAIError('Invalid response type from assistant', 'INVALID_RESPONSE');
+      }
+
+      // Parse JSON response
+      let dsl;
+      try {
+        dsl = JSON.parse(content.text.value);
+      } catch (parseError) {
+        throw new OpenAIError(
+          `Invalid JSON response from OpenAI: ${parseError instanceof Error ? parseError.message : 'Unknown error'}`,
+          'INVALID_RESPONSE'
+        );
+      }
+
+      // Clean up resources
+      try {
+        await this.client.beta.assistants.del(assistant.id);
+        await this.client.beta.threads.del(threadId);
+        await this.client.files.del(htmlFile.id);
+        console.log('✅ Resources cleaned up');
+      } catch (cleanupError) {
+        console.log('⚠️ Error cleaning up resources:', cleanupError.message);
+      }
+
+      // Extract metadata
+      const meta = {
+        model: this.model,
+        tokens: {
+          input: 0, // Assistants API doesn't provide token usage in response
+          output: 0,
+        }
+      };
+
+      return {
+        dsl,
+        meta
+      };
+
+    } catch (error) {
+      if (error instanceof OpenAIError) {
+        throw error;
+      }
+
+      // Handle OpenAI API errors
+      if (error instanceof Error) {
+        if (error.message.includes('timeout')) {
+          throw new OpenAIError('OpenAI request timeout', 'TIMEOUT');
+        }
+        
+        if (error.message.includes('rate limit')) {
+          throw new OpenAIError('OpenAI rate limit exceeded', 'RATE_LIMIT');
+        }
+
+        if (error.message.includes('API key')) {
+          throw new OpenAIError('Invalid OpenAI API key', 'API_ERROR');
+        }
+
+        if (error.message.includes('quota')) {
+          throw new OpenAIError('OpenAI quota exceeded', 'API_ERROR');
+        }
+      }
+
+      throw new OpenAIError(
+        `OpenAI API error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        'API_ERROR'
+      );
+    }
   }
 
   /**
