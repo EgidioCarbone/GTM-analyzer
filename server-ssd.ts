@@ -891,71 +891,113 @@ function normalizePdfSpec(input: any): any {
   return input;
 }
 
-/**
- * Helper function to resolve selector for header link
- */
 async function resolveSelectorForHeaderLink(page: import('puppeteer').Page) {
-  return await page.evaluate(() => {
-    const isVisible = (el) => {
-      if (!el) return false;
-      const rect = el.getBoundingClientRect();
-      const style = window.getComputedStyle(el);
-      return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none' && style.opacity !== '0';
-    };
+  // Trova container plausibili di header/nav
+  const headerRoots = await page.$$('header, [role="banner"], .header, #header, nav[aria-label*="menu" i], nav[aria-label*="navigation" i], nav');
+  const candidates: Array<{handle: import('puppeteer').ElementHandle<Element>, rootIdx: number}> = [];
 
-    // regioni header/nav comuni
-    const headerRoots = Array.from(document.querySelectorAll("header,[role='banner'],.header,#header,nav[aria-label*='menu' i],nav[aria-label*='navigation' i],nav"));
-
-    // escludi elementi dentro il cookie dialog
-    const isInCookie = (el) => !!el.closest('#CybotCookiebotDialog, .CybotCookiebotDialog, #onetrust-banner-sdk, .ot-sdk-container, [id*="cookie" i], [class*="cookie" i]');
-
-    // candidati: link o bottoni nell'header
-    const candidates = [];
-    for (const root of headerRoots) {
-      for (const el of root.querySelectorAll('a,button,[role="button"]')) {
-        if (!isVisible(el)) continue;
-        if (isInCookie(el)) continue;
-        const aria = el.getAttribute('aria-label') || '';
-        const txt = (el.textContent || '').trim();
-        const href = el.getAttribute('href') || '';
-        candidates.push({ el, score: (aria ? 2 : 0) + (txt ? 1 : 0) + (href ? 1 : 0) });
-      }
+  // Colleziona link/bottoni visibili (ed escludi cookie banner)
+  for (let i = 0; i < headerRoots.length; i++) {
+    const root = headerRoots[i];
+    const els = await root.$$('a, button, [role="button"]');
+    for (const el of els) {
+      const visible = await isVisible(el);
+      const inCookie = await isInCookieBanner(el);
+      if (visible && !inCookie) candidates.push({ handle: el, rootIdx: i });
+      else await el.dispose().catch(() => {});
     }
-    // scegli il candidato con score maggiore (più informativo/visibile)
-    candidates.sort((a,b) => b.score - a.score);
-    const chosen = candidates[0]?.el;
-    if (!chosen) return null;
+    await root.dispose().catch(() => {});
+  }
 
-    // genera un selettore CSS robusto
-    const buildSelector = (node) => {
-      if (!node) return null;
-      if (node.id) return `#${CSS.escape(node.id)}`;
-      const parts = [];
-      let el = node;
-      while (el && el.nodeType === 1 && parts.length < 5) {
-        let part = el.tagName.toLowerCase();
-        if (el.id) { part = `#${CSS.escape(el.id)}`; parts.unshift(part); break; }
-        if (el.className && typeof el.className === 'string') {
-          const cls = el.className.trim().split(/\s+/).slice(0,2).map(c => `.${CSS.escape(c)}`).join('');
-          part += cls;
-        }
-        const same = Array.from(el.parentElement?.children || []).filter(x => x.tagName === el.tagName);
-        if (same.length > 1) {
-          const idx = same.indexOf(el) + 1;
-          part += `:nth-of-type(${idx})`;
+  // Ordina i candidati per "qualità" (aria-label / testo / href)
+  const scored: Array<{
+    handle: import('puppeteer').ElementHandle<Element>,
+    score: number,
+    text: string,
+    aria: string,
+    href: string
+  }> = [];
+  for (const c of candidates) {
+    const { text, aria, href } = await page.evaluate((el) => {
+      const aria = el.getAttribute('aria-label') || '';
+      const txt = (el.textContent || '').trim();
+      const href = (el as HTMLAnchorElement).getAttribute?.('href') || '';
+      return { text: txt, aria, href };
+    }, c.handle);
+    const score = (aria ? 2 : 0) + (text ? 1 : 0) + (href ? 1 : 0);
+    scored.push({ handle: c.handle, score, text, aria, href });
+  }
+  scored.sort((a, b) => b.score - a.score);
+  const chosen = scored[0];
+  if (!chosen) return null;
+
+  // Costruisci un selettore robusto senza helpers esterni
+  // 1) preferisci ID
+  const id = await page.evaluate(el => el.id || '', chosen.handle);
+  if (id) {
+    await disposeAll(scored);
+    return { selector: `#${cssEscape(id)}`, text: chosen.text, aria: chosen.aria, href: chosen.href };
+  }
+
+  // 2) fallback: usa aria-label
+  if (chosen.aria) {
+    await disposeAll(scored);
+    return { selector: `[aria-label="${cssEscapeAttr(chosen.aria)}"]`, text: chosen.text, aria: chosen.aria, href: chosen.href };
+  }
+
+  // 3) fallback: costruisci un path CSS corto con nth-of-type (max 5 livelli)
+  const selector = await page.evaluate((el) => {
+    function cssEscapeSimple(s:string){ return s.replace(/(["\\.#:[\]()<>+~*^$|])/g, '\\$1'); }
+    function shortPath(node: Element): string {
+      const parts: string[] = [];
+      let cur: Element | null = node;
+      let depth = 0;
+      while (cur && depth < 5) {
+        let part = cur.tagName.toLowerCase();
+        if (cur.id) { part = `#${cssEscapeSimple(cur.id)}`; parts.unshift(part); break; }
+        const cls = (cur.className && typeof cur.className === 'string')
+          ? cur.className.trim().split(/\s+/).slice(0,2).map(c => `.${cssEscapeSimple(c)}`).join('')
+          : '';
+        part += cls;
+        const parent = cur.parentElement;
+        if (parent) {
+          const siblings = Array.from(parent.children).filter(ch => ch.tagName === cur!.tagName);
+          if (siblings.length > 1) {
+            const idx = siblings.indexOf(cur) + 1;
+            part += `:nth-of-type(${idx})`;
+          }
         }
         parts.unshift(part);
-        el = el.parentElement;
+        cur = parent;
+        depth++;
       }
       return parts.join(' > ');
-    };
+    }
+    return shortPath(el);
+  }, chosen.handle);
 
-    const selector = buildSelector(chosen);
-    const text = (chosen.textContent || '').trim();
-    const aria = chosen.getAttribute('aria-label') || '';
-    const href = chosen.getAttribute('href') || '';
-    return selector ? { selector, text, aria, href } : null;
-  });
+  await disposeAll(scored);
+  if (!selector) return null;
+  return { selector, text: chosen.text, aria: chosen.aria, href: chosen.href };
+
+  // Helpers locali, semplici e usati solo lato Node + evaluate minima
+  async function isVisible(el: import('puppeteer').ElementHandle<Element>) {
+    const box = await el.boundingBox();
+    if (!box || box.width === 0 || box.height === 0) return false;
+    const styles = await el.evaluate((e) => {
+      const cs = window.getComputedStyle(e);
+      return { vis: cs.visibility, disp: cs.display, op: cs.opacity };
+    });
+    return styles.vis !== 'hidden' && styles.disp !== 'none' && styles.op !== '0';
+  }
+  async function isInCookieBanner(el: import('puppeteer').ElementHandle<Element>) {
+    return await el.evaluate((node) => !!(node.closest?.('#CybotCookiebotDialog, .CybotCookiebotDialog, #onetrust-banner-sdk, .ot-sdk-container, [id*="cookie" i], [class*="cookie" i]')));
+  }
+  async function disposeAll(arr: Array<{handle: import('puppeteer').ElementHandle<Element>}>) {
+    await Promise.allSettled(arr.map(x => x.handle.dispose()));
+  }
+  function cssEscape(s: string) { return s.replace(/([ !"#$%&'()*+,./:;<=>?@[\\\]^`{|}~])/g, '\\$1'); }
+  function cssEscapeAttr(s: string) { return s.replace(/(["\\])/g, '\\$1'); }
 }
 
 /**
