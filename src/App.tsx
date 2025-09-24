@@ -3,6 +3,7 @@
 import React, { useEffect } from "react";
 import { Routes, Route, Navigate, useLocation, useNavigate } from "react-router-dom";
 import Sidebar from "./components/Sidebar";
+import HomePage from "./pages/HomePage";
 import DashboardPage from "./pages/DashboardPage";
 import ContainerManagerPage from "./pages/ContainerManagerPage";
 import PlanPage from "./pages/PlanPage";
@@ -28,11 +29,12 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    // Se non c'è un container, reindirizza sempre alla dashboard
-    if (!container) {
-      navigate("/dashboard");
+    // Se non c'è un container e siamo su una route protetta che richiede container, reindirizza alla home
+    const protectedRoutes = ['/container-manager', '/plan', '/testing', '/migration'];
+    if (!container && protectedRoutes.includes(location.pathname)) {
+      navigate("/home");
     }
-  }, [container, navigate]);
+  }, [container, navigate, location.pathname]);
 
   return (
     <ErrorBoundary>
@@ -48,12 +50,17 @@ export default function App() {
 
         <main className="space-y-6 transition-colors relative z-10">
           <Routes>
-            <Route path="/" element={<Navigate to="/dashboard" />} />
+            <Route path="/" element={<Navigate to="/home" />} />
+            <Route path="/home" element={<HomePage />} />
             <Route path="/dashboard" element={
               <DashboardErrorBoundary>
                 <DashboardPage />
               </DashboardErrorBoundary>
             } />
+            
+            {/* Route pubbliche - accessibili sempre */}
+            <Route path="/ssd-test" element={<SSDTestPage />} />
+            <Route path="/checklist" element={<ChecklistPage />} />
             
             {/* Route protette - accessibili solo quando c'è un container */}
             {container && (
@@ -64,14 +71,12 @@ export default function App() {
                   </ContainerManagerErrorBoundary>
                 } />
                 <Route path="/plan" element={<PlanPage />} />
-                <Route path="/ssd-test" element={<SSDTestPage />} />
                 <Route path="/testing" element={<TestingPage />} />
                 <Route path="/migration" element={<MigrationPage />} />
-                <Route path="/checklist" element={<ChecklistPage />} />
               </>
             )}
             
-            <Route path="*" element={<Navigate to="/dashboard" />} />
+            <Route path="*" element={<Navigate to="/home" />} />
           </Routes>
         </main>
       </div>

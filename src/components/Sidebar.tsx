@@ -1,13 +1,31 @@
 import React, { useState } from "react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import { Upload, Download, Moon, Sun, Brain, Settings, LayoutDashboard, Target, Shield, ChevronDown, ChevronUp, TestTube } from "lucide-react";
 import useDarkMode from "../hooks/useDarkMode";
 import { useContainer } from "../context/ContainerContext";
 
 export default function Sidebar() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const location = useLocation();
   
-  const links = [
+  // Controlla il mode per determinare quali voci mostrare
+  const mode = new URLSearchParams(location.search).get('mode');
+  
+  const links = mode === 'analytics' ? [
+    // Solo Dashboard e Container Manager per GTM Analytics
+    { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+    { to: "/container-manager", label: "Container Manager", icon: Settings },
+  ] : mode === 'plan' ? [
+    // Solo AI Plan per AI Plan
+    { to: "/plan", label: "AI Plan", icon: Target },
+  ] : mode === 'ssd' ? [
+    // Solo SSD Test per SSD Test
+    { to: "/ssd-test", label: "SSD Test", icon: TestTube },
+  ] : mode === 'sentinel' ? [
+    // Solo AI Sentinel per AI Sentinel
+    { to: "/checklist", label: "AI Sentinel", icon: Shield },
+  ] : [
+    // Tutte le voci per gli altri modi
     { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
     { to: "/container-manager", label: "Container Manager", icon: Settings },
     { to: "/plan", label: "AI Plan", icon: Target },
@@ -54,23 +72,29 @@ export default function Sidebar() {
 
         {/* Nav */}
         <nav className="flex flex-col px-3 space-y-1 mt-4">
-          {links.map(({ to, label, icon: Icon }) => (
-            <NavLink
-              key={to}
-              to={to}
-              className={({ isActive }) =>
-                `relative block px-4 py-2 rounded-md font-medium transition-all flex items-center gap-2
-                 ${
-                   isActive
-                     ? "bg-white/20 text-white before:absolute before:left-0 before:top-0 before:bottom-0 before:w-1 before:bg-pink-400 before:rounded-r"
-                     : "text-white/80 hover:bg-white/10"
-                 }`
-              }
-            >
-              {Icon && <Icon className="w-4 h-4" />}
-              {label}
-            </NavLink>
-          ))}
+          {links.map(({ to, label, icon: Icon }) => {
+            // Mantieni il parametro mode=analytics se presente
+            const currentSearch = location.search;
+            const linkTo = currentSearch ? `${to}${currentSearch}` : to;
+            
+            return (
+              <NavLink
+                key={to}
+                to={linkTo}
+                className={({ isActive }) =>
+                  `relative block px-4 py-2 rounded-md font-medium transition-all flex items-center gap-2
+                   ${
+                     isActive
+                       ? "bg-white/20 text-white before:absolute before:left-0 before:top-0 before:bottom-0 before:w-1 before:bg-pink-400 before:rounded-r"
+                       : "text-white/80 hover:bg-white/10"
+                   }`
+                }
+              >
+                {Icon && <Icon className="w-4 h-4" />}
+                {label}
+              </NavLink>
+            );
+          })}
         </nav>
       </div>
 

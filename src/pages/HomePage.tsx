@@ -1,0 +1,302 @@
+import React, { useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { motion } from 'framer-motion';
+import { BarChart, Brain, TestTube, Shield, ArrowRight, CheckCircle, Upload } from 'lucide-react';
+import { useContainer } from '../context/ContainerContext';
+
+// Configurazione tools
+const tools = [
+  {
+    id: 'container-manager',
+    title: 'GTM Analytics',
+    description: 'Analisi completa e gestione container GTM con dashboard integrata',
+    requiresJson: true,
+    icon: BarChart,
+    color: 'blue',
+    features: ['Analisi dettagliata', 'Dashboard interattiva', 'Report avanzati']
+  },
+  {
+    id: 'ai-plan',
+    title: 'AI Plan',
+    description: 'Pianificazione intelligente e strategica con intelligenza artificiale',
+    requiresJson: true,
+    icon: Brain,
+    color: 'purple',
+    features: ['Pianificazione AI', 'Strategie personalizzate', 'Raccomandazioni smart']
+  },
+  {
+    id: 'ssd-test',
+    title: 'SSD Test',
+    description: 'Test automatizzati da documenti PDF con esecuzione browser',
+    requiresJson: false,
+    icon: TestTube,
+    color: 'green',
+    features: ['Test automatici', 'Esecuzione browser', 'Report dettagliati']
+  },
+  {
+    id: 'ai-sentinel',
+    title: 'AI Sentinel',
+    description: 'Monitoraggio e sicurezza avanzata con intelligenza artificiale',
+    requiresJson: false,
+    icon: Shield,
+    color: 'red',
+    features: ['Monitoraggio 24/7', 'Sicurezza avanzata', 'Alert intelligenti']
+  }
+];
+
+// Componente per le card degli strumenti
+const ToolCard = ({ tool, onClick }) => {
+  const Icon = tool.icon;
+  
+  // Mappa colori per evitare classi dinamiche
+  const colorClasses = {
+    blue: {
+      header: 'bg-gradient-to-r from-blue-50 to-blue-100',
+      icon: 'bg-blue-500',
+      arrow: 'text-blue-500',
+      dot: 'bg-blue-400',
+      hover: 'hover:border-blue-300',
+      overlay: 'from-blue-500/5'
+    },
+    purple: {
+      header: 'bg-gradient-to-r from-purple-50 to-purple-100',
+      icon: 'bg-purple-500',
+      arrow: 'text-purple-500',
+      dot: 'bg-purple-400',
+      hover: 'hover:border-purple-300',
+      overlay: 'from-purple-500/5'
+    },
+    green: {
+      header: 'bg-gradient-to-r from-green-50 to-green-100',
+      icon: 'bg-green-500',
+      arrow: 'text-green-500',
+      dot: 'bg-green-400',
+      hover: 'hover:border-green-300',
+      overlay: 'from-green-500/5'
+    },
+    red: {
+      header: 'bg-gradient-to-r from-red-50 to-red-100',
+      icon: 'bg-red-500',
+      arrow: 'text-red-500',
+      dot: 'bg-red-400',
+      hover: 'hover:border-red-300',
+      overlay: 'from-red-500/5'
+    }
+  };
+  
+  const colors = colorClasses[tool.color] || colorClasses.blue;
+  
+  return (
+    <motion.div
+      whileHover={{ y: -4, scale: 1.02 }}
+      whileTap={{ scale: 0.98 }}
+      onClick={onClick}
+      className={`
+        relative bg-white rounded-xl shadow-lg hover:shadow-xl transition-all duration-300
+        cursor-pointer group border border-gray-200 ${colors.hover}
+        overflow-hidden
+      `}
+    >
+      {/* Header con icona e colore */}
+      <div className={`${colors.header} p-6`}>
+        <div className="flex items-center justify-between">
+          <div className={`w-12 h-12 rounded-lg ${colors.icon} flex items-center justify-center`}>
+            <Icon className="w-6 h-6 text-white" />
+          </div>
+          <div className="flex items-center space-x-2">
+            {tool.requiresJson ? (
+              <div className="flex items-center text-amber-600 text-sm">
+                <Upload className="w-4 h-4 mr-1" />
+                <span>Richiede JSON</span>
+              </div>
+            ) : (
+              <div className="flex items-center text-green-600 text-sm">
+                <CheckCircle className="w-4 h-4 mr-1" />
+                <span>Pronto all'uso</span>
+              </div>
+            )}
+            <ArrowRight className={`w-5 h-5 ${colors.arrow} group-hover:translate-x-1 transition-transform`} />
+          </div>
+        </div>
+      </div>
+      
+      {/* Contenuto */}
+      <div className="p-6">
+        <h3 className="text-xl font-semibold text-gray-900 mb-2">
+          {tool.title}
+        </h3>
+        <p className="text-gray-600 mb-4 leading-relaxed">
+          {tool.description}
+        </p>
+        
+        {/* Features */}
+        <div className="space-y-2">
+          {tool.features.map((feature, index) => (
+            <div key={index} className="flex items-center text-sm text-gray-500">
+              <div className={`w-1.5 h-1.5 rounded-full ${colors.dot} mr-3`} />
+              {feature}
+            </div>
+          ))}
+        </div>
+      </div>
+      
+      {/* Hover effect */}
+      <div className={`absolute inset-0 bg-gradient-to-r ${colors.overlay} to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300`} />
+    </motion.div>
+  );
+};
+
+export default function HomePage() {
+  const navigate = useNavigate();
+  const { container, setContainer } = useContainer();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const aiPlanFileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileUpload = async (file: File, mode: 'analytics' | 'plan') => {
+    try {
+      const json = JSON.parse(await file.text());
+
+      const candidate =
+        json.tag && json.trigger
+          ? json
+          : json.containerVersion?.tag
+          ? json.containerVersion
+          : json.container?.tag
+          ? json.container
+          : undefined;
+
+      if (!candidate) throw new Error();
+
+      // Estrai ID dal nome del file
+      const match = file.name.match(/(GTM-[A-Z0-9]{7})/i);
+      const publicId = match ? match[1] : "GTM-XXXXX";
+
+      // Passa il container con publicId aggiunto
+      setContainer({ ...candidate, publicId });
+      
+      // Vai alla pagina appropriata con il mode corretto
+      if (mode === 'analytics') {
+        navigate('/dashboard?mode=analytics');
+      } else if (mode === 'plan') {
+        navigate('/plan?mode=plan');
+      }
+    } catch {
+      alert("❌ Il file non sembra un JSON valido GTM.");
+    }
+  };
+
+  const handleToolClick = (tool) => {
+    if (tool.requiresJson && !container) {
+      // Se richiede JSON e non c'è, apri file picker
+      if (tool.id === 'container-manager') {
+        // GTM Analytics - apri file picker
+        fileInputRef.current?.click();
+      } else if (tool.id === 'ai-plan') {
+        // AI Plan - apri file picker
+        aiPlanFileInputRef.current?.click();
+      } else {
+        // Altri strumenti che richiedono JSON
+        navigate('/dashboard');
+      }
+    } else {
+      // Vai direttamente allo strumento
+      if (tool.id === 'container-manager') {
+        navigate('/container-manager?mode=analytics');
+      } else if (tool.id === 'ai-plan') {
+        navigate('/plan?mode=plan');
+      } else if (tool.id === 'ssd-test') {
+        navigate('/ssd-test?mode=ssd');
+      } else if (tool.id === 'ai-sentinel') {
+        navigate('/checklist?mode=sentinel');
+      }
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-50 flex flex-col">
+      {/* Input file nascosto per GTM Analytics */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".json"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) {
+            handleFileUpload(file, 'analytics');
+          }
+        }}
+        className="hidden"
+      />
+      
+      {/* Input file nascosto per AI Plan */}
+      <input
+        ref={aiPlanFileInputRef}
+        type="file"
+        accept=".json"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) {
+            handleFileUpload(file, 'plan');
+          }
+        }}
+        className="hidden"
+      />
+      
+      {/* Header Professionale */}
+      <header className="bg-white border-b border-gray-200">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-center items-center py-6">
+            <div className="flex items-center">
+              <div className="w-10 h-10 bg-gradient-to-r from-blue-600 to-purple-600 rounded-lg flex items-center justify-center mr-4">
+                <BarChart className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <h1 className="text-2xl font-bold text-gray-900">LikeSense</h1>
+                <p className="text-sm text-gray-500">GTM Intelligence Platform</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <main className="flex-grow flex items-center justify-center px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
+        <div className="w-full">
+          {/* Hero Section */}
+          <div className="text-center mb-12">
+            <motion.h2 
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6 }}
+              className="text-4xl font-bold text-gray-900 mb-4"
+            >
+              Choose Your Analytics Tool
+            </motion.h2>
+            <motion.p 
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, delay: 0.1 }}
+              className="text-xl text-gray-600 max-w-3xl mx-auto"
+            >
+              Select the perfect tool for your GTM analysis needs. Each tool is designed for specific use cases and requirements.
+            </motion.p>
+          </div>
+
+          {/* Tools Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+          {tools.map((tool, index) => (
+            <motion.div
+              key={tool.id}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, delay: index * 0.1 }}
+            >
+              <ToolCard tool={tool} onClick={() => handleToolClick(tool)} />
+            </motion.div>
+          ))}
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+}

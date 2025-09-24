@@ -1,10 +1,16 @@
-import React from "react";
+import React, { useEffect } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
 import FileUpload from "../components/FileUpload";
 import Dashboard from "../components/Dashboard";
 import { useContainer } from "../context/ContainerContext";
 
 export default function DashboardPage() {
   const { container, setContainer } = useContainer();
+  const navigate = useNavigate();
+  const location = useLocation();
+  
+  // Controlla se siamo in modalità analytics
+  const isAnalyticsMode = new URLSearchParams(location.search).get('mode') === 'analytics';
 
   const handleFile = async (file: File) => {
   try {
@@ -27,6 +33,9 @@ export default function DashboardPage() {
 
     // Passa il container con publicId aggiunto
     setContainer({ ...candidate, publicId });
+    
+    // Non serve reindirizzare, la pagina si aggiorna automaticamente
+    // perché container è ora disponibile e mostra la Dashboard
   } catch {
     alert("❌ Il file non sembra un JSON valido GTM.");
   }
