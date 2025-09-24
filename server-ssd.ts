@@ -915,25 +915,31 @@ async function resolveSelectorForHeaderLink(page: import('puppeteer').Page) {
     const hasHeader = await page.$(headerSelector);
     
     if (hasHeader) {
-      // Try to find clickable elements in header
-      const headerLinksSel = `${headerSelector} a, ${headerSelector} button`;
-      const node = await page.$(headerLinksSel);
-      if (node) {
-        console.log(`[resolver] ✅ Found header link: ${headerLinksSel}`);
-        return headerLinksSel;
+      // Find the header element first, then look for clickable elements inside it
+      const headerElement = await page.$(headerSelector);
+      if (headerElement) {
+        // Look for links and buttons inside the header
+        const linksInHeader = await headerElement.$$('a[href]:not([href="#"]):not([aria-hidden="true"])');
+        const buttonsInHeader = await headerElement.$$('button:not([disabled])');
+        
+        if (linksInHeader.length > 0 || buttonsInHeader.length > 0) {
+          console.log(`[resolver] ✅ Found ${linksInHeader.length} links and ${buttonsInHeader.length} buttons in header`);
+          // Return a selector that targets links and buttons inside the header
+          return `${headerSelector} a[href]:not([href="#"]):not([aria-hidden="true"]), ${headerSelector} button:not([disabled])`;
+        }
       }
     }
     
-    // Fallback to robust clickable elements
-    const fallbackSel = "a[href]:not([aria-hidden='true']):not([tabindex='-1'])";
+    // Fallback to robust clickable elements - be more specific to avoid containers
+    const fallbackSel = "a[href]:not([aria-hidden='true']):not([tabindex='-1']):not([href='#'])";
     const fallbackNode = await page.$(fallbackSel);
     if (fallbackNode) {
       console.log(`[resolver] ✅ Found fallback link: ${fallbackSel}`);
       return fallbackSel;
     }
     
-    // Last resort: any clickable element
-    const anyClickable = "button, [role='button'], a[href]";
+    // Last resort - any clickable element but prefer links
+    const anyClickable = "a[href]:not([href='#']), button:not([disabled]), [role='button']:not([disabled])";
     const anyNode = await page.$(anyClickable);
     if (anyNode) {
       console.log(`[resolver] ✅ Found any clickable: ${anyClickable}`);
@@ -1065,7 +1071,7 @@ async function executePdfTests(testSpec: any, options: any, browserInstance: any
 
       try {
         // Check if we need to resolve selector for header link
-        if (step.target?.kind === 'selector' && step.target?.value === 'to-be-determined') {
+        if (step.target?.kind === 'selector' && (!step.target?.value || step.target?.value === 'to-be-determined')) {
           console.log('🔍 Resolving selector in runtime for step 1');
           const resolved = await resolveSelectorForHeaderLink(page);
           
@@ -1076,25 +1082,10 @@ async function executePdfTests(testSpec: any, options: any, browserInstance: any
             result.steps.push(stepResult);
             continue; // Skip to next step without throwing exception
           } else {
-            console.log(`✅ Resolved header link => selector: ${resolved.selector} | text: "${resolved.text}" | aria: "${resolved.aria}" | href: "${resolved.href}"`);
-            step.target.value = resolved.selector;
+            console.log(`✅ Resolved header link => selector: ${resolved}`);
+            step.target.value = resolved;
             
-            // Populate wildcards in expect events if needed
-            if (step.expect && Array.isArray(step.expect)) {
-              step.expect.forEach(expectation => {
-                if (expectation.type === 'dataLayer' && expectation.event === 'header_menu_click' && expectation.params_subset) {
-                  if (expectation.params_subset.link_text === '*') {
-                    expectation.params_subset.link_text = resolved.aria || resolved.text || '*';
-                  }
-                  if (expectation.params_subset.link_url === '*') {
-                    expectation.params_subset.link_url = resolved.href || '*';
-                  }
-                  if (expectation.params_subset.index === '*') {
-                    expectation.params_subset.index = '*';
-                  }
-                }
-              });
-            }
+            // Keep wildcards as-is since we only have the selector string
           }
         }
 
@@ -1112,9 +1103,123 @@ async function executePdfTests(testSpec: any, options: any, browserInstance: any
           console.log(`🖱️  Waiting for element to be visible (timeout: 10s)...`);
           const element = await page.waitForSelector(step.target.value, { visible: true, timeout: 10000 });
           console.log(`🖱️  Element found, clicking...`);
-          await element.click();
+          // Log detailed information about what was clicked BEFORE clicking
+          const clickedElementInfo = await page.evaluate((el) => {
+            return {
+              tagName: el.tagName,
+              text: el.textContent?.trim().substring(0, 100) || 'no-text',
+              href: el.href || 'no-href',
+              id: el.id || 'no-id',
+              className: el.className || 'no-class'
+            };
+          }, element);
+          
+          // Check if this might be a navigation click (has href)
+          const isNavigationClick = clickedElementInfo.href && clickedElementInfo.href !== 'no-href';
+          console.log(`🔗 Is navigation click: ${isNavigationClick}`);
+          
+          if (isNavigationClick) {
+            // For navigation clicks, capture dataLayer BEFORE navigation
+            console.log('🕵️ Setting up dataLayer capture before navigation...');
+            
+            // Create a promise that will capture the dataLayer before navigation
+            let capturedEvent = null;
+            let capturedDataLayer = null;
+            
+            // Set up the interception BEFORE clicking
+            await page.evaluate(() => {
+              // Store original dataLayer
+              window._originalDataLayer = window.dataLayer || [];
+              
+              // Override dataLayer.push to capture events
+              const originalPush = window.dataLayer?.push;
+              if (originalPush) {
+                window.dataLayer.push = function(...args) {
+                  const result = originalPush.apply(this, args);
+                  
+                  // Check for our target event
+                  args.forEach(arg => {
+                    if (arg && arg.event === 'header_menu_click') {
+                      console.log('🎯 header_menu_click captured before navigation!', arg);
+                      window._capturedEvent = arg;
+                      window._capturedDataLayer = [...(window.dataLayer || [])];
+                    }
+                  });
+                  
+                  return result;
+                };
+              }
+              
+              // Also set up a beforeunload listener to capture dataLayer
+              window.addEventListener('beforeunload', () => {
+                console.log('🔄 Page unloading, capturing final dataLayer...');
+                window._finalDataLayer = [...(window.dataLayer || [])];
+              });
+            });
+            
+            // Store initial dataLayer
+            const initialDataLayer = await page.evaluate(() => [...(window.dataLayer || [])]);
+            console.log(`📊 Initial dataLayer: ${initialDataLayer.length} events`);
+            
+            // Set up navigation promise
+            const navigationPromise = page.waitForNavigation({ timeout: 8000 }).catch(() => null);
+            
+            // NOW click the element
+            await element.click();
+            console.log(`✅ Click successful on: ${step.target.value}`);
+            
+            // Wait for navigation or timeout
+            try {
+              await navigationPromise;
+              console.log('🌐 Navigation completed');
+            } catch (error) {
+              console.log('⚠️ Navigation timeout or error:', error.message);
+            }
+            
+            // Try to get captured data from the page
+            try {
+              const capturedData = await page.evaluate(() => {
+                return {
+                  event: window._capturedEvent || null,
+                  dataLayer: window._capturedDataLayer || null,
+                  finalDataLayer: window._finalDataLayer || null
+                };
+              });
+              
+              if (capturedData.event) {
+                console.log('🎉 SUCCESS: header_menu_click captured before navigation!', JSON.stringify(capturedData.event, null, 2));
+                capturedEvent = capturedData.event;
+              } else if (capturedData.dataLayer) {
+                const headerEvent = capturedData.dataLayer.find(e => e.event === 'header_menu_click');
+                if (headerEvent) {
+                  console.log('✅ header_menu_click found in captured dataLayer!', JSON.stringify(headerEvent, null, 2));
+                  capturedEvent = headerEvent;
+                }
+              } else {
+                console.log('❌ No header_menu_click event captured before navigation');
+              }
+              
+              // Also check current dataLayer after navigation
+              const currentDataLayer = await page.evaluate(() => window.dataLayer || []);
+              const currentHeaderEvent = currentDataLayer.find(e => e.event === 'header_menu_click');
+              
+              if (currentHeaderEvent && !capturedEvent) {
+                console.log('✅ header_menu_click found in current dataLayer after navigation!', JSON.stringify(currentHeaderEvent, null, 2));
+                capturedEvent = currentHeaderEvent;
+              }
+              
+            } catch (error) {
+              console.log('⚠️ Error accessing captured data:', error.message);
+            }
+          } else {
+            // For non-navigation clicks, just click and wait
+            await element.click();
+            console.log(`✅ Click successful on: ${step.target.value}`);
+            console.log('⏱️ Click non di navigazione, aspettando 15 secondi per eventi dataLayer...');
+            await new Promise(resolve => setTimeout(resolve, 15000));
+          }
+          
           stepResult.status = 'PASS';
-          console.log(`✅ Click successful on: ${step.target.value}`);
           
         } else if (step.action === 'wait') {
           const waitTime = parseInt(step.target.value) || 3000;
@@ -1159,8 +1264,9 @@ async function executePdfTests(testSpec: any, options: any, browserInstance: any
               const hasEvent = dataLayer.some(event => event?.event === expectation.event);
               if (!hasEvent) {
                 stepResult.status = 'FAIL';
-                stepResult.error = `Expected dataLayer event '${expectation.event}' not found`;
-                console.log(`  ✗ Expected dataLayer event '${expectation.event}' not found`);
+                const availableEvents = dataLayer.map(e => e?.event).filter(Boolean);
+                stepResult.error = `Expected dataLayer event '${expectation.event}' not found. Available events: [${availableEvents.join(', ')}]`;
+                console.log(`  ✗ Expected dataLayer event '${expectation.event}' not found. Available events: [${availableEvents.join(', ')}]`);
                 break;
               } else {
                 console.log(`  ✓ Found expected dataLayer event '${expectation.event}'`);
@@ -1541,8 +1647,13 @@ async function executeCookieConsentTest(testSpec: any, page: any) {
             if (element) {
               console.log('Using element found by waitForSelector');
               await element.click();
-              stepResult.status = 'PASS';
               console.log(`✓ Click successful on ${selector}`);
+              
+              // Wait 15 seconds after click for dataLayer events to be processed
+              console.log('Waiting 15 seconds for dataLayer events to be processed...');
+              await new Promise(resolve => setTimeout(resolve, 15000));
+              
+              stepResult.status = 'PASS';
               clickSuccessful = true;
             } else if (selector.includes(':contains')) {
               // Se il selettore contiene :contains, salta il selettore diretto e usa approcci alternativi
@@ -1598,8 +1709,13 @@ async function executeCookieConsentTest(testSpec: any, page: any) {
             // Se non abbiamo ancora cliccato l'elemento, proviamo a trovarlo e cliccarlo
             if (!clickSuccessful && element) {
                 await element.click();
-                stepResult.status = 'PASS';
                 console.log(`✓ Click successful on ${selector}`);
+                
+                // Wait 15 seconds after click for dataLayer events to be processed
+                console.log('Waiting 15 seconds for dataLayer events to be processed...');
+                await new Promise(resolve => setTimeout(resolve, 15000));
+                
+                stepResult.status = 'PASS';
               clickSuccessful = true;
             } else if (!clickSuccessful) {
               stepResult.error = `Element not found: ${selector}`;

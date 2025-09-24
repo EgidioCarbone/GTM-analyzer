@@ -43,7 +43,7 @@ export const useAnalysisProgress = () => {
             status,
             startTime: status === 'running' ? now : step.startTime,
             duration: status === 'completed' && step.startTime ? now - step.startTime : step.duration,
-            details
+            details: details || step.details || undefined
           };
         }
         return step;
