@@ -24,6 +24,7 @@ import { normalizeOrigin, isValidUrl } from './src/utils/url.js';
 import { extractCookieBannerWithPuppeteer } from './src/services/cookieBannerExtractor.js';
 import { llmPdfSpec } from './src/services/llmPdfSpec.js';
 import puppeteer from 'puppeteer';
+import { runConsentTest, ConsentTestInputSchema } from './src/consent-test-b/pw-runner.js';
 
 // Helper function for sleep
 const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
@@ -260,6 +261,9 @@ app.use(cors({
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
+// Static files for artifacts
+app.use('/artifacts', express.static('artifacts'));
+
 
 // Input sanitization middleware
 app.use((req, res, next) => {
@@ -346,7 +350,12 @@ const config = {
 };
 
 // Initialize services
-const openaiService = new OpenAISpecService(config.openaiApiKey, config.openaiModel, config.openaiTimeoutMs);
+let openaiService = null;
+try {
+  openaiService = new OpenAISpecService(config.openaiApiKey, config.openaiModel, config.openaiTimeoutMs);
+} catch (error) {
+  console.log('⚠️  OpenAI service not available:', error.message);
+}
 const puppeteerRunner = new SSDPuppeteerRunner({
   screenshotDir: 'screenshots',
   timeout: config.runnerStepTimeoutMs,
@@ -517,6 +526,15 @@ Please analyze the HTML to generate accurate selectors for the test specificatio
 
     console.log('📤 Using standard chat completion with HTML in prompt...');
     console.log('📋 Final prompt length:', promptWithHtml.length);
+    
+    if (!openaiService) {
+      return res.status(503).json({
+        error: {
+          code: 'SERVICE_UNAVAILABLE',
+          message: 'OpenAI service is not configured. Please set VITE_OPENAI_API_KEY environment variable.'
+        }
+      });
+    }
     
     const response = await openaiService.convertPDFToTestSpec(pdfContent, siteUrl, promptWithHtml);
     console.log('✅ OpenAI response received');
@@ -2116,6 +2134,10 @@ app.post('/api/spec/generate', upload.single('pdf'), async (req, res) => {
     console.log(`[${correlationId}] PDF text extracted successfully: ${extractionResult.text.length} characters`);
 
     // Convert PDF text to TestSpec using OpenAI with timeout
+    if (!openaiService) {
+      return sendError(res, 503, 'SERVICE_UNAVAILABLE', 'OpenAI service is not configured. Please set VITE_OPENAI_API_KEY environment variable.');
+    }
+    
     const openaiResponse = await Promise.race([
       openaiService.convertPDFToTestSpec(extractionResult.text, targetOrigin),
       new Promise((_, reject) => 
@@ -2639,6 +2661,85 @@ app.get('/api/ssd/config', (req, res) => {
       max: config.rateLimitMax,
     },
   });
+});
+
+// POST /api/consent/audit-pw - Consent Test B con Playwright
+app.post('/api/consent/audit-pw', async (req, res) => {
+  const correlationId = `consent-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  
+  try {
+    console.log(`[${correlationId}] Starting Consent Test B with Playwright`);
+    
+    // Validazione input
+    const validationResult = ConsentTestInputSchema.safeParse(req.body);
+    if (!validationResult.success) {
+      console.log(`[${correlationId}] Validation failed:`, validationResult.error);
+      return res.status(400).json({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Input validation failed',
+          details: validationResult.error.errors
+        }
+      });
+    }
+
+    const input = validationResult.data;
+    console.log(`[${correlationId}] Validated input:`, { url: input.url, options: input.options });
+
+    // Anti-SSRF check in produzione
+    if (process.env.NODE_ENV === 'production') {
+      const url = new URL(input.url);
+      const hostname = url.hostname;
+      
+      // Blocca IP privati e localhost in produzione
+      if (hostname === 'localhost' || 
+          hostname === '127.0.0.1' || 
+          hostname.startsWith('192.168.') ||
+          hostname.startsWith('10.') ||
+          hostname.startsWith('172.16.') ||
+          hostname.startsWith('172.17.') ||
+          hostname.startsWith('172.18.') ||
+          hostname.startsWith('172.19.') ||
+          hostname.startsWith('172.20.') ||
+          hostname.startsWith('172.21.') ||
+          hostname.startsWith('172.22.') ||
+          hostname.startsWith('172.23.') ||
+          hostname.startsWith('172.24.') ||
+          hostname.startsWith('172.25.') ||
+          hostname.startsWith('172.26.') ||
+          hostname.startsWith('172.27.') ||
+          hostname.startsWith('172.28.') ||
+          hostname.startsWith('172.29.') ||
+          hostname.startsWith('172.30.') ||
+          hostname.startsWith('172.31.')) {
+        return res.status(400).json({
+          error: {
+            code: 'SSRF_BLOCKED',
+            message: 'Access to private/localhost URLs is not allowed in production'
+          }
+        });
+      }
+    }
+
+    // Esegui il test
+    console.log(`[${correlationId}] Running consent test...`);
+    const result = await runConsentTest(input);
+    
+    console.log(`[${correlationId}] Consent test completed successfully`);
+    res.json(result);
+
+  } catch (error) {
+    console.error(`[${correlationId}] Error running consent test:`, error);
+    
+    const httpError = toHttpError(error instanceof Error ? error : new Error('Unknown error'));
+    return res.status(httpError.httpStatus).json({ 
+      error: { 
+        code: httpError.code, 
+        message: httpError.message, 
+        details: httpError.details 
+      } 
+    });
+  }
 });
 
 

@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { NavLink, useNavigate, useLocation } from "react-router-dom";
-import { Upload, Download, Moon, Sun, Brain, Settings, LayoutDashboard, Target, Shield, ChevronDown, ChevronUp, TestTube } from "lucide-react";
+import { Upload, Download, Moon, Sun, Brain, Settings, LayoutDashboard, Target, Shield, ChevronDown, ChevronUp, TestTube, CheckCircle } from "lucide-react";
 import useDarkMode from "../hooks/useDarkMode";
 import { useContainer } from "../context/ContainerContext";
 
@@ -24,6 +24,9 @@ export default function Sidebar() {
   ] : mode === 'sentinel' ? [
     // Solo AI Sentinel per AI Sentinel
     { to: "/checklist", label: "AI Sentinel", icon: Shield },
+  ] : mode === 'consent-test-b' ? [
+    // Solo Consent Test B per Consent Test B
+    { to: "/consent-test-b", label: "Consent Test B", icon: CheckCircle },
   ] : [
     // Tutte le voci per gli altri modi
     { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -33,6 +36,7 @@ export default function Sidebar() {
     // { to: "/testing", label: "Testing" },
     // { to: "/migration", label: "UA → GA4" },
     { to: "/checklist", label: "AI Sentinel", icon: Shield },
+    { to: "/consent-test-b", label: "Consent Test B", icon: CheckCircle },
   ];
 
   const [isDark, setIsDark] = useDarkMode();

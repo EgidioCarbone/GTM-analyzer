@@ -41,6 +41,15 @@ const tools = [
     icon: Shield,
     color: 'red',
     features: ['Monitoraggio 24/7', 'Sicurezza avanzata', 'Alert intelligenti']
+  },
+  {
+    id: 'consent-test-b',
+    title: 'Consent Test B',
+    description: 'Test automatico del consenso con Playwright per GDPR/CCPA',
+    requiresJson: false,
+    icon: CheckCircle,
+    color: 'cyan',
+    features: ['Test automatici', 'Rilevamento CMP', 'Report dettagliati']
   }
 ];
 
@@ -81,6 +90,14 @@ const ToolCard = ({ tool, onClick }) => {
       dot: 'bg-red-400',
       hover: 'hover:border-red-300',
       overlay: 'from-red-500/5'
+    },
+    cyan: {
+      header: 'bg-gradient-to-r from-cyan-50 to-cyan-100',
+      icon: 'bg-cyan-500',
+      arrow: 'text-cyan-500',
+      dot: 'bg-cyan-400',
+      hover: 'hover:border-cyan-300',
+      overlay: 'from-cyan-500/5'
     }
   };
   
@@ -208,6 +225,8 @@ export default function HomePage() {
         navigate('/ssd-test?mode=ssd');
       } else if (tool.id === 'ai-sentinel') {
         navigate('/checklist?mode=sentinel');
+      } else if (tool.id === 'consent-test-b') {
+        navigate('/consent-test-b?mode=consent-test-b');
       }
     }
   };
