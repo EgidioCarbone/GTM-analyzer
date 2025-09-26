@@ -2,7 +2,10 @@
 
 import { chromium, Browser, BrowserContext, Page } from 'playwright';
 import { defaultConfig, ConsentTestConfig } from './config';
+import * as fs from 'fs/promises';
 import { z } from 'zod';
+import { consentProbe } from './init/consent-probe';
+import { waitForConsentOrTimeout } from './utils/wait-consent';
 
 // Schema di validazione per l'input
 export const ConsentTestInputSchema = z.object({
@@ -65,8 +68,6 @@ export interface ScenarioResult {
 
 export class ConsentTestRunner {
   private config: ConsentTestConfig;
-  private browser: Browser | null = null;
-  private context: BrowserContext | null = null;
 
   constructor(config: ConsentTestConfig = defaultConfig) {
     this.config = config;
@@ -75,12 +76,21 @@ export class ConsentTestRunner {
   async runTest(input: ConsentTestInput): Promise<ConsentTestResult> {
     const validatedInput = ConsentTestInputSchema.parse(input);
     
+    let rejectResult: ScenarioResult;
+    let acceptResult: ScenarioResult;
+
     try {
-      await this.initializeBrowser();
+      // Scenario REJECT
+      console.log('=== INIZIO SCENARIO REJECT ===');
+      rejectResult = await this.runScenarioWithIsolatedBrowser('reject', validatedInput);
       
+      // Scenario ACCEPT con browser completamente nuovo
+      console.log('=== INIZIO SCENARIO ACCEPT ===');
+      acceptResult = await this.runScenarioWithIsolatedBrowser('accept', validatedInput);
+
       const results = {
-        reject: await this.runScenario('reject', validatedInput),
-        accept: await this.runScenario('accept', validatedInput)
+        reject: rejectResult,
+        accept: acceptResult
       };
 
       const summary = this.evaluateResults(results);
@@ -97,256 +107,346 @@ export class ConsentTestRunner {
           region: validatedInput.options.region
         }
       };
-    } finally {
-      await this.cleanup();
+    } catch (error) {
+      console.error('Errore durante i test:', error);
+      throw error;
     }
   }
 
-  private async initializeBrowser(): Promise<void> {
-    this.browser = await chromium.launch({
-      headless: true,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-web-security',
-        '--disable-features=VizDisplayCompositor'
-      ]
-    });
-
-    this.context = await this.browser.newContext({
-      locale: 'it-IT',
-      timezoneId: this.config.region === 'EU' ? 'Europe/Rome' : 'America/New_York',
-      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      viewport: { width: 1920, height: 1080 }
-    });
-
-    // Inietta hook per tracciare gtag e dataLayer
-    await this.context.addInitScript(() => {
-      // Hook per gtag
-      const originalGtag = window.gtag;
-      window.gtag = function(...args: any[]) {
-        if (!window.consentTestData) window.consentTestData = { gtagCalls: [], dataLayer: [] };
-        window.consentTestData.gtagCalls.push([...args]);
-        if (originalGtag) originalGtag.apply(this, args);
-      };
-
-      // Hook per dataLayer
-      const originalDataLayerPush = window.dataLayer?.push;
-      if (window.dataLayer && originalDataLayerPush) {
-        window.dataLayer.push = function(...args: any[]) {
-          if (!window.consentTestData) window.consentTestData = { gtagCalls: [], dataLayer: [] };
-          window.consentTestData.dataLayer.push(...args);
-          return originalDataLayerPush.apply(this, args);
-        };
-      }
-    });
-  }
-
-  private async runScenario(type: 'reject' | 'accept', input: ConsentTestInput): Promise<ScenarioResult> {
-    if (!this.context) throw new Error('Browser context not initialized');
-
-    const page = await this.context.newPage();
-    const runId = Date.now().toString();
-    const artifactsDir = `./artifacts/pw/${runId}/${type}`;
+  private async runScenarioWithIsolatedBrowser(scenario: 'reject' | 'accept', input: ConsentTestInput): Promise<ScenarioResult> {
+    let browser: Browser | null = null;
+    let context: BrowserContext | null = null;
+    let page: Page | null = null;
 
     try {
-      // Setup network monitoring
-      const gaAdsRequests: Array<{ url: string; ts: number }> = [];
+      console.log(`🚀 Creando browser isolato per scenario ${scenario}...`);
+      browser = await chromium.launch({
+        headless: true,
+        args: [
+          '--no-sandbox', 
+          '--disable-setuid-sandbox', 
+          '--disable-dev-shm-usage',
+          '--disable-gpu',
+          '--no-first-run',
+          '--disable-background-timer-throttling',
+          '--disable-backgrounding-occluded-windows',
+          '--disable-renderer-backgrounding',
+          '--disable-features=TranslateUI',
+          '--disable-features=VizDisplayCompositor'
+        ]
+      });
+
+      // Crea un nuovo context completamente isolato per ogni scenario
+      context = await browser.newContext({
+        storageState: undefined, // Forza modalità incognito
+        locale: 'it-IT',
+        timezoneId: this.config.region === 'EU' ? 'Europe/Rome' : 'America/New_York',
+        userAgent: scenario === 'reject' 
+          ? 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+          : 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        viewport: { width: 1920, height: 1080 },
+        geolocation: { latitude: 41.9028, longitude: 12.4964 }, // Roma per test EU
+        permissions: ['geolocation'],
+        acceptDownloads: false,
+        bypassCSP: true,
+        ignoreHTTPSErrors: true
+      });
+
+      // FIX A: Hook PRIMA della navigazione (serializzazione sicura)
+      await context.addInitScript({ content: `(${consentProbe.toString()})();` });
+
+      // FIX C: Context-level request monitoring migliorato
+      const gaAdsRequests: Array<{ url: string, ts: number }> = [];
       
-      page.on('request', (request) => {
-        const url = request.url();
-        if (this.isGaAdsRequest(url)) {
-          gaAdsRequests.push({
-            url,
-            ts: Date.now()
-          });
+      await context.route('**/*', route => {
+        const url = route.request().url();
+        if (
+          url.includes('google-analytics.com/g/collect') ||
+          url.includes('region1.google-analytics.com/g/collect') ||
+          url.includes('stats.g.doubleclick.net') ||
+          url.includes('googleads.g.doubleclick.net') ||
+          url.includes('td.doubleclick.net') ||
+          url.includes('www.googletagmanager.com/gtag/js')
+        ) {
+          gaAdsRequests.push({ url, ts: Date.now() });
+          console.log(`🔗 GA/Ads request detected: ${url}`);
         }
+        route.continue();
       });
 
-      // Naviga alla pagina
-      await page.goto(input.url, { 
-        waitUntil: 'domcontentloaded',
-        timeout: this.config.timeouts.hardMs 
+      page = await context.newPage();
+      
+      // Sanity check dell'injection dopo creazione page
+      await page.addInitScript(() => {}); // no-op, forza il preload del init script
+      
+      // URL con parametri per forzare pop-up banner
+      const urlWithParam = `${input.url}${input.url.includes('?') ? '&' : '?'}cb=1&test_consent=${scenario}&_t=${Date.now()}`;
+      console.log(`🌐 Navigating to: ${urlWithParam}`);
+      
+      await page.goto(urlWithParam, { 
+        waitUntil: 'domcontentloaded', 
+        timeout: input.options.timeoutHardMs 
       });
 
-      // Attendi il banner
-      const bannerFound = await this.waitForBanner(page);
-      if (!bannerFound) {
-        console.log('Banner non rilevato, continuo con la raccolta dati');
-      }
+      // API injection check rimosso - la verifica avviene ora nel waitForConsentOrTimeout
 
-      // Esegui l'azione (reject/accept)
-      if (bannerFound) {
-        try {
-          await this.performConsentAction(page, type);
-          await this.waitForConsentUpdate(page);
-        } catch (error) {
-          console.log(`Banner trovato ma non riuscito a cliccare ${type}:`, error.message);
-          // Continua comunque con la raccolta dati
-        }
+      // Attendi il caricamento completo della pagina e eventuali banner
+      console.log(`⏱️ Attendo ${this.config.timeouts.softMs}ms per caricamento banner...`);
+      await page.waitForTimeout(this.config.timeouts.softMs);
+
+      // Pipeline per gestire il banner e cliccare l'azione corrispondente
+      const bannerHandled = await this.handleBannerDetectionAndAction(page, scenario, input);
+      
+      // FIX B: Attesa stabilizzazione CONSENT (soft)
+      const settle = await waitForConsentOrTimeout(page, input.options.timeoutSoftMs);
+      console.log(`[${scenario}] consent settle in ${settle.ms}ms`, settle.snapshot?.last || 'n/d');
+
+      // Patch 4: Se probe fallito, usa Cookiebot mappato
+      let latestConsent;
+      
+      if (settle.snapshot?.last) {
+        // Il probe funziona - usa snapshot
+        latestConsent = settle.snapshot.last;
       } else {
-        console.log(`Nessun banner di consenso rilevato per scenario ${type}`);
+        // Fallback Cookiebot mapping
+        const cbSnap = await page.evaluate(() => {
+          const w: any = window;
+          const cb = w.Cookiebot;
+          if (!cb || !cb.consent) return null;
+          return {
+            marketing: !!cb.consent.marketing,
+            statistics: !!cb.consent.statistics
+          };
+        });
+        
+        if (cbSnap) {
+          console.log(`[${scenario}] Cookiebot raw ->`, cbSnap);
+          // Mappa Cookiebot → Consent Mode v2
+          latestConsent = {
+            ad_user_data: cbSnap.marketing ? 'granted' : 'denied',
+            ad_personalization: cbSnap.marketing ? 'granted' : 'denied',
+            ad_storage: cbSnap.marketing ? 'granted' : 'denied',
+            analytics_storage: cbSnap.statistics ? 'granted' : 'denied'
+          };
+        } else {
+          // Ultimo fallback n/d
+          latestConsent = {
+            ad_user_data: 'n/d',
+            ad_personalization: 'n/d', 
+            ad_storage: 'n/d',
+            analytics_storage: 'n/d'
+          };
+        }
       }
+      const cookies = await this.getSensitiveCookies(context);
+      const gtagCalls = await this.getGtagCallsData(page);
+      const dataLayerEvents = await this.getDataLayerEvents(page);
 
-      // Raccogli i dati
-      const latestConsent = await this.getLatestConsent(page);
-      const cookies = await this.getSensitiveCookies(page);
-      const gtagCalls = await this.getGtagCalls(page);
-      const dataLayer = await this.getDataLayer(page);
-
-      // Cattura screenshot se abilitato
-      let screenshotPath: string | undefined;
-      if (input.options.captureScreens) {
-        screenshotPath = `${artifactsDir}/screenshot.png`;
-        await page.screenshot({ path: screenshotPath, fullPage: true });
-      }
-
-      // Cattura trace se abilitato
-      let tracePath: string | undefined;
-      if (input.options.trace) {
-        tracePath = `${artifactsDir}/trace.zip`;
-        await page.context().tracing.stop({ path: tracePath });
-      }
+      // Cattura screenshot (opzionale)
+      const screenshotPath = await this.captureScreenshot(page, scenario, input);
 
       return {
         latestConsent,
         cookies,
         gaAdsRequests,
         gtagCalls,
-        dataLayer,
-        artifacts: {
-          screenshotPath,
-          tracePath
-        }
+        dataLayer: dataLayerEvents,
+        artifacts: { screenshotPath }
       };
 
     } finally {
-      await page.close();
+      // IMPORTANTE: sempre chiudere browser per liberare risorse
+      try { if (page) await page.close(); } catch {};
+      try { if (context) await context.close(); } catch {};
+      try { if (browser) await browser.close(); } catch {};
     }
   }
 
-  private async waitForBanner(page: Page): Promise<boolean> {
-    const timeout = this.config.timeouts.softMs;
-    const startTime = Date.now();
-
-    return new Promise((resolve) => {
-      const checkBanner = async () => {
-        // Controlla se ci sono banner CMP noti
-        const bannerSelectors = [
-          '#onetrust-consent-sdk',
-          '#CybotCookiebotDialog',
-          '.iubenda-cs-banner',
-          '.didomi-popup',
-          '.uc-banner'
-        ];
-
-        for (const selector of bannerSelectors) {
-          const element = await page.$(selector);
-          if (element) {
-            resolve(true);
-            return;
-          }
-        }
-
-        // Fallback: cerca bottoni di consenso
-        const consentButtons = await page.$$('button, a, [role="button"]');
-        for (const button of consentButtons) {
-          const text = await button.textContent();
-          if (text && this.isConsentButton(text)) {
-            resolve(true);
-            return;
-          }
-        }
-
-        if (Date.now() - startTime > timeout) {
-          resolve(false);
-          return;
-        }
-
-        setTimeout(checkBanner, 100);
-      };
-
-      checkBanner();
-    });
-  }
-
-  private async performConsentAction(page: Page, type: 'reject' | 'accept'): Promise<void> {
-    const selectors = type === 'accept' ? 
-      this.getAllAcceptSelectors() : 
-      this.getAllRejectSelectors();
-
-    for (const selector of selectors) {
-      try {
-        const element = await page.$(selector);
-        if (element) {
-          await element.click();
-          console.log(`Clicked ${type} button with selector: ${selector}`);
-          return;
-        }
-      } catch (error) {
-        console.log(`Failed to click ${type} button with selector: ${selector}`, error);
-      }
-    }
-
-    // Fallback: cerca per testo
-    const buttons = await page.$$('button, a, [role="button"]');
-    for (const button of buttons) {
-      const text = await button.textContent();
-      if (text && this.isConsentButton(text, type)) {
-        await button.click();
-        console.log(`Clicked ${type} button by text: ${text}`);
-        return;
-      }
-    }
-
-    console.log(`Could not find ${type} button - continuo senza cliccare`);
-    // Non lanciare errore, continua senza cliccare
-  }
-
-  private async waitForConsentUpdate(page: Page): Promise<void> {
-    const graceTime = this.config.timeouts.graceMs;
-    
-    // Attendi aggiornamenti di consenso
-    await page.waitForFunction(() => {
-      return window.consentTestData && 
-             (window.consentTestData.gtagCalls.length > 0 || 
-              window.consentTestData.dataLayer.length > 0);
-    }, { timeout: graceTime }).catch(() => {
-      // Non è un errore se non ci sono aggiornamenti
-    });
-
-    // Attesa finale per stabilizzazione
-    await page.waitForTimeout(1000);
-  }
-
-  private async getLatestConsent(page: Page): Promise<ScenarioResult['latestConsent']> {
-    return await page.evaluate(() => {
-      // Cerca l'ultimo aggiornamento di consenso
-      const gtagCalls = window.consentTestData?.gtagCalls || [];
-      const consentCalls = gtagCalls.filter(call => call[0] === 'consent' && call[1] === 'update');
+  private async handleBannerDetectionAndAction(page: Page, scenario: 'reject' | 'accept', input: ConsentTestInput): Promise<boolean> {
+    try {
+      console.log(`🔍 Cerco banner per scenario ${scenario}...`);
       
-      if (consentCalls.length > 0) {
-        const latest = consentCalls[consentCalls.length - 1][2];
-        return {
-          ad_user_data: latest.ad_user_data || 'n/d',
-          ad_personalization: latest.ad_personalization || 'n/d',
-          ad_storage: latest.ad_storage || 'n/d',
-          analytics_storage: latest.analytics_storage || 'n/d'
-        };
+      // Lista selettori banner CMP supportati
+      const bannerSelectors = [
+        '#onetrust-consent-sdk',
+        '#CybotCookiebotDialog', 
+        '.iubenda-cs-banner',
+        '.didomi-popup',
+        '.uc-banner',
+        '[id*="cookie"]',
+        '[class*="cookie"]'
+      ];
+
+      // Attendi cenna fino a 15 secondi per l'apparizione del banner
+      for (let attempt = 0; attempt < 15; attempt++) {
+        console.log(`🔄 Tentativo rilevamento banner ${attempt + 1}/15...`);
+        
+        for (const selector of bannerSelectors) {
+          try {
+            const banner = await page.$(selector);
+            if (banner && await banner.isVisible()) {
+              console.log(`✅ Banner trovato: ${selector}`);
+              
+              const actionResult = await this.performConsentAction(page, scenario, selector);
+              if (actionResult) {
+                console.log(`✅ Azione ${scenario} completata con successo`);
+                return true;
+              } else {
+                console.log(`⚠️ Banner trovato ma azione ${scenario} fallita`);
+              }
+            }
+          } catch (err) {
+            console.log(`❌ Errore nel verificare banner ${selector}:`, err.message);
+          }
+        }
+        
+        // Fallback: cerca per testo in tutti gli elementi clickable
+        const actionResult = await this.performFallbackConsentAction(page, scenario);
+        if (actionResult) {
+          console.log(`✅ Fallback ${scenario} completato`);
+          return true;
+        }
+        
+        await page.waitForTimeout(1000); // Attendi 1 secondo
+      }
+
+      console.log(`⚠️ Banner non trovato nel timeout, continuo con raccolta dati`);
+      return false;
+    } catch (error) {
+      console.error('❌ Errore gestione banner:', error);
+      return false;
+    }
+  }
+
+  private async performConsentAction(page: Page, scenario: 'reject' | 'accept', bannerSelector: string): Promise<boolean> {
+    try {
+      // Esegui tutto nel contesto della pagina
+      return await page.evaluate(({ scenario, bannerSelector }) => {
+        const keywords = scenario === 'reject' 
+          ? ['rifiuta', 'decline', 'reject', 'necessari', 'deny', 'rifiuto', 'nega', 'solo essenziali']
+          : ['accetta', 'accept', 'consenti', 'consent', 'tutti', 'conferma', 'allow', 'agree'];
+
+        const scope = document.querySelector(bannerSelector);
+        if (!scope) return false;
+        
+        // Cerca tutti i pulsanti/interazioni nel banner
+        const elements = Array.from(scope.querySelectorAll('button, a, [role="button"], input, .btn, [onclick]'));
+        
+        for (const btn of elements) {
+          const text = (btn.textContent || '').toLowerCase().trim();
+          const ariaLabel = (btn.getAttribute('aria-label') || '').toLowerCase().trim();
+          const combinedText = `${text} ${ariaLabel}`;
+          
+          for (const keyword of keywords) {
+            if (combinedText.includes(keyword.toLowerCase())) {
+              console.log(`🎯 Clicking element: "${text}" (keyword: ${keyword})`);
+              (btn as HTMLElement).click();
+              return true;
+            }
+          }
+        }
+        
+        return false;
+      }, { scenario, bannerSelector });
+
+    } catch (error) {
+      console.log(`❌ Errore click ${scenario}:`, error.message);
+      return false;
+    }
+  }
+
+  private async performFallbackConsentAction(page: Page, scenario: 'reject' | 'accept'): Promise<boolean> {
+    try {
+      const selectors = scenario === 'accept' ? 
+        this.getAllAcceptSelectors() : 
+        this.getAllRejectSelectors();
+
+      for (const selector of selectors) {
+        try {
+          const element = await page.$(selector);
+          if (element && await element.isVisible()) {
+            console.log(`🎯 Clicking ${scenario} with selector: ${selector}`);
+            await element.click();
+            return true;
+          }
+        } catch (error) {
+          console.log(`❌ Failed click ${scenario} selector ${selector}:`, error.message);
+        }
+      }
+      
+      // Ultimo fallback: match text su tutti i button della pagina
+      const result = await page.evaluate((scenario) => {
+        const keywords = scenario === 'reject' 
+          ? ['rifiuta', 'decline', 'reject', 'necessari', 'deny']
+          : ['accetta', 'accept', 'consenti', 'consent', 'conferma'];
+
+        const allButtons = Array.from(document.querySelectorAll('button, a, [role="button"], input, [onclick]'));
+        
+        for (const btn of allButtons) {
+          const text = (btn.textContent || '').toLowerCase().trim();
+          if (keywords.some(k => text.includes(k.toLowerCase().trim()))) {
+            console.log(`🎯 Clicking fallback ${scenario}: "${text}"`);
+            (btn as HTMLElement).click();
+            return true;
+          }
+        }
+        return false;
+      }, scenario);
+
+      return result;
+    } catch (error) {
+      console.log(`❌ Fallback ${scenario} failed:`, error.message);
+      return false;
+    }
+  }
+
+  private async getLatestConsentState(page: Page): Promise<ScenarioResult['latestConsent']> {
+    return await page.evaluate(() => {
+      const w = window as any;
+      
+      // Cerca eventi consent nel dataLayer
+      const dl = w.__dl_events || [];
+      let latestConsent: any = {};
+
+      // Pattern di ricerca nelle chiamate gtag
+      const gtagCalls = w.__gtag_calls || [];
+      for (const call of gtagCalls.reverse()) {
+        if (call[0] === 'consent' && call[1] === 'update' && call[2]) {
+          latestConsent = { ...call[2] };
+          break;
+        }
+      }
+
+      // Pattern di ricerca nel dataLayer
+      for (const event of dl.slice().reverse()) {
+        if (Array.isArray(event)) {
+          if (event[0] === 'consent') {
+            latestConsent = { ...(event[1] || {}) };
+            break;
+          }
+          if (event[0] === 'gtag' && event[1] === 'consent') {
+            latestConsent = { ...(event[2] || {}) };
+            break;
+          }
+        } else if (typeof event === 'object' && event.event) {
+          if (event.event.includes('consent')) {
+            latestConsent = { ...(event.consent_mode || {}) };
+            break;
+          }
+        }
       }
 
       return {
-        ad_user_data: 'n/d',
-        ad_personalization: 'n/d',
-        ad_storage: 'n/d',
-        analytics_storage: 'n/d'
+        ad_user_data: latestConsent.ad_user_data || 'n/d',
+        ad_personalization: latestConsent.ad_personalization || 'n/d',
+        ad_storage: latestConsent.ad_storage || 'n/d',
+        analytics_storage: latestConsent.analytics_storage || 'n/d'
       };
     });
   }
 
-  private async getSensitiveCookies(page: Page): Promise<ScenarioResult['cookies']> {
-    const cookies = await page.context().cookies();
+  private async getSensitiveCookies(context: BrowserContext): Promise<ScenarioResult['cookies']> {
+    const cookies = await context.cookies();
     return cookies
       .filter(cookie => this.config.cookies.sensitive.includes(cookie.name))
       .map(cookie => ({
@@ -356,16 +456,12 @@ export class ConsentTestRunner {
       }));
   }
 
-  private async getGtagCalls(page: Page): Promise<ScenarioResult['gtagCalls']> {
-    return await page.evaluate(() => {
-      return window.consentTestData?.gtagCalls || [];
-    });
+  private async getGtagCallsData(page: Page): Promise<ScenarioResult['gtagCalls']> {
+    return await page.evaluate(() => (window as any).__gtag_calls || []);
   }
 
-  private async getDataLayer(page: Page): Promise<ScenarioResult['dataLayer']> {
-    return await page.evaluate(() => {
-      return window.consentTestData?.dataLayer || [];
-    });
+  private async getDataLayerEvents(page: Page): Promise<ScenarioResult['dataLayer']> {
+    return await page.evaluate(() => (window as any).__dl_events || []);
   }
 
   private isGaAdsRequest(url: string): boolean {
@@ -373,15 +469,6 @@ export class ConsentTestRunner {
       const regex = new RegExp(pattern.replace(/\*/g, '.*'));
       return regex.test(url);
     });
-  }
-
-  private isConsentButton(text: string, type?: 'accept' | 'reject'): boolean {
-    const normalizedText = text.toLowerCase().trim();
-    const patterns = type ? 
-      this.config.cmp.fallback[type] : 
-      [...this.config.cmp.fallback.accept, ...this.config.cmp.fallback.reject];
-    
-    return patterns.some(pattern => normalizedText.includes(pattern));
   }
 
   private getAllAcceptSelectors(): string[] {
@@ -400,53 +487,67 @@ export class ConsentTestRunner {
     return selectors;
   }
 
+  private async captureScreenshot(page: Page, scenario: 'reject' | 'accept', input: ConsentTestInput): Promise<string | undefined> {
+    try {
+      if (!input.options.captureScreens) return undefined;
+      
+      const runId = Date.now().toString();
+      const artifactPath = `./artifacts/${runId}/`;
+      await fs.mkdir(artifactPath, { recursive: true }); 
+      
+      const filename = `${artifactPath}consent-test-${scenario}.png`;
+      await page.screenshot({ path: filename, fullPage: true });
+      
+      return filename;
+    } catch { 
+      return undefined; 
+    }
+  }
+
   private evaluateResults(results: { reject: ScenarioResult; accept: ScenarioResult }): ConsentTestResult['summary'] {
     const notes: string[] = [];
     let pass = true;
 
-    // Valuta scenario REJECT
-    const rejectCookies = results.reject.cookies.length;
-    const rejectRequests = results.reject.gaAdsRequests.length;
+    // Controlli di sicurezza preliminari
+    if (!results.reject || !results.accept) {
+      notes.push('ERRORE: Risultati incompleti - uno o entrambi gli scenari sono falliti');
+      return { pass: false, notes };
+    }
+
+    // Valuta scenario REJECT - NON dovrebbero esserci cookies/richieste
+    const rejectCookies = results.reject.cookies?.length || 0;
+    const rejectRequests = results.reject.gaAdsRequests?.length || 0;
     
     if (rejectCookies > 0) {
-      notes.push(`REJECT: Trovati ${rejectCookies} cookie sensibili (dovrebbero essere 0)`);
+      notes.push(`REJECT: 🍪 Rilevati ${rejectCookies} cookie sensibili (dovrebbero essere 0)`);
       pass = false;
     }
     
     if (rejectRequests > 0) {
-      notes.push(`REJECT: Trovate ${rejectRequests} richieste GA/Ads (dovrebbero essere 0)`);
+      notes.push(`REJECT: 🎯 Trovate ${rejectRequests} richieste GA/Ads (dovrebbero essere 0)`);
       pass = false;
     }
 
-    // Valuta scenario ACCEPT
-    const acceptConsent = results.accept.latestConsent;
+    // Valuta scenario ACCEPT - dovrebbero essere presenti le strategie marketing
+    const acceptConsent = results.accept.latestConsent || {};
     const hasGrantedConsent = Object.values(acceptConsent).some(value => value === 'granted');
-    const acceptRequests = results.accept.gaAdsRequests.length;
+    const acceptRequests = results.accept.gaAdsRequests?.length || 0;
+    const acceptCookies = results.accept.cookies?.length || 0;
 
     if (!hasGrantedConsent) {
-      notes.push('ACCEPT: Nessun consenso granted rilevato');
+      notes.push('ACCEPT: ⚠️ Nessun consenso "granted" rilevato dal Consent Mode');
     }
 
-    if (acceptRequests === 0) {
-      notes.push('ACCEPT: Nessuna richiesta GA/Ads rilevata (potrebbe essere normale se il sito non usa GA/Ads)');
+    // Test dovrebbe anche controllare che in ACCEPT ci siano tracking calls
+    if (acceptRequests === 0 && acceptCookies === 0) {
+      notes.push('ACCEPT: ⚠️ Nessuna attività tracking (potrebbe essere normale se sonto non usa GA/Ads)');
     }
 
     if (notes.length === 0) {
-      notes.push('Test completato con successo');
+      notes.push('✅ Test completato con successo - nessun problema rilevato');
     }
 
     return { pass, notes };
-  }
-
-  private async cleanup(): Promise<void> {
-    if (this.context) {
-      await this.context.close();
-      this.context = null;
-    }
-    if (this.browser) {
-      await this.browser.close();
-      this.browser = null;
-    }
   }
 }
 

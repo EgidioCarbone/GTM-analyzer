@@ -68,24 +68,28 @@ export const defaultConfig: ConsentTestConfig = {
   cmp: {
     selectors: {
       onetrust: {
-        accept: ["#onetrust-accept-btn-handler", ".accept-btn", "[data-optanongroupid='C0001']"],
-        reject: ["#onetrust-reject-all-handler", ".reject-btn", "[data-optanongroupid='C0002']"]
+        accept: ["#onetrust-accept-btn-handler", ".accept-btn", "[data-optanongroupid='C0001']", "button[id*='accept']"],
+        reject: ["#onetrust-reject-all-handler", ".reject-btn", "[data-optanongroupid='C0002']", "button[id*='reject']"]
       },
       cookiebot: {
-        accept: ["#CybotCookiebotDialogBodyButtonAccept", ".CookiebotDialogBodyButtonAccept"],
-        reject: ["#CybotCookiebotDialogBodyButtonDecline", ".CookiebotDialogBodyButtonDecline"]
+        accept: ["#CybotCookiebotDialogBodyButtonAccept", ".CookiebotDialogBodyButtonAccept", "button[id*='accept']"],
+        reject: ["#CybotCookiebotDialogBodyButtonDecline", ".CookiebotDialogBodyButtonDecline", "button[id*='decline']"]
       },
       iubenda: {
-        accept: [".iubenda-cs-accept-btn", "#iubenda-cs-accept-btn"],
-        reject: [".iubenda-cs-reject-btn", "#iubenda-cs-reject-btn"]
+        accept: [".iubenda-cs-accept-btn", "#iubenda-cs-accept-btn", "button[class*='accept']"],
+        reject: [".iubenda-cs-reject-btn", "#iubenda-cs-reject-btn", "button[class*='reject']"]
       },
       didomi: {
-        accept: [".didomi-continue-without-agree", "#didomi-continue-without-agree"],
-        reject: [".didomi-disagree-high", "#didomi-disagree-high"]
+        accept: [".didomi-continue-without-agree", "#didomi-continue-without-agree", "button[class*='accept']"],
+        reject: [".didomi-disagree-high", "#didomi-disagree-high", "button[class*='disagree']"]
       },
       usercentrics: {
-        accept: [".uc-btn-accept-all", "#uc-btn-accept-all"],
-        reject: [".uc-btn-deny-all", "#uc-btn-deny-all"]
+        accept: [".uc-btn-accept-all", "#uc-btn-accept-all", "button[class*='accept']"],
+        reject: [".uc-btn-deny-all", "#uc-btn-deny-all", "button[class*='deny']"]
+      },
+      generic: {
+        accept: ["button[id*='accept']", "button[class*='accept']", "[data-accept]", "button:has-text('Accept')", "button:has-text('Accetta')"],
+        reject: ["button[id*='reject']", "button[class*='reject']", "[data-reject]", "button:has-text('Reject')", "button:has-text('Rifiuta')"]
       }
     },
     fallback: {
@@ -101,7 +105,13 @@ export const defaultConfig: ConsentTestConfig = {
         "tutti",
         "all",
         "tutto",
-        "everything"
+        "everything",
+        "ho capito",
+        "capisco",
+        "continuare",
+        "continue",
+        "procedere",
+        "proceed"
       ],
       reject: [
         "rifiuta",
@@ -113,7 +123,11 @@ export const defaultConfig: ConsentTestConfig = {
         "solo necessari",
         "necessary only",
         "solo essenziali",
-        "essential only"
+        "essential only",
+        "necessari",
+        "necessary",
+        "rifiuto tutti",
+        "reject all"
       ]
     }
   },
