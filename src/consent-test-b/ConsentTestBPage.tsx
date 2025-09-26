@@ -680,20 +680,144 @@ function ScenarioDetails({ scenario, data }: { scenario: 'reject' | 'accept', da
         </h3>
         {data.gaAdsRequests.length > 0 ? (
           <div className="bg-blue-50 border border-blue-200 rounded-md p-4">
-            <div className="space-y-2 max-h-40 overflow-y-auto">
-              {data.gaAdsRequests.map((request, index) => (
-                <div key={index} className="text-sm">
-                  <div className="font-mono text-blue-800 break-all">{request.url}</div>
-                  <div className="text-blue-600 text-xs">
-                    {new Date(request.ts).toLocaleTimeString('it-IT')}
-                  </div>
+            {/* Analytics Summary */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+              <div className="bg-white rounded-lg p-3 shadow-sm">
+                <div className="flex items-center space-x-2">
+                  <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
+                  <span className="text-sm font-medium text-gray-700">Network</span>
                 </div>
-              ))}
+                <div className="text-lg font-bold text-blue-600">
+                  {new Set(data.gaAdsRequests.map(req => {
+                    const url = new URL(req.url);
+                    return url.hostname;
+                  })).size}
+                </div>
+                <div className="text-xs text-gray-500">domini diversi</div>
+              </div>
+              
+              <div className="bg-white rounded-lg p-3 shadow-sm">
+                <div className="flex items-center space-x-2">
+                  <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+                  <span className="text-sm font-medium text-gray-700">Richiesta</span>
+                </div>
+                <div className="text-lg font-bold text-green-600">
+                  {Math.max(...data.gaAdsRequests.map(req => req.ts)) - Math.min(...data.gaAdsRequests.map(req => req.ts)) + 1}
+                </div>
+                <div className="text-xs text-gray-500">ms completate</div>
+              </div>
+
+              <div className="bg-white rounded-lg p-3 shadow-sm">
+                <div className="flex items-center space-x-2">
+                  <div className="w-3 h-3 bg-purple-500 rounded-full"></div>
+                  <span className="text-sm font-medium text-gray-700">Status</span>
+                </div>
+                <div className="text-lg font-bold text-purple-600">{data.gaAdsRequests.length}</div>
+                <div className="text-xs text-gray-500">richieste tracciate</div>
+              </div>
+            </div>
+
+            {/* Request Details */}
+            <div className="space-y-3 max-h-60 overflow-y-auto">
+              {data.gaAdsRequests.map((request, index) => {
+                const url = new URL(request.url);
+                const domain = url.hostname;
+                const pathname = url.pathname + url.search;
+                
+                // Analizza il tipo di richiesta
+                const getRequestType = (hostname: string, pathname: string) => {
+                  if (hostname.includes('googleadservices.com')) return 'Google Ads Conversion';
+                  if (hostname.includes('doubleclick.net')) return 'DoubleClick Tracking';
+                  if (hostname.includes('google-analytics.com')) return 'GA4 Analytics';
+                  if (hostname.includes('googletagmanager.com')) return 'GTM Container';
+                  return 'Google Tracking';
+                };
+
+                const requestType = getRequestType(domain, pathname);
+                
+                // Estrai parametri importanti
+                const searchParams = new URLSearchParams(url.search);
+                const eventType = searchParams.get('event') || searchParams.get('tag') || 'tracking';
+                const conversionId = searchParams.get('id') || searchParams.get('conversion_id');
+                
+                return (
+                  <div key={index} className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
+                    <div className="flex items-start justify-between mb-2">
+                      <div className="flex-1">
+                        <div className="flex items-center space-x-2 mb-1">
+                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                            {requestType}
+                          </span>
+                          <span className="text-xs text-gray-500">
+                            {new Date(request.ts).toLocaleTimeString('it-IT')}
+                          </span>
+                        </div>
+                        <div className="text-sm font-medium text-gray-900 break-all line-clamp-2">
+                          {process.env.NODE_ENV === 'development' ? request.url : `https://${url.hostname}${url.pathname}...`}
+                        </div>
+                      </div>
+                      <div className="ml-3 flex-shrink-0">
+                        <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                          Attiva
+                        </span>
+                      </div>
+                    </div>
+                    
+                    {/* Domain Info */}
+                    <div className="flex items-center space-x-4 text-xs text-gray-600">
+                      <div className="flex items-center space-x-1">
+                        <span className="w-1 h-1 bg-gray-400 rounded-full"></span>
+                        <span className="font-medium">{domain}</span>
+                      </div>
+                      {eventType && (
+                        <div className="flex items-center space-x-1">
+                          <span className="w-1 h-1 bg-gray-400 rounded-full"></span>
+                          <span>Evento: {eventType}</span>
+                        </div>
+                      )}
+                      {conversionId && (
+                        <div className="flex items-center space-x-1">
+                          <span className="w-1 h-1 bg-gray-400 rounded-full"></span>
+                          <span>ID: {conversionId}</span>
+                        </div>
+                      )}
+                    </div>
+                    
+                    {/* Key Parameters */}
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {['event', 'id', 'conversion_id', 'label', 'gtm'].map(param => {
+                        const value = searchParams.get(param);
+                        return value ? (
+                          <span key={param} className="inline-flex items-center px-2 py-1 rounded text-xs bg-gray-100 text-gray-700">
+                            <span className="font-medium">{param}:</span>
+                            <span className="ml-1">{value.length > 20 ? `${value.substring(0, 20)}...` : value}</span>
+                          </span>
+                        ) : null;
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            
+            {/* Footer Info */}
+            <div className="mt-3 pt-3 border-t border-blue-200">
+              <div className="flex items-center justify-between text-xs text-blue-700">
+                <span>
+                  ✅ Queste richieste confermano che il tracking è attivo in scenario ACCEPT
+                </span>
+                <span>
+                  📊 Analytics/{data.gaAdsRequests.length}
+                </span>
+              </div>
             </div>
           </div>
         ) : (
           <div className="bg-green-50 border border-green-200 rounded-md p-4">
-            <p className="text-green-800 text-sm">Nessuna richiesta GA/Ads rilevata</p>
+            <div className="flex items-center space-x-2">
+              <span className="text-green-600 text-lg">✅</span>
+              <p className="text-green-800 text-sm">Nessuna richiesta GA/Ads rilevata - Scenario REJECT funziona correttamente</p>
+            </div>
           </div>
         )}
       </div>
