@@ -1,6 +1,6 @@
 // src/consent-test-b/pw-runner.ts
 
-import { chromium, Browser, BrowserContext, Page } from 'playwright';
+import { chromium, Browser, BrowserContext, Page, ElementHandle } from 'playwright';
 import { defaultConfig, ConsentTestConfig } from './config';
 import * as fs from 'fs/promises';
 import { z } from 'zod';
@@ -496,11 +496,104 @@ export class ConsentTestRunner {
       await fs.mkdir(artifactPath, { recursive: true }); 
       
       const filename = `${artifactPath}consent-test-${scenario}.png`;
-      await page.screenshot({ path: filename, fullPage: true });
+      
+      // Prima prova a trovare un cookie banner specifico nello schermo
+      const bannerElement = await this.findCookieBannerElement(page);
+      
+      if (bannerElement) {
+        // Screenshot solo dell'area del cookie banner
+        await bannerElement.screenshot({ path: filename });
+        console.log('✅ Cookie banner screenshot catturato');
+      } else {
+        // Fallback: screenshot dell'intera pagina
+        await page.screenshot({ path: filename, fullPage: true });
+        console.log('⚠️ Banner non trovato, screenshot full page catturato');
+      }
       
       return filename;
     } catch { 
       return undefined; 
+    }
+  }
+
+  private async findCookieBannerElement(page: Page): Promise<ElementHandle<Element> | null> {
+    try {
+      // Lista selettori comuni per cookie banner
+      const bannerSelectors = [
+        '[class*="cookie"]',
+        '[id*="cookie"]',
+        '[class*="banner"]',
+        '[id*="banner"]',
+        '[class*="consent"]',
+        '[id*="consent"]',
+        '[class*="gdpr"]',
+        '[id*="gdpr"]',
+        'div[role="dialog"]',
+        '.cookie-notice',
+        '.cookie-banner',
+        '.consent-banner',
+        '#cookie-notice',
+        '#cookie-banner',
+        '#consent-banner',
+        '[data-cookie-policy]',
+        '[data-gdpr-notice]'
+      ];
+
+      for (const selector of bannerSelectors) {
+        const element = await page.$(selector);
+        if (element) {
+          // Verifichiamo che sia visibile e probabilmente sia un cookie banner
+          const isVisible = await element.isVisible();
+          const boundingBox = await element.boundingBox();
+          
+          if (isVisible && boundingBox && boundingBox.height > 0 && boundingBox.width > 0) {
+            // Controlliamo se contiene testo legato a cookie/consenso
+            const text = await element.textContent();
+            const cookieKeywords = ['cookie', 'consent', 'accetta', 'rifiuta', 'preferences', 'settings', 'agree', 'disagree'];
+            
+            if (text && cookieKeywords.some(keyword => 
+              text.toLowerCase().includes(keyword.toLowerCase())
+            )) {
+              console.log(`✅ Banner trovato con selettore: ${selector}`);
+              return element;
+            }
+          }
+        }
+      }
+      
+      // Fallback: cerca elementi con testo cookie common
+      const candidates = await page.$$('*');
+      for (const element of candidates.slice(0, 50)) { // Limita ricerca ai primi 50 elementi
+        try {
+          const text = await element.textContent();
+          const className = await element.evaluate(el => el.className || '');
+          const id = await element.evaluate(el => el.id || '');
+          
+          if (text && (
+            text.toLowerCase().includes('cookie') ||
+            text.toLowerCase().includes('consent') ||
+            text.toLowerCase().includes('accetta') ||
+            text.toLowerCase().includes('rifiuta') ||
+            className.includes('cookie') ||
+            id.includes('cookie')
+          )) {
+            const isVisible = await element.isVisible();
+            const boundingBox = await element.boundingBox();
+            
+            if (isVisible && boundingBox && boundingBox.height > 0 && boundingBox.width > 0) {
+              console.log(`✅ Banner trovato tramite testo: ${text.substring(0, 50)}...`);
+              return element;
+            }
+          }
+        } catch {
+          // Ignora errori sui singoli elementi
+          continue;
+        }
+      }
+      
+      return null;
+    } catch {
+      return null;
     }
   }
 

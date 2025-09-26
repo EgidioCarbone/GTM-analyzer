@@ -425,6 +425,186 @@ export default function ConsentTestBPage() {
               )}
             </div>
 
+            {/* Cookie Banner Screenshot */}
+            <div className="mb-6">
+              <h3 className="text-lg font-medium text-gray-900 mb-3">Cookie Banner Rilevato</h3>
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                {(() => {
+                  // Prendiamo lo screenshot dal primo scenario disponibile
+                  const firstScenario = result.results.reject || result.results.accept;
+                  const bannerScreenshot = firstScenario?.artifacts?.screenshotPath;
+                  
+                  if (bannerScreenshot) {
+                    // Gestione del path per proxy Vite (stessa origine)
+                    const getScreenshotUrl = () => {
+                      if (!bannerScreenshot) return '#';
+                      
+                      // Se inizia con ./artifacts/, rimuovi i dot separators
+                      let cleanPath = bannerScreenshot;
+                      if (bannerScreenshot.startsWith('./artifacts/')) {
+                        cleanPath = bannerScreenshot.replace('./artifacts/', '');
+                      } else if (bannerScreenshot.startsWith('/artifacts/')) {
+                        cleanPath = bannerScreenshot.replace('/artifacts/', '');
+                      }
+                      
+                      // Usa proxy Vite - stessa origine (5173)
+                      return `/artifacts/${cleanPath}`;
+                    };
+                    
+                    const screenshotUrl = getScreenshotUrl();
+                    return (
+                      <div className="space-y-4">
+                        <div className="relative">
+                          <img
+                            src={screenshotUrl}
+                            alt="Cookie Banner Screenshot"
+                            className="w-full h-auto max-h-96 object-contain border border-gray-300 rounded-lg shadow-sm cursor-pointer hover:shadow-md transition-shadow"
+                            onClick={() => window.open(screenshotUrl, '_blank')}
+                            onError={(e) => {
+                              const target = e.target as HTMLImageElement;
+                              target.style.display = 'none';
+                              const parent = target.parentElement;
+                              if (parent) {
+                                parent.innerHTML = `
+                                  <div class="w-full h-48 bg-gray-100 border border-gray-300 rounded-lg flex flex-col items-center justify-center text-gray-500">
+                                    <svg class="w-12 h-12 text-gray-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                                    </svg>
+                                    <p class="text-sm">Screenshot non disponibile</p>
+                                    <p class="text-xs text-gray-400 mt-1">Il file potrebbe non essere ancora generato</p>
+                                  </div>
+                                `;
+                              }
+                            }}
+                          />
+                        </div>
+                        
+                        {/* Cookie Banner Detailed Analysis */}
+                        {(() => {
+                          const detectCMPType = () => {
+                            let cmpType = "Custom Banner";
+                            let confidenceLevel = "Stima";
+                            let additionalInfo = [];
+                            
+                            if (result?.results?.reject?.gtagCalls || result?.results?.accept?.gtagCalls) {
+                              const gtagData = result.results.reject?.gtagCalls || result.results.accept?.gtagCalls;
+                              const gtagStr = JSON.stringify(gtagData).toLowerCase();
+                              
+                              if (gtagStr.includes('cookiebot')) {
+                                cmpType = "Cookiebot CMP";
+                                confidenceLevel = "Confermato";
+                                additionalInfo.push("Compliant con GDPR/CCPA");
+                                additionalInfo.push("UI standard ben riconosciuto");
+                              } else if (gtagStr.includes('onetrust')) {
+                                cmpType = "OneTrust CMP";
+                                confidenceLevel = "Confermato";
+                                additionalInfo.push("Enterprise-ready solution");
+                                additionalInfo.push("Granular controls available");
+                              } else if (gtagStr.includes('cookieconsent') || gtagStr.includes('cookie consent')) {
+                                cmpType = "Cookie Consent";
+                                confidenceLevel = "Alto";
+                                additionalInfo.push("Open source solution");
+                              }
+                            }
+                            
+                            // Analizza cookies per additional insights
+                            const cookies = result?.results?.reject?.cookies || result?.results?.accept?.cookies || [];
+                            const gaAdsReq = result?.results?.reject?.gaAdsRequests || result?.results?.accept?.gaAdsRequests || [];
+                            
+                            if (cookies.length > 0) {
+                              const sensitiveCookies = cookies.filter(c => c.sensitive || c.isSensitive);
+                              if (sensitiveCookies.length > 0) {
+                                additionalInfo.push(`${sensitiveCookies.length} cookie sensibili rilevati`);
+                              }
+                              additionalInfo.push(`${cookies.length} cookie totali analizzati`);
+                            }
+                            
+                            if (gaAdsReq.length > 0) {
+                              additionalInfo.push(`${gaAdsReq.length} richieste di tracciamento intercettate`);
+                            }
+                            
+                            return { cmpType, confidenceLevel, additionalInfo };
+                          };
+                          
+                          const { cmpType, confidenceLevel, additionalInfo } = detectCMPType();
+                          
+                          return (
+                            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-6 mb-4">
+                              <div className="flex items-start space-x-4">
+                                <div className="flex-shrink-0">
+                                  <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
+                                    <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                  </div>
+                                </div>
+                                <div className="flex-1">
+                                  <div className="flex items-center space-x-2 mb-2">
+                                    <h4 className="text-lg font-semibold text-gray-900">{cmpType}</h4>
+                                    <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                                      confidenceLevel === 'Confermato' 
+                                        ? 'bg-green-100 text-green-800' 
+                                        : confidenceLevel === 'Alto'
+                                        ? 'bg-yellow-100 text-yellow-800'
+                                        : 'bg-gray-100 text-gray-800'
+                                    }`}>
+                                      {confidenceLevel === 'Confermato' ? '✓ Confermato' : confidenceLevel}
+                                    </span>
+                                  </div>
+                                  
+                                  <p className="text-sm text-gray-600 mb-3">
+                                    Analisi dettagliata del cookie banner rilevato durante il test di navigazione
+                                  </p>
+                                  
+                                  {/* Additional Analysis Results */}
+                                  {additionalInfo.length > 0 && (
+                                    <div className="space-y-1 mb-3">
+                                      {additionalInfo.map((info, idx) => (
+                                        <div key={idx} className="text-xs text-gray-600 flex items-center space-x-1">
+                                          <svg className="w-3 h-3 text-blue-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                          </svg>
+                                          <span>{info}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                  
+                                  <div className="flex flex-wrap gap-2 text-xs">
+                                    <div className="bg-white px-2 py-1 rounded border text-gray-700">
+                                      🌐 <span className="font-medium">URL:</span> {result.url}
+                                    </div>
+                                    <div className="bg-white px-2 py-1 rounded border text-gray-700">
+                                      🔍 <span className="font-medium">Test:</span> REJECT/ACCEPT scenarios
+                                    </div>
+                                    <div className="bg-white px-2 py-1 rounded border text-gray-700">
+                                      🛡️ <span className="font-medium">Status:</span> Banner rilevato e analizzato
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })()}
+
+
+                      </div>
+                    );
+                  } else {
+                    return (
+                      <div className="text-center py-8 text-gray-500">
+                        <svg className="mx-auto h-12 w-12 text-gray-400 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                        <p className="text-sm">Nessun screenshot del cookie banner disponibile</p>
+                        <p className="text-xs text-gray-400 mt-1">Il banner potrebbe non essere stato rilevato</p>
+                      </div>
+                    );
+                  }
+                })()}
+              </div>
+            </div>
+
             {/* Tabs */}
             <div className="border-b border-gray-200 mb-6">
               <nav className="-mb-px flex space-x-8">
@@ -603,8 +783,19 @@ function ScenarioDetails({ scenario, data }: { scenario: 'reject' | 'accept', da
   // Pre-calculation to avoid template literal issues
   const getArtifactUrl = () => {
     if (!data.artifacts.screenshotPath) return '#';
-    const fileName = data.artifacts.screenshotPath.split('/').pop();
-    return `http://localhost:4000/artifacts/${fileName}`;
+    
+    // Gestione path per proxy Vite (stessa origine)
+    let cleanPath = data.artifacts.screenshotPath;
+    if (data.artifacts.screenshotPath.startsWith('./artifacts/')) {
+      cleanPath = data.artifacts.screenshotPath.replace('./artifacts/', '');
+    } else if (data.artifacts.screenshotPath.startsWith('/artifacts/')) {
+      cleanPath = data.artifacts.screenshotPath.replace('/artifacts/', '');
+    } else {
+      // Se è un simple filename, lo metto direct
+      cleanPath = data.artifacts.screenshotPath.split('/').pop() || '';
+    }
+    
+    return `/artifacts/${cleanPath}`;
   };
 
   return (
@@ -822,22 +1013,6 @@ function ScenarioDetails({ scenario, data }: { scenario: 'reject' | 'accept', da
         )}
       </div>
 
-      {/* Artifacts */}
-      {data.artifacts.screenshotPath && (
-        <div>
-          <h3 className="text-lg font-medium text-gray-900 mb-3">Screenshot</h3>
-          <div className="bg-gray-50 border border-gray-200 rounded-md p-4">
-            <a
-              href={getArtifactUrl()}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-blue-600 hover:text-blue-800 text-sm"
-            >
-              Visualizza Screenshot
-            </a>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
