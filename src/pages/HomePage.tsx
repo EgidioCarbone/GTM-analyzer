@@ -34,17 +34,8 @@ const tools = [
     features: ['Test automatici', 'Esecuzione browser', 'Report dettagliati']
   },
   {
-    id: 'ai-sentinel',
-    title: 'AI Sentinel',
-    description: 'Monitoraggio e sicurezza avanzata con intelligenza artificiale',
-    requiresJson: false,
-    icon: Shield,
-    color: 'red',
-    features: ['Monitoraggio 24/7', 'Sicurezza avanzata', 'Alert intelligenti']
-  },
-  {
     id: 'consent-test-b',
-    title: 'Consent Test B',
+    title: 'AI Sentinel',
     description: 'Test automatico del consenso con Playwright per GDPR/CCPA',
     requiresJson: false,
     icon: CheckCircle,
@@ -111,7 +102,7 @@ const ToolCard = ({ tool, onClick }) => {
       className={`
         relative bg-white rounded-xl shadow-lg hover:shadow-xl transition-all duration-300
         cursor-pointer group border border-gray-200 ${colors.hover}
-        overflow-hidden
+        overflow-hidden h-full flex flex-col
       `}
     >
       {/* Header con icona e colore */}
@@ -138,11 +129,11 @@ const ToolCard = ({ tool, onClick }) => {
       </div>
       
       {/* Contenuto */}
-      <div className="p-6">
+      <div className="p-6 flex flex-col flex-grow">
         <h3 className="text-xl font-semibold text-gray-900 mb-2">
           {tool.title}
         </h3>
-        <p className="text-gray-600 mb-4 leading-relaxed">
+        <p className="text-gray-600 mb-4 leading-relaxed flex-grow">
           {tool.description}
         </p>
         
@@ -223,10 +214,8 @@ export default function HomePage() {
         navigate('/plan?mode=plan');
       } else if (tool.id === 'ssd-test') {
         navigate('/ssd-test?mode=ssd');
-      } else if (tool.id === 'ai-sentinel') {
-        navigate('/checklist?mode=sentinel');
       } else if (tool.id === 'consent-test-b') {
-        navigate('/consent-test-b?mode=consent-test-b');
+        navigate('/ai-sentinel?mode=consent-test-b');
       }
     }
   };
@@ -336,13 +325,14 @@ export default function HomePage() {
           </div>
 
           {/* Tools Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 items-stretch">
           {tools.map((tool, index) => (
             <motion.div
               key={tool.id}
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: index * 0.1 }}
+              className="flex"
             >
               <ToolCard tool={tool} onClick={() => handleToolClick(tool)} />
             </motion.div>

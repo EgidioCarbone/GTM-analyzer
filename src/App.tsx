@@ -11,7 +11,6 @@ import TestingPage from "./pages/TestingPage";
 import MigrationPage from "./pages/MigrationPage";
 import { useContainer } from "./context/ContainerContext";
 import { Toaster, toast } from "react-hot-toast";
-import ChecklistPage from "./pages/ChecklistPage";
 import SSDTestPage from "./pages/SSDTestPage";
 import ConsentTestBPage from "./consent-test-b/ConsentTestBPage";
 import { ErrorBoundary } from "./components/ErrorBoundary";
@@ -61,8 +60,7 @@ export default function App() {
             
             {/* Route pubbliche - accessibili sempre */}
             <Route path="/ssd-test" element={<SSDTestPage />} />
-            <Route path="/checklist" element={<ChecklistPage />} />
-            <Route path="/consent-test-b" element={<ConsentTestBPage />} />
+            <Route path="/ai-sentinel" element={<ConsentTestBPage />} />
             
             {/* Route protette - accessibili solo quando c'è un container */}
             {container && (

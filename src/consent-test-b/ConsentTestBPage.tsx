@@ -54,7 +54,7 @@ interface ScenarioResult {
 
 export default function ConsentTestBPage() {
   const [url, setUrl] = useState('');
-  const [options, setOptions] = useState<ConsentTestOptions>({
+  const [options] = useState<ConsentTestOptions>({
     timeoutSoftMs: 10000,
     timeoutHardMs: 25000,
     captureScreens: true,
@@ -62,8 +62,52 @@ export default function ConsentTestBPage() {
     region: 'EU'
   });
   const [loading, setLoading] = useState(false);
+  const [showProgressModal, setShowProgressModal] = useState(false);
+  const [currentStep, setCurrentStep] = useState(0);
+  const [stepsStatus, setStepsStatus] = useState<string[]>([]);
   const [result, setResult] = useState<ConsentTestResult | null>(null);
   const [activeTab, setActiveTab] = useState<'reject' | 'accept'>('reject');
+
+  // Definizione degli step per il test di consenso
+  const consentTestSteps = [
+    {
+      id: 'initialization',
+      title: 'Inizializzazione del Test',
+      description: 'Configurazione browser isolato per scenario reject/accept...',
+      status: 'pending' as const
+    },
+    {
+      id: 'browser_launch',
+      title: 'Avvio Browser',
+      description: 'Lancio browser separato...',
+      status: 'pending' as const
+    },
+    {
+      id: 'navigation',
+      title: 'Navigazione',
+      description: 'Caricamento della pagina web...',
+      status: 'pending' as const
+    },
+    {
+      id: 'reject_test',
+      title: 'Test Scenario REJECT',
+      description: 'Rilevamento banner, rifiuto cookie, analisi risultati...',
+      status: 'pending' as const
+    },
+    {
+      id: 'accept_test',
+      title: 'Test Scenario ACCEPT',
+      description: 'Rilevamento banner, accettazione cookie, analisi risultati...',
+      status: 'pending' as const
+    },
+    {
+      id: 'data_analysis',
+      title: 'Analisi Dati',
+      description: 'Elaborazione risultati e generazione report finale...',
+      status: 'pending' as const
+    }
+  ];
+
 
   const handleRunTest = async () => {
     if (!url) {
@@ -76,10 +120,38 @@ export default function ConsentTestBPage() {
       return;
     }
 
+    // Inizializza la modal 
     setLoading(true);
+    setShowProgressModal(true);
+    setCurrentStep(0);
+    setStepsStatus(new Array(consentTestSteps.length).fill('pending'));
     setResult(null);
 
     try {
+      // Step 1: Inizializzazione - avviamo al primo step
+      setStepsStatus(prev => {
+        const newStatus = [...prev];
+        newStatus[0] = 'running';
+        return newStatus;
+      });
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // Completiamo primo step
+      setStepsStatus(prev => {
+        const newStatus = [...prev];
+        newStatus[0] = 'completed';
+        return newStatus;
+      });
+      
+      // Step 2: Avvio Browser
+      setCurrentStep(1);
+      setStepsStatus(prev => {
+        const newStatus = [...prev];
+        newStatus[1] = 'running';
+        return newStatus;
+      });
+      await new Promise(resolve => setTimeout(resolve, 800));
+
       const response = await fetch('http://localhost:4000/api/consent/audit-pw', {
         method: 'POST',
         headers: {
@@ -89,6 +161,63 @@ export default function ConsentTestBPage() {
           url,
           options
         }),
+      });
+
+      // Completiamo step 2
+      setStepsStatus(prev => {
+        const newStatus = [...prev];
+        newStatus[1] = 'completed';
+        return newStatus;
+      });
+      
+      // Step 3: Navigazione
+      setCurrentStep(2);
+      setStepsStatus(prev => {
+        const newStatus = [...prev];
+        newStatus[2] = 'running';
+        return newStatus;
+      });
+      await new Promise(resolve => setTimeout(resolve, 800));
+      setStepsStatus(prev => {
+        const newStatus = [...prev];
+        newStatus[2] = 'completed';
+        return newStatus;
+      });
+      
+      // Step 4: Test REJECT
+      setCurrentStep(3);
+      setStepsStatus(prev => {
+        const newStatus = [...prev];
+        newStatus[3] = 'running';
+        return newStatus;
+      });
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      setStepsStatus(prev => {
+        const newStatus = [...prev];
+        newStatus[3] = 'completed';
+        return newStatus;
+      });
+      
+      // Step 5: Test ACCEPT
+      setCurrentStep(4);
+      setStepsStatus(prev => {
+        const newStatus = [...prev];
+        newStatus[4] = 'running';
+        return newStatus;
+      });
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      setStepsStatus(prev => {
+        const newStatus = [...prev];
+        newStatus[4] = 'completed';
+        return newStatus;
+      });
+      
+      // Step 6: Analisi Dati
+      setCurrentStep(5);
+      setStepsStatus(prev => {
+        const newStatus = [...prev];
+        newStatus[5] = 'running';
+        return newStatus;
       });
 
       if (!response.ok) {
@@ -112,11 +241,25 @@ export default function ConsentTestBPage() {
         throw new Error('Dati del test incompleti o corrotti');
       }
       
+      // Completo step finale
+      setStepsStatus(prev => {
+        const newStatus = [...prev];
+        newStatus[5] = 'completed';
+        return newStatus;
+      });
+      
       setResult(data);
-      toast.success('Test completato con successo!');
+      
+      // Chiude la modal dopo un secondo
+      setTimeout(() => {
+        setShowProgressModal(false);
+        toast.success('Test completato con successo!');
+      }, 1000);
+      
     } catch (error) {
       console.error('Errore durante il test:', error);
       const errorMessage = error instanceof Error ? error.message : 'Errore sconosciuto';
+      setShowProgressModal(false);
       toast.error(`Errore: ${errorMessage}`, { duration: 5000 });
     } finally {
       setLoading(false);
@@ -127,6 +270,9 @@ export default function ConsentTestBPage() {
     setUrl('');
     setResult(null);
     setActiveTab('reject');
+    setShowProgressModal(false);
+    setCurrentStep(0);
+    setStepsStatus([]);
   };
 
   const getStatusIcon = (scenario: 'reject' | 'accept') => {
@@ -164,12 +310,38 @@ export default function ConsentTestBPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-pink-50 flex flex-col relative overflow-hidden">
+      {/* Sfondo dinamico con particelle (identico a HomePage) */}
+      <div className="absolute inset-0 overflow-hidden">
+        {/* Cerchi animati */}
+        <div className="absolute -top-40 -left-40 w-80 h-80 bg-purple-300 rounded-full mix-blend-multiply filter blur-xl opacity-70 animate-blob"></div>
+        <div className="absolute -top-40 -right-40 w-80 h-80 bg-yellow-300 rounded-full mix-blend-multiply filter blur-xl opacity-70 animate-blob animation-delay-2000"></div>
+        <div className="absolute -bottom-40 left-20 w-80 h-80 bg-pink-300 rounded-full mix-blend-multiply filter blur-xl opacity-70 animate-blob animation-delay-4000"></div>
+        <div className="absolute -bottom-40 right-20 w-80 h-80 bg-blue-300 rounded-full mix-blend-multiply filter blur-xl opacity-70 animate-blob animation-delay-6000"></div>
+        
+        {/* Particelle fluttuanti */}
+        <div className="absolute inset-0">
+          {[...Array(20)].map((_, i) => (
+            <div
+              key={i}
+              className="absolute w-2 h-2 bg-purple-400 rounded-full opacity-60 animate-float"
+              style={{
+                left: `${Math.random() * 100}%`,
+                top: `${Math.random() * 100}%`,
+                animationDelay: `${Math.random() * 10}s`,
+                animationDuration: `${3 + Math.random() * 4}s`
+              }}
+            />
+          ))}
+        </div>
+      </div>
+      
+      <div className="relative z-10 w-full flex items-center min-h-screen">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
         {/* Header */}
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">
-            Consent Test B - Playwright
+          <h1 className="text-4xl font-bold text-gray-900 mb-4">
+            AI Sentinel
           </h1>
           <p className="text-lg text-gray-600">
             Test di consenso GDPR/CCPA con browser separati per scenario Reject/Accept
@@ -177,7 +349,7 @@ export default function ConsentTestBPage() {
         </div>
 
         {/* Input Form */}
-        <div className="bg-white rounded-lg shadow-md p-6 mb-8">
+        <div className="bg-white rounded-lg shadow-lg p-8 mb-8 max-w-2xl mx-auto">
           <div className="space-y-6">
             {/* URL Input */}
             <div>
@@ -190,114 +362,36 @@ export default function ConsentTestBPage() {
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
                 placeholder="https://www.example.com"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-4 py-3 text-lg border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
                 disabled={loading}
               />
             </div>
 
-            {/* Advanced Options */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              <div>
-                <label htmlFor="timeoutSoft" className="block text-sm font-medium text-gray-700 mb-1">
-                  Timeout Soft (ms)
-                </label>
-                <input
-                  type="number"
-                  id="timeoutSoft"
-                  value={options.timeoutSoftMs}
-                  onChange={(e) => setOptions(prev => ({ ...prev, timeoutSoftMs: parseInt(e.target.value) || 10000 }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  disabled={loading}
-                />
-              </div>
-
-              <div>
-                <label htmlFor="timeoutHard" className="block text-sm font-medium text-gray-700 mb-1">
-                  Timeout Hard (ms)
-                </label>
-                <input
-                  type="number"
-                  id="timeoutHard"
-                  value={options.timeoutHardMs}
-                  onChange={(e) => setOptions(prev => ({ ...prev, timeoutHardMs: parseInt(e.target.value) || 25000 }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  disabled={loading}
-                />
-              </div>
-
-              <div>
-                <label htmlFor="region" className="block text-sm font-medium text-gray-700 mb-1">
-                  Regione
-                </label>
-                <select
-                  id="region"
-                  value={options.region}
-                  onChange={(e) => setOptions(prev => ({ ...prev, region: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  disabled={loading}
-                >
-                  <option value="EU">EU</option>
-                  <option value="US">US</option>
-                  <option value="UK">UK</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Checkboxes */}
-            <div className="flex space-x-6">
-              <label className="flex items-center">
-                <input
-                  type="checkbox"
-                  checked={options.captureScreens}
-                  onChange={(e) => setOptions(prev => ({ ...prev, captureScreens: e.target.checked }))}
-                  className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                  disabled={loading}
-                />
-                <span className="ml-2 text-sm text-gray-700">Cattura Screenshot</span>
-              </label>
-
-              <label className="flex items-center">
-                <input
-                  type="checkbox"
-                  checked={options.trace}
-                  onChange={(e) => setOptions(prev => ({ ...prev, trace: e.target.checked }))}
-                  className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                  disabled={loading}
-                />
-                <span className="ml-2 text-sm text-gray-700">Traccia Browser</span>
-              </label>
-            </div>
-
             {/* Action Buttons */}
-            <div className="flex space-x-4">
+            <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <button
                 onClick={handleRunTest}
                 disabled={loading || !url}
-                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="inline-flex items-center justify-center px-8 py-4 text-lg font-semibold text-white bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 rounded-xl shadow-lg hover:shadow-xl focus:outline-none focus:ring-4 focus:ring-blue-500 focus:ring-opacity-50 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 transform hover:scale-105"
               >
                 {loading ? (
-                  <>
-                    <span className="mr-2 animate-spin">⏳</span>
-                    Eseguendo test...
-                  </>
+                  <>Analisi in corso...</>
                 ) : (
-                  <>
-                    <span className="mr-2">▶️</span>
-                    Esegui test (Playwright)
-                  </>
+                  <>Avvia Test Consenso</>
                 )}
               </button>
 
               <button
                 onClick={reset}
                 disabled={loading}
-                className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+                className="inline-flex items-center justify-center px-6 py-4 text-lg font-medium text-gray-700 bg-white border-2 border-gray-300 hover:border-gray-400 hover:bg-gray-50 rounded-xl focus:outline-none focus:ring-4 focus:ring-gray-500 focus:ring-opacity-20 disabled:opacity-50 transition-all duration-200"
               >
                 Reset
               </button>
             </div>
           </div>
         </div>
+
 
         {/* Results */}
         {result && (
@@ -375,13 +469,144 @@ export default function ConsentTestBPage() {
             )}
           </div>
         )}
+        </div>
       </div>
+
+      {/* Progress Modal */}
+      {showProgressModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-2xl w-full max-h-[80vh] overflow-y-auto">
+            {/* Header */}
+            <div className="text-center mb-8">
+              <h2 className="text-2xl font-bold text-gray-900 mb-2">
+                Test di Consenso in Corso
+              </h2>
+              <p className="text-gray-600 mb-4">
+                Stiamo eseguendo l'analisi GDPR/CCPA con browser separati per scenario REJECT/ACCEPT...
+              </p>
+            </div>
+
+            {/* Progress Bar */}
+            <div className="mb-8">
+              <div className="flex justify-between text-sm text-gray-600 mb-2">
+                <span>Progresso</span>
+                <span>{Math.round((currentStep / (consentTestSteps.length - 1)) * 100)}%</span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-3">
+                <div 
+                  className="bg-gradient-to-r from-blue-500 to-purple-500 h-3 rounded-full transition-all duration-500 ease-out"
+                  style={{ width: `${(currentStep / (consentTestSteps.length - 1)) * 100}%` }}
+                />
+              </div>
+            </div>
+
+            {/* Steps List */}
+            <div className="space-y-4">
+              {consentTestSteps.map((step, index) => {
+                const status = stepsStatus[index] || 'pending';
+                const isActive = index === currentStep && status === 'running';
+                const isCompleted = status === 'completed';
+                const isPending = status === 'pending';
+
+                return (
+                  <div
+                    key={step.id}
+                    className={`flex items-center gap-4 p-4 rounded-lg transition-all duration-300 ${
+                      isActive
+                        ? 'bg-blue-50 border border-blue-200'
+                        : isCompleted
+                        ? 'bg-green-50 border border-green-200'
+                        : 'bg-gray-50 border border-gray-200'
+                    }`}
+                  >
+                    {/* Icon */}
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                      isActive
+                        ? 'bg-blue-100'
+                        : isCompleted
+                        ? 'bg-green-100'
+                        : 'bg-gray-100'
+                    }`}>
+                      {isActive ? (
+                        <span className="text-blue-600 text-lg">
+                          {step.id === 'initialization' && '🦾'}
+                          {step.id === 'browser_launch' && '🌐'}
+                          {step.id === 'navigation' && '⏳'}
+                          {step.id === 'reject_test' && '❌'}
+                          {step.id === 'accept_test' && '✅'}
+                          {step.id === 'data_analysis' && '📊'}
+                        </span>
+                      ) : isCompleted ? (
+                        <span className="text-green-600 text-lg">✅</span>
+                      ) : (
+                        <span className="text-gray-400 text-lg">
+                          {step.id === 'initialization' && '🦾'}
+                          {step.id === 'browser_launch' && '🌐'}
+                          {step.id === 'navigation' && '⏳'}
+                          {step.id === 'reject_test' && '❌'}
+                          {step.id === 'accept_test' && '✅'}
+                          {step.id === 'data_analysis' && '📊'}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Content */}
+                    <div className="flex-1">
+                      <h3 className={`font-semibold ${
+                        isActive
+                          ? 'text-blue-900'
+                          : isCompleted
+                          ? 'text-green-900'
+                          : 'text-gray-700'
+                      }`}>
+                        {step.title}
+                      </h3>
+                      <p className={`text-sm ${
+                        isActive
+                          ? 'text-blue-700'
+                          : isCompleted
+                          ? 'text-green-700'
+                          : 'text-gray-500'
+                      }`}>
+                        {step.description}
+                      </p>
+                    </div>
+
+                    {/* Status Indicator */}
+                    {isActive && (
+                      <div className="flex space-x-1">
+                        <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                        <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                        <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Footer */}
+            <div className="mt-8 text-center">
+              <p className="text-sm text-gray-500">
+                Il test potrebbe richiedere diversi minuti dependendo dall'URL...
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 // Componente per i dettagli dello scenario
 function ScenarioDetails({ scenario, data }: { scenario: 'reject' | 'accept', data: ScenarioResult }) {
+  // Pre-calculation to avoid template literal issues
+  const getArtifactUrl = () => {
+    if (!data.artifacts.screenshotPath) return '#';
+    const fileName = data.artifacts.screenshotPath.split('/').pop();
+    return `http://localhost:4000/artifacts/${fileName}`;
+  };
+
   return (
     <div className="space-y-6">
       {/* Consent Mode v2 */}
@@ -479,7 +704,7 @@ function ScenarioDetails({ scenario, data }: { scenario: 'reject' | 'accept', da
           <h3 className="text-lg font-medium text-gray-900 mb-3">Screenshot</h3>
           <div className="bg-gray-50 border border-gray-200 rounded-md p-4">
             <a
-              href={`http://localhost:4000/artifacts/${data.artifacts.screenshotPath.replace('./artifacts/', '')}`}
+              href={getArtifactUrl()}
               target="_blank"
               rel="noopener noreferrer"
               className="text-blue-600 hover:text-blue-800 text-sm"
