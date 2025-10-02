@@ -11,12 +11,13 @@ import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import path from 'path';
 import fs from 'fs/promises';
 import fsSync from 'fs';
 
 // Import our SSD services
 import { extractPDFText, extractPDFTextFromBuffer, validatePDFFile, PDFExtractionError } from './src/services/pdfTextExtraction.js';
-import { OpenAISpecService, OpenAIError } from './src/services/openaiSpecService.js';
+import { OpenAISpecService, OpenAIError as ServiceOpenAIError } from './src/services/openaiSpecService.js';
 import { validateTestSpec, SpecValidationError } from './src/services/specValidation.js';
 import { z } from 'zod';
 import { SSDPuppeteerRunner, SSDRunnerError } from './src/services/ssdPuppeteerRunner.js';
@@ -24,7 +25,43 @@ import { normalizeOrigin, isValidUrl } from './src/utils/url.js';
 import { extractCookieBannerWithPuppeteer } from './src/services/cookieBannerExtractor.js';
 import { llmPdfSpec } from './src/services/llmPdfSpec.js';
 import puppeteer from 'puppeteer';
-import { runConsentTest, ConsentTestInputSchema } from './src/consent-test-b/pw-runner.js';
+import { runConsentTest, ConsentTestInputSchema } from './src/ai-sentinel/pw-runner.js';
+
+// Global type declarations
+declare global {
+  interface Window {
+    dataLayer?: any[];
+    _originalDataLayer?: any[];
+    _capturedEvent?: any;
+    _capturedDataLayer?: any;
+    _finalDataLayer?: any;
+    originalDataLayerPush?: any;
+  }
+}
+
+// Type definitions
+interface TestStep {
+  step: number;
+  description: string;
+  action: string;
+  status: string;
+  error: string | null;
+}
+
+interface ConsentTestResult {
+  status: string;
+  dataLayerEvents: any[];
+  consentStatus: string;
+  steps: TestStep[];
+  error: string | null;
+  duration: number;
+  browserInstance: any | null;
+  cookieBtnSelector: string | null;
+  cookieBtnOuterHTML: string | null;
+  page: any | null;
+  pdfTestSpec?: any;
+  [key: string]: any; // Allow additional dynamic properties
+}
 
 // Helper function for sleep
 const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
@@ -360,10 +397,12 @@ const config = {
 };
 
 // Initialize services
-let openaiService = null;
+let openaiService: OpenAISpecService | null = null;
 try {
-  openaiService = new OpenAISpecService(config.openaiApiKey, config.openaiModel, config.openaiTimeoutMs);
-} catch (error) {
+  if (config.openaiApiKey) {
+    openaiService = new OpenAISpecService(config.openaiApiKey, config.openaiModel, config.openaiTimeoutMs);
+  }
+} catch (error: any) {
   console.log('⚠️  OpenAI service not available:', error.message);
 }
 const puppeteerRunner = new SSDPuppeteerRunner({
@@ -412,7 +451,7 @@ async function generatePdfTestSpec(siteUrl: string, pdfContent: string, htmlCont
         if (!fsSync.existsSync(htmlFilePath)) {
           // Fallback: save HTML file if website.txt doesn't exist
           htmlFilePath = join(tempDir, 'website.html');
-          fsSync.writeFileSync(htmlFilePath, htmlContent);
+          fsSync.writeFileSync(htmlFilePath, htmlContent || '');
           console.log('✅ HTML file saved:', htmlFilePath);
         } else {
           // Use existing website.txt
@@ -521,9 +560,9 @@ async function generatePdfTestSpec(siteUrl: string, pdfContent: string, htmlCont
     console.log('📋 Prompt length:', prompt.length);
     
     // Use standard chat completion with HTML content in prompt
-    const htmlContentTruncated = htmlContent.length > 100000 ? 
+    const htmlContentTruncated = htmlContent && htmlContent.length > 100000 ? 
       htmlContent.substring(0, 100000) + '\n\n[HTML CONTENT TRUNCATED...]' : 
-      htmlContent;
+      htmlContent || '';
     
     const promptWithHtml = `${prompt}
 
@@ -538,12 +577,7 @@ Please analyze the HTML to generate accurate selectors for the test specificatio
     console.log('📋 Final prompt length:', promptWithHtml.length);
     
     if (!openaiService) {
-      return res.status(503).json({
-        error: {
-          code: 'SERVICE_UNAVAILABLE',
-          message: 'OpenAI service is not configured. Please set VITE_OPENAI_API_KEY environment variable.'
-        }
-      });
+      throw new Error('OpenAI service is not configured. Please set VITE_OPENAI_API_KEY environment variable.');
     }
     
     const response = await openaiService.convertPDFToTestSpec(pdfContent, siteUrl, promptWithHtml);
@@ -657,22 +691,22 @@ Please analyze the HTML to generate accurate selectors for the test specificatio
     
     console.log('✅ PDF Test Specification generation completed successfully');
     return parsedSpec;
-  } catch (error) {
+  } catch (error: any) {
     console.error('❌ Error generating PDF test specification:', error);
     console.error('❌ Error details:', {
-      message: error.message,
+      message: (error as Error).message,
       stack: error.stack,
       name: error.name
     });
-    throw new OpenAIError(`Failed to generate PDF test specification: ${error.message}`, 'PDF_SPEC_GENERATION_FAILED');
+    throw new OpenAIError(`Failed to generate PDF test specification: ${(error as Error).message}`, 'PDF_SPEC_GENERATION_FAILED');
   }
 }
 
 /**
  * Esegue il cookie consent test usando il DSL fornito
  */
-async function executeCookieConsentTestFromDSL(dsl: any, options: any) {
-  const result = {
+async function executeCookieConsentTestFromDSL(dsl: any, options: any): Promise<ConsentTestResult> {
+  const result: ConsentTestResult = {
     status: 'FAIL',
     dataLayerEvents: [],
     consentStatus: 'unknown',
@@ -686,7 +720,7 @@ async function executeCookieConsentTestFromDSL(dsl: any, options: any) {
   };
 
   const startTime = Date.now();
-  let browser = null;
+  let browser: any | null = null;
 
   try {
     console.log('===== EXECUTING COOKIE CONSENT TEST FROM DSL =====');
@@ -710,7 +744,7 @@ async function executeCookieConsentTestFromDSL(dsl: any, options: any) {
       const step = dsl.tests[0].steps[i];
       console.log(`Executing step ${i + 1}: ${step.description}`);
       
-      const stepResult = {
+      const stepResult: TestStep = {
         step: i + 1,
         description: step.description,
         action: step.action,
@@ -742,9 +776,9 @@ async function executeCookieConsentTestFromDSL(dsl: any, options: any) {
           // Get outerHTML of the button
           try {
             result.cookieBtnOuterHTML = await page.$eval(step.target.value, el => el.outerHTML);
-            console.log(`Cookie button outerHTML captured: ${result.cookieBtnOuterHTML.substring(0, 200)}...`);
+            console.log(`Cookie button outerHTML captured: ${result.cookieBtnOuterHTML?.substring(0, 200)}...`);
           } catch (outerHTMLError) {
-            console.log(`Warning: Could not capture outerHTML: ${outerHTMLError.message}`);
+            console.log(`Warning: Could not capture outerHTML: ${(outerHTMLError as Error).message}`);
             result.cookieBtnOuterHTML = 'Error capturing outerHTML';
           }
           
@@ -786,12 +820,12 @@ async function executeCookieConsentTestFromDSL(dsl: any, options: any) {
           }
         }
         
-        result.steps.push(stepResult);
+        (result.steps as any[]).push(stepResult);
       } catch (stepError) {
         console.error(`Error in step ${i + 1}:`, stepError);
         stepResult.status = 'FAIL';
-        stepResult.error = stepError.message;
-        result.steps.push(stepResult);
+        stepResult.error = (stepError as Error).message;
+        (result.steps as any[]).push(stepResult);
         break;
       }
     }
@@ -804,9 +838,9 @@ async function executeCookieConsentTestFromDSL(dsl: any, options: any) {
     console.log('✓ Cookie consent test completed:', result.status);
     return result;
     
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error executing cookie consent test:', error);
-    result.error = error.message;
+        (result as any).error = (error as Error).message;
     result.duration = Date.now() - startTime;
     return result;
   }
@@ -977,7 +1011,7 @@ async function resolveSelectorForHeaderLink(page: import('puppeteer').Page) {
     console.log('[resolver] ❌ No clickable elements found');
     return null;
     
-  } catch (error) {
+  } catch (error: any) {
     console.error('[resolver] Error in header link resolution:', error);
     return null;
   }
@@ -1038,9 +1072,9 @@ async function executePdfTests(testSpec: any, options: any, browserInstance: any
     try {
       normalized = normalizePdfSpec(testSpec);
       console.log('🔧 Normalized PDF spec (runner shape):', JSON.stringify(normalized, null, 2));
-    } catch (error) {
-      console.error('❌ Error normalizing PDF spec:', error.message);
-      result.error = error.message;
+    } catch (error: any) {
+      console.error('❌ Error normalizing PDF spec:', (error as Error).message);
+        (result as any).error = (error as Error).message;
       result.status = 'FAIL';
       return result;
     }
@@ -1075,7 +1109,7 @@ async function executePdfTests(testSpec: any, options: any, browserInstance: any
           status: 'FAIL',
           error: 'Step missing required action or target properties'
         };
-        result.steps.push(stepResult);
+        (result.steps as any[]).push(stepResult);
         continue;
       }
       
@@ -1106,8 +1140,8 @@ async function executePdfTests(testSpec: any, options: any, browserInstance: any
           if (!resolved) {
             console.error('❌ Header link selector could not be resolved');
             stepResult.status = 'FAIL';
-            stepResult.error = 'Header link selector could not be resolved';
-            result.steps.push(stepResult);
+            (stepResult as any).error = 'Header link selector could not be resolved';
+            (result.steps as any[]).push(stepResult);
             continue; // Skip to next step without throwing exception
           } else {
             console.log(`✅ Resolved header link => selector: ${resolved}`);
@@ -1151,8 +1185,8 @@ async function executePdfTests(testSpec: any, options: any, browserInstance: any
             console.log('🕵️ Setting up dataLayer capture before navigation...');
             
             // Create a promise that will capture the dataLayer before navigation
-            let capturedEvent = null;
-            let capturedDataLayer = null;
+            let capturedEvent: any = null;
+            let capturedDataLayer: any = null;
             
             // Set up the interception BEFORE clicking
             await page.evaluate(() => {
@@ -1162,7 +1196,7 @@ async function executePdfTests(testSpec: any, options: any, browserInstance: any
               // Override dataLayer.push to capture events
               const originalPush = window.dataLayer?.push;
               if (originalPush) {
-                window.dataLayer.push = function(...args) {
+                window.dataLayer!.push = function(...args) {
                   const result = originalPush.apply(this, args);
                   
                   // Check for our target event
@@ -1200,8 +1234,8 @@ async function executePdfTests(testSpec: any, options: any, browserInstance: any
             try {
               await navigationPromise;
               console.log('🌐 Navigation completed');
-            } catch (error) {
-              console.log('⚠️ Navigation timeout or error:', error.message);
+            } catch (error: any) {
+              console.log('⚠️ Navigation timeout or error:', (error as Error).message);
             }
             
             // Try to get captured data from the page
@@ -1236,8 +1270,8 @@ async function executePdfTests(testSpec: any, options: any, browserInstance: any
                 capturedEvent = currentHeaderEvent;
               }
               
-            } catch (error) {
-              console.log('⚠️ Error accessing captured data:', error.message);
+            } catch (error: any) {
+              console.log('⚠️ Error accessing captured data:', (error as Error).message);
             }
           } else {
             // For non-navigation clicks, just click and wait
@@ -1293,7 +1327,7 @@ async function executePdfTests(testSpec: any, options: any, browserInstance: any
               if (!hasEvent) {
                 stepResult.status = 'FAIL';
                 const availableEvents = dataLayer.map(e => e?.event).filter(Boolean);
-                stepResult.error = `Expected dataLayer event '${expectation.event}' not found. Available events: [${availableEvents.join(', ')}]`;
+                (stepResult as any).error = `Expected dataLayer event '${expectation.event}' not found. Available events: [${availableEvents.join(', ')}]`;
                 console.log(`  ✗ Expected dataLayer event '${expectation.event}' not found. Available events: [${availableEvents.join(', ')}]`);
                 break;
               } else {
@@ -1307,7 +1341,7 @@ async function executePdfTests(testSpec: any, options: any, browserInstance: any
               const element = await page.$(expectation.selector);
               if (!element) {
                 stepResult.status = 'FAIL';
-                stepResult.error = `Expected element '${expectation.selector}' not found`;
+                (stepResult as any).error = `Expected element '${expectation.selector}' not found`;
                 console.log(`  ✗ Expected element '${expectation.selector}' not found`);
                 break;
               } else {
@@ -1321,7 +1355,7 @@ async function executePdfTests(testSpec: any, options: any, browserInstance: any
               const text = await page.textContent('body');
               if (!text || !text.includes(expectation.text_contains)) {
                 stepResult.status = 'FAIL';
-                stepResult.error = `Expected text '${expectation.text_contains}' not found`;
+                (stepResult as any).error = `Expected text '${expectation.text_contains}' not found`;
                 console.log(`  ✗ Expected text '${expectation.text_contains}' not found`);
                 break;
               } else {
@@ -1331,11 +1365,11 @@ async function executePdfTests(testSpec: any, options: any, browserInstance: any
           }
         }
 
-      } catch (error) {
-        stepResult.error = error.message;
-        console.error(`❌ Step ${i + 1} failed:`, error.message);
+      } catch (error: any) {
+        (stepResult as any).error = (error as Error).message;
+        console.error(`❌ Step ${i + 1} failed:`, (error as Error).message);
         console.error(`❌ Error details:`, {
-          message: error.message,
+          message: (error as Error).message,
           stack: error.stack,
           name: error.name
         });
@@ -1349,11 +1383,11 @@ async function executePdfTests(testSpec: any, options: any, browserInstance: any
       console.log(`Duration: ${Date.now() - startTime}ms`);
       console.log('========================================');
 
-      result.steps.push(stepResult);
+      (result.steps as any[]).push(stepResult);
     }
 
     // Determine overall result
-    const failedSteps = result.steps.filter(step => step.status === 'FAIL');
+    const failedSteps = result.steps.filter((step: any) => step.status === 'FAIL');
     result.status = failedSteps.length === 0 ? 'PASS' : 'FAIL';
     result.duration = Date.now() - startTime;
 
@@ -1363,8 +1397,8 @@ async function executePdfTests(testSpec: any, options: any, browserInstance: any
     console.log(`Duration: ${result.duration}ms`);
     console.log('==================================');
 
-  } catch (error) {
-    result.error = error.message;
+  } catch (error: any) {
+        (result as any).error = (error as Error).message;
     result.duration = Date.now() - startTime;
     console.error('Error executing PDF tests:', error);
   }
@@ -1397,8 +1431,8 @@ async function executeUnifiedTestFlow(siteUrl: string, pdfContent: string, optio
     cookieBtnOuterHTML: null
   };
 
-  let browser = null;
-  let page = null;
+  let browser: any | null = null;
+  let page: any | null = null;
 
   try {
     console.log('🚀 Starting unified test flow...');
@@ -1456,7 +1490,7 @@ async function executeUnifiedTestFlow(siteUrl: string, pdfContent: string, optio
     
     // STEP 4: Generate PDF test specification
     console.log('===== STEP 4: GENERATING PDF TEST SPECIFICATION =====');
-    const pdfTestSpec = await generatePdfTestSpec(siteUrl, pdfContent, undefined, pdf.buffer);
+    const pdfTestSpec = await generatePdfTestSpec(siteUrl, pdfContent, undefined, undefined);
     result.pdfTestSpec = pdfTestSpec;
     
     if (pdfTestSpec) {
@@ -1468,7 +1502,7 @@ async function executeUnifiedTestFlow(siteUrl: string, pdfContent: string, optio
     // STEP 5: Execute PDF tests in the same browser session
     console.log('===== STEP 5: EXECUTING PDF TESTS =====');
     
-    let pdfTestResult = null;
+    let pdfTestResult: any = null;
     if (pdfTestSpec) {
       pdfTestResult = await executePdfTests(pdfTestSpec, options, browser, page);
       console.log('✓ PDF tests executed');
@@ -1487,8 +1521,8 @@ async function executeUnifiedTestFlow(siteUrl: string, pdfContent: string, optio
     console.log('🎉 Unified test flow completed successfully!');
     return result;
     
-  } catch (error) {
-    result.error = error.message;
+  } catch (error: any) {
+        (result as any).error = (error as Error).message;
     console.error('Error in unified test flow:', error);
     
     // Close browser on error
@@ -1516,8 +1550,8 @@ async function executeCookieConsentTestWithBrowser(siteUrl: string, options: any
     cookieBtnOuterHTML: null
   };
 
-  let browser = null;
-  let page = null;
+  let browser: any | null = null;
+  let page: any | null = null;
 
   try {
     console.log('Executing cookie consent test with browser management...');
@@ -1562,8 +1596,8 @@ async function executeCookieConsentTestWithBrowser(siteUrl: string, options: any
     result.browserInstance = browser;
     result.page = page;
 
-  } catch (error) {
-    result.error = error.message;
+  } catch (error: any) {
+        (result as any).error = (error as Error).message;
     console.error('Error in cookie consent test with browser:', error);
     
     // Close browser on error
@@ -1602,7 +1636,7 @@ async function executeCookieConsentTest(testSpec: any, page: any) {
       window.originalDataLayerPush = window.dataLayer.push;
       window.dataLayer.push = function(...args) {
         console.log('DataLayer push:', args);
-        window.originalDataLayerPush.apply(this, args);
+        return window.originalDataLayerPush.apply(this, args);
       };
     });
 
@@ -1611,7 +1645,7 @@ async function executeCookieConsentTest(testSpec: any, page: any) {
       const step = testSpec.tests[0].steps[i];
       console.log(`Executing step ${i + 1}: ${step.description}`);
       
-      const stepResult = {
+      const stepResult: TestStep = {
         step: i + 1,
         description: step.description,
         action: step.action,
@@ -1657,15 +1691,15 @@ async function executeCookieConsentTest(testSpec: any, page: any) {
           // Get outerHTML of the button if element is found
           if (element) {
             try {
-              result.cookieBtnOuterHTML = await page.$eval(selector, el => el.outerHTML);
-              console.log(`Cookie button outerHTML captured: ${result.cookieBtnOuterHTML.substring(0, 200)}...`);
+              (result as any).cookieBtnOuterHTML = await page.$eval(selector, el => el.outerHTML);
+              console.log(`Cookie button outerHTML captured: ${(result as any).cookieBtnOuterHTML?.substring(0, 200)}...`);
             } catch (outerHTMLError) {
-              console.log(`Warning: Could not capture outerHTML: ${outerHTMLError.message}`);
-              result.cookieBtnOuterHTML = 'Error capturing outerHTML';
+              console.log(`Warning: Could not capture outerHTML: ${(outerHTMLError as Error).message}`);
+              (result as any).cookieBtnOuterHTML = 'Error capturing outerHTML';
             }
           } else {
             console.log('Warning: No element found, cannot capture outerHTML');
-            result.cookieBtnOuterHTML = 'Element not found';
+            (result as any).cookieBtnOuterHTML = 'Element not found';
           }
           
           try {
@@ -1674,7 +1708,7 @@ async function executeCookieConsentTest(testSpec: any, page: any) {
             // Se abbiamo già l'elemento da waitForSelector, usalo direttamente
             if (element) {
               console.log('Using element found by waitForSelector');
-              await element.click();
+              await (element as any).click();
               console.log(`✓ Click successful on ${selector}`);
               
               // Wait 15 seconds after click for dataLayer events to be processed
@@ -1736,7 +1770,7 @@ async function executeCookieConsentTest(testSpec: any, page: any) {
             
             // Se non abbiamo ancora cliccato l'elemento, proviamo a trovarlo e cliccarlo
             if (!clickSuccessful && element) {
-                await element.click();
+                await (element as any).click();
                 console.log(`✓ Click successful on ${selector}`);
                 
                 // Wait 15 seconds after click for dataLayer events to be processed
@@ -1781,12 +1815,12 @@ async function executeCookieConsentTest(testSpec: any, page: any) {
           }
         }
         
-        result.steps.push(stepResult);
+        (result.steps as any[]).push(stepResult);
         
       } catch (stepError) {
-        stepResult.error = stepError.message;
+        stepResult.error = (stepError as Error).message;
         stepResult.status = 'FAIL';
-        result.steps.push(stepResult);
+        (result.steps as any[]).push(stepResult);
         console.error(`✗ Step ${i + 1} failed:`, stepError);
       }
     }
@@ -1807,7 +1841,7 @@ async function executeCookieConsentTest(testSpec: any, page: any) {
     
     const dataLayerData = {
         dataLayer: dataLayerAfter,
-        consentEvents: dataLayerAfter.filter(event => 
+        consentEvents: dataLayerAfter.filter((event: any) => 
           event && (
             event.event === 'consent_update' ||
             event.event === 'cookie_consent' ||
@@ -1850,8 +1884,8 @@ async function executeCookieConsentTest(testSpec: any, page: any) {
       console.log('✗ No consent events found in dataLayer');
     }
 
-  } catch (error) {
-    result.error = error.message;
+  } catch (error: any) {
+        (result as any).error = (error as Error).message;
     console.error('Error executing cookie consent test:', error);
   }
 
@@ -1995,7 +2029,7 @@ IMPORTANT:
       throw new OpenAIError(`OpenAI API error: ${response.status}`, 'API_ERROR');
     }
 
-    const data = await response.json();
+    const data = await response.json() as any;
     const content = data.choices[0].message.content;
     
     console.log('===== OPENAI COOKIE CONSENT TEST RESPONSE =====');
@@ -2029,7 +2063,7 @@ IMPORTANT:
     console.log('==========================================');
     
     return testSpec;
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error calling OpenAI for cookie consent test:', error);
     if (error instanceof OpenAIError) {
       throw error;
@@ -2165,7 +2199,7 @@ app.post('/api/spec/generate', upload.single('pdf'), async (req, res) => {
     }
 
     // 2) ottieni il DSL dall'LLM (stringa o oggetto)
-    const dslFromLLM = openaiResponse.dsl ?? {};
+    const dslFromLLM = (openaiResponse as any).dsl ?? {};
     
     // 3) forzatura/merge: il site del DSL è sempre l'origin scelto dall'utente
     const mergedDsl = { ...dslFromLLM, site: targetOrigin };
@@ -2192,8 +2226,8 @@ app.post('/api/spec/generate', upload.single('pdf'), async (req, res) => {
       pdfContent: extractionResult.text,
       pdfBufferPath: pdfBufferPath, // Add path to saved PDF buffer
       meta: {
-        model: openaiResponse.meta.model,
-        tokens: openaiResponse.meta.tokens,
+        model: (openaiResponse as any).meta.model,
+        tokens: (openaiResponse as any).meta.tokens,
       }
     };
 
@@ -2201,7 +2235,7 @@ app.post('/api/spec/generate', upload.single('pdf'), async (req, res) => {
 
     res.json(response);
 
-  } catch (error) {
+  } catch (error: any) {
     console.error(`[${correlationId}] Spec Generation Error:`, error);
     
     const httpError = toHttpError(error instanceof Error ? error : new Error('Unknown error'));
@@ -2254,9 +2288,9 @@ app.post('/api/ssd/run', async (req, res) => {
     // ============================================================================
     console.log('===== STEP 2: LAUNCHING RUNNER AND GENERATING HTML SNAPSHOT =====');
     
-    let htmlPath = null;
-    let browser = null;
-    let page = null;
+    let htmlPath: string | null = null;
+    let browser: any = null;
+    let page: any = null;
 
     try {
       // Launch browser
@@ -2277,21 +2311,21 @@ app.post('/api/ssd/run', async (req, res) => {
       console.log('✓ Browser launched and page created');
       
       // Navigate to the site and generate HTML snapshot
-      await page.goto(validatedDSL.site, { waitUntil: 'networkidle2' });
+      await page!.goto(validatedDSL.site, { waitUntil: 'networkidle2' });
       await new Promise(resolve => setTimeout(resolve, 3000)); // Wait for dynamic content
       
       // Generate HTML snapshot
-      const html = await page.content();
+      const html = await page!.content();
       
       // Save HTML to file
       const tempHtmlDir = join(process.cwd(), 'temp-html');
       await fs.mkdir(tempHtmlDir, { recursive: true });
       htmlPath = join(tempHtmlDir, `${requestId}.html`);
-      await fs.writeFile(htmlPath, html, 'utf8');
+      await fs.writeFile(htmlPath!, html, 'utf8');
       
       console.log(`✓ HTML snapshot generated and saved to: ${htmlPath}`);
       
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error generating HTML snapshot:', error);
       throw new Error(`Failed to generate HTML snapshot: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
@@ -2362,9 +2396,9 @@ app.post('/api/ssd/run', async (req, res) => {
     // ============================================================================
     console.log('===== STEP 4: PROCESSING PDF TESTS =====');
     
-    let pdfResult = null;
-    let pdfSpec = null;
-    let pdfTextFile = null;
+    let pdfResult: any = null;
+    let pdfSpec: any = null;
+    let pdfTextFile: string | null = null;
 
     // Use pdfContent from req.body directly (already extracted text)
     const pdfText = typeof req.body.pdfContent === 'string' ? req.body.pdfContent.trim() : '';
@@ -2383,7 +2417,7 @@ app.post('/api/ssd/run', async (req, res) => {
         
         // Save pdfText to disk for diagnosis
         pdfTextFile = join(tempPdfDir, `txt_${requestId}.txt`);
-        await fs.writeFile(pdfTextFile, pdfText, 'utf8');
+        await fs.writeFile(pdfTextFile!, pdfText, 'utf8');
         console.log(`✓ PDF text saved for diagnosis: ${pdfTextFile}`);
         
         // Generate PDF spec using LLM
@@ -2391,7 +2425,7 @@ app.post('/api/ssd/run', async (req, res) => {
         pdfSpec = await llmPdfSpec({
           url: validatedDSL.site,
           pdfText: pdfText,
-          htmlPath: htmlPath
+          htmlPath: htmlPath || undefined
         });
         
         console.log('✓ PDF spec generated successfully');
@@ -2401,8 +2435,8 @@ app.post('/api/ssd/run', async (req, res) => {
         try {
           normalizedPdfSpec = normalizePdfSpec(pdfSpec);
           console.log('🔧 Normalized PDF spec (runner shape):', JSON.stringify(normalizedPdfSpec, null, 2));
-        } catch (error) {
-          console.error('❌ Error normalizing PDF spec:', error.message);
+        } catch (error: any) {
+          console.error('❌ Error normalizing PDF spec:', (error as Error).message);
           pdfResult = {
             status: 'error',
             code: 'INVALID_PDF_SPEC',
@@ -2424,7 +2458,7 @@ app.post('/api/ssd/run', async (req, res) => {
         
         console.log(`✓ PDF tests executed: ${pdfTestResult.status}`);
         
-      } catch (error) {
+      } catch (error: any) {
         console.error('Error processing PDF:', error);
         
         // Check if it's a JSON parsing error
@@ -2457,7 +2491,7 @@ app.post('/api/ssd/run', async (req, res) => {
 
     // Clean up browser
     if (browser) {
-      await browser.close();
+      await (browser as any).close();
       console.log('✓ Browser closed');
     }
 
@@ -2496,14 +2530,14 @@ app.post('/api/ssd/run', async (req, res) => {
     console.log(`Request ID: ${requestId}`);
     console.log(`URL: ${validatedDSL.site}`);
     console.log(`Cookie Test Status: ${cookieResult.status}`);
-    console.log(`PDF Test Status: ${pdfResult?.status || 'N/A'}`);
+    console.log(`PDF Test Status: ${(pdfResult as any)?.status || 'N/A'}`);
     console.log(`HTML File: ${htmlPath}`);
     console.log(`PDF Text File: ${pdfTextFile}`);
     console.log('========================================');
 
     res.json(finalResponse);
 
-  } catch (error) {
+  } catch (error: any) {
     console.error('SSD Run Error:', error);
     
     const httpError = toHttpError(error instanceof Error ? error : new Error('Unknown error'));
@@ -2588,7 +2622,7 @@ app.get('/api/ssd/fetch-html', async (req, res) => {
             console.log(`[${correlationId}]   Role: ${button.role}`);
             console.log(`[${correlationId}]   Selector: ${button.selector}`);
             console.log(`[${correlationId}]   Is Accept All: ${button.isAcceptAll} (confidence: ${button.confidence})`);
-            console.log(`[${correlationId}]   Position: ${button.position}`);
+            console.log(`[${correlationId}]   Position: ${(button as any).position}`);
           });
         } else {
           console.log(`[${correlationId}] No buttons found in cookie banner`);
@@ -2608,9 +2642,9 @@ app.get('/api/ssd/fetch-html', async (req, res) => {
           console.log(`[${correlationId}] ==========================================`);
           
           // AGGIUNGI IL TEST SPEC AL RISULTATO (NON ESEGUIRE ANCORA)
-          cookieBanner.testSpec = cookieTestSpec;
+          (cookieBanner as any).testSpec = cookieTestSpec;
           console.log(`[${correlationId}] ✅ Cookie consent test spec generated and saved (NOT executed yet)`);
-        } catch (error) {
+        } catch (error: any) {
           console.error(`[${correlationId}] Error generating cookie consent test:`, error);
         }
       } else {
@@ -2628,7 +2662,7 @@ app.get('/api/ssd/fetch-html', async (req, res) => {
       await browser.close();
     }
 
-  } catch (error) {
+  } catch (error: any) {
     console.error(`[${correlationId}] Error fetching HTML and extracting cookie banner:`, error);
     
     const httpError = toHttpError(error instanceof Error ? error : new Error('Unknown error'));
@@ -2731,14 +2765,34 @@ app.post('/api/consent/audit-pw', async (req, res) => {
       }
     }
 
+    // Check for custom scenarios (se presenti nell'input)
+    const customScenarios = req.body.customScenarios;
+    console.log(`[${correlationId}] Received body customScenarios:`, customScenarios);
+    console.log(`[${correlationId}] typeof customScenarios:`, typeof customScenarios);
+    if (customScenarios && Array.isArray(customScenarios)) {
+      console.log(`[${correlationId}] customScenarios array length:`, customScenarios.length);
+      customScenarios.forEach((s, i) => {
+        console.log(`[${correlationId}] customScenarios[${i}]:`, typeof s, JSON.stringify(s));
+      });
+    }
+    
+    const scenarios = customScenarios?.filter(scenario => {
+      const isValid = typeof scenario === 'object' && scenario !== null && !Array.isArray(scenario) && scenario.hasOwnProperty('custom');
+      if (isValid) {
+        console.log(`[${correlationId}] Valid custom scenario found:`, scenario);
+      }
+      return isValid;
+    });
+    
     // Esegui il test
-    console.log(`[${correlationId}] Running consent test...`);
-    const result = await runConsentTest(input);
+    console.log(`[${correlationId}] Running consent test... ${scenarios && scenarios.length > 0 ? `with ${scenarios.length} custom scenarios` : 'basic scenarios only'}`);
+    console.log(`[${correlationId}] Passing scenarios to runConsentTest:`, scenarios);
+    const result = await runConsentTest(input, scenarios);
     
     console.log(`[${correlationId}] Consent test completed successfully`);
     res.json(result);
 
-  } catch (error) {
+  } catch (error: any) {
     console.error(`[${correlationId}] Error running consent test:`, error);
     
     const httpError = toHttpError(error instanceof Error ? error : new Error('Unknown error'));
@@ -2758,6 +2812,35 @@ app.use((error, req, res, next) => {
   console.error('Server Error:', error);
   const httpError = toHttpError(error instanceof Error ? error : new Error('Unknown error'));
   res.status(httpError.httpStatus).json({ error: { code: httpError.code, message: httpError.message, details: httpError.details } });
+});
+
+// Serve screenshot images
+app.get('/api/screenshot/*', (req, res) => {
+  const imagePath = req.params[0];
+  console.log('📸 Screenshot request:', imagePath);
+  
+  const fullPath = path.join(process.cwd(), imagePath);
+  console.log('📸 Full path:', fullPath);
+  
+  // Security check - only serve files from artifacts directory
+  if (!fullPath.includes('artifacts') || !fullPath.endsWith('.png')) {
+    console.log('❌ Security check failed');
+    return res.status(403).json({ error: 'Access denied' });
+  }
+  
+  // Check if file exists
+  if (!fsSync.existsSync(fullPath)) {
+    console.log('❌ File not found:', fullPath);
+    return res.status(404).json({ error: 'Screenshot not found' });
+  }
+  
+  console.log('✅ Serving screenshot:', fullPath);
+  res.sendFile(fullPath, (err) => {
+    if (err) {
+      console.error('❌ Error serving screenshot:', err);
+      res.status(500).json({ error: 'Error serving screenshot' });
+    }
+  });
 });
 
 // 404 handler

@@ -1,0 +1,43 @@
+SPEC-EE-01 - View Item List
+EVENTO CHIAVE
+view_item_list
+PARAMETRI DI PUSH
+GA4 Event NameParameterAncestorValue exampleVariable typeValue statusScope
+view_item_listitem_nameitemsFibra Aruba ProstringrequiredAll
+item_iditems12345-SKU-IDstringrequiredAll
+item_branditemsfibrastringrequiredAll
+priceitems29.5floatrequiredAll
+quantityitems1intrequiredAll
+CONDIZIONI
+Una lista di prodotti è mostrata all’utente.
+SCRIPT
+<script>
+window.dataLayer = window.dataLayer || [];        //Pulisce il precedente oggetto
+window.dataLayer.push({
+  event: 'view_item_list',
+  ecommerce: {
+    items: [{
+      item_name: '[NOME PRODOTTO]',
+      item_id: '[ID PRODOTTO]',
+      item_brand: '[BL PRODOTTO]',
+      price: [PREZZO PRODOTTO],
+      quantity: 1
+    },{
+      item_name: '[NOME PRODOTTO]',
+      item_id: '[ID PRODOTTO]',
+      item_brand: '[BL PRODOTTO]',        
+      price: [PREZZO PRODOTTO],
+      quantity: 1
+    }]
+  }
+});
+</script>
+DOVE
+item_name sarà riempito con il nome del prodotto così come appare in pagina
+item_id sarà riempito con il codice del prodotto (ID, SKU, codice interno Aruba)
+item_brand sarà riempito con uno dei valori specificati nella tabella item_brand
+price sarà riempito con il prezzo del prodotto così come appare in pagina
+quantity sarà riempito con il numero di unità transazionali visualizzate Se viene visualizzato un in termini di prodotti, pacchetti o offerte. pacchetto di 
+, il valore di  sarà impostato a , in quanto si tratta di , a prescindere dal 500 SMS al prezzo di 10€quantity1una singola unità di prodotto visualizzata
+fatto che il pacchetto contenga 500 SMS. Il valore totale ( ) rifletterà correttamente il prezzo di acquisto, ossia 10€.  non è price× quantityquantity
+mai <= 0.

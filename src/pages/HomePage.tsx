@@ -34,7 +34,7 @@ const tools = [
     features: ['Test automatici', 'Esecuzione browser', 'Report dettagliati']
   },
   {
-    id: 'consent-test-b',
+    id: 'ai-sentinel',
     title: 'AI Sentinel',
     description: 'Test automatico del consenso con Playwright per GDPR/CCPA',
     requiresJson: false,
@@ -214,8 +214,8 @@ export default function HomePage() {
         navigate('/plan?mode=plan');
       } else if (tool.id === 'ssd-test') {
         navigate('/ssd-test?mode=ssd');
-      } else if (tool.id === 'consent-test-b') {
-        navigate('/ai-sentinel?mode=consent-test-b');
+      } else if (tool.id === 'ai-sentinel') {
+        navigate('/ai-sentinel?mode=ai-sentinel');
       }
     }
   };

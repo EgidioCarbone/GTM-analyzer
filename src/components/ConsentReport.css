@@ -1,0 +1,297 @@
+/* ConsentReport.css - Stili personalizzati per il report consenso */
+
+.consent-report {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* Sticky header con ombra */
+.consent-report .sticky-header {
+  backdrop-filter: blur(8px);
+  background-color: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+}
+
+/* Animazioni per le sezioni espandibili */
+.consent-report .expandable-section {
+  transition: all 0.3s ease-in-out;
+}
+
+.consent-report .expandable-content {
+  transition: max-height 0.3s ease-in-out, opacity 0.3s ease-in-out;
+  overflow: hidden;
+}
+
+/* Badge personalizzati */
+.consent-report .status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  font-weight: 600;
+  font-size: 0.875rem;
+  transition: all 0.2s ease-in-out;
+}
+
+.consent-report .status-badge:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* Tooltip personalizzati */
+.consent-report .tooltip {
+  position: relative;
+  display: inline-block;
+}
+
+.consent-report .tooltip .tooltip-content {
+  visibility: hidden;
+  opacity: 0;
+  position: absolute;
+  z-index: 1000;
+  bottom: 125%;
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: #1f2937;
+  color: white;
+  text-align: center;
+  border-radius: 0.375rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.75rem;
+  white-space: nowrap;
+  transition: opacity 0.3s, visibility 0.3s;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+.consent-report .tooltip:hover .tooltip-content {
+  visibility: visible;
+  opacity: 1;
+}
+
+/* Scrollbar personalizzata */
+.consent-report .custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.consent-report .custom-scrollbar::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 3px;
+}
+
+.consent-report .custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+
+.consent-report .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .consent-report .grid-responsive {
+    grid-template-columns: 1fr;
+  }
+  
+  .consent-report .sticky-header {
+    position: relative;
+    top: auto;
+  }
+  
+  .consent-report .badge-responsive {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+}
+
+/* Animazioni per i badge di stato */
+.consent-report .status-badge-pass {
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: white;
+}
+
+.consent-report .status-badge-fail {
+  background: linear-gradient(135deg, #ef4444, #dc2626);
+  color: white;
+}
+
+.consent-report .status-badge-warning {
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  color: white;
+}
+
+/* Effetti hover per le card */
+.consent-report .card-hover {
+  transition: all 0.2s ease-in-out;
+}
+
+.consent-report .card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+}
+
+/* Indicatori di stato animati */
+.consent-report .status-indicator {
+  position: relative;
+  display: inline-block;
+}
+
+.consent-report .status-indicator::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  animation: pulse 2s infinite;
+}
+
+.consent-report .status-indicator.granted::before {
+  background-color: #10b981;
+}
+
+.consent-report .status-indicator.denied::before {
+  background-color: #ef4444;
+}
+
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(16, 185, 129, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+  }
+}
+
+/* Stili per la timeline delle richieste di rete */
+.consent-report .network-timeline {
+  position: relative;
+}
+
+.consent-report .network-timeline::before {
+  content: '';
+  position: absolute;
+  left: 1rem;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: linear-gradient(to bottom, #e5e7eb, #d1d5db);
+}
+
+.consent-report .network-item {
+  position: relative;
+  padding-left: 3rem;
+}
+
+.consent-report .network-item::before {
+  content: '';
+  position: absolute;
+  left: 0.75rem;
+  top: 1rem;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background-color: #6b7280;
+  border: 2px solid white;
+  box-shadow: 0 0 0 2px #e5e7eb;
+}
+
+.consent-report .network-item.blocked::before {
+  background-color: #ef4444;
+  box-shadow: 0 0 0 2px #fecaca;
+}
+
+.consent-report .network-item.allowed::before {
+  background-color: #10b981;
+  box-shadow: 0 0 0 2px #d1fae5;
+}
+
+/* Stili per le raccomandazioni */
+.consent-report .recommendation-item {
+  border-left: 4px solid #e5e7eb;
+  transition: border-color 0.2s ease-in-out;
+}
+
+.consent-report .recommendation-item.pass {
+  border-left-color: #10b981;
+}
+
+.consent-report .recommendation-item.warning {
+  border-left-color: #f59e0b;
+}
+
+.consent-report .recommendation-item.fail {
+  border-left-color: #ef4444;
+}
+
+/* Effetti di focus per accessibilità */
+.consent-report .focusable:focus {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
+
+/* Stili per i tooltip informativi */
+.consent-report .info-tooltip {
+  position: relative;
+  display: inline-block;
+  cursor: help;
+}
+
+.consent-report .info-tooltip .tooltip-text {
+  visibility: hidden;
+  opacity: 0;
+  position: absolute;
+  z-index: 1000;
+  bottom: 125%;
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: #1f2937;
+  color: white;
+  text-align: center;
+  border-radius: 0.375rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.75rem;
+  white-space: nowrap;
+  transition: opacity 0.3s, visibility 0.3s;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  max-width: 200px;
+  word-wrap: break-word;
+  white-space: normal;
+}
+
+.consent-report .info-tooltip:hover .tooltip-text {
+  visibility: visible;
+  opacity: 1;
+}
+
+/* Stili per i badge di categoria */
+.consent-report .category-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.375rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-transform: capitalize;
+}
+
+/* Animazioni di caricamento */
+.consent-report .loading-skeleton {
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background-size: 200% 100%;
+  animation: loading 1.5s infinite;
+}
+
+@keyframes loading {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}

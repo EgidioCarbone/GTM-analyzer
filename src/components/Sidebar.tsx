@@ -21,7 +21,7 @@ export default function Sidebar() {
   ] : mode === 'ssd' ? [
     // Solo SSD Test per SSD Test
     { to: "/ssd-test", label: "SSD Test", icon: TestTube },
-  ] : mode === 'consent-test-b' ? [
+  ] : mode === 'ai-sentinel' ? [
     // Solo AI Sentinel per AI Sentinel
     { to: "/ai-sentinel", label: "AI Sentinel", icon: CheckCircle },
   ] : [

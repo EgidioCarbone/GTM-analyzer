@@ -12,7 +12,7 @@ import MigrationPage from "./pages/MigrationPage";
 import { useContainer } from "./context/ContainerContext";
 import { Toaster, toast } from "react-hot-toast";
 import SSDTestPage from "./pages/SSDTestPage";
-import ConsentTestBPage from "./consent-test-b/ConsentTestBPage";
+import ConsentTestBPage from "./ai-sentinel/ConsentTestBPage";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { DashboardErrorBoundary, ContainerManagerErrorBoundary } from "./components/ErrorBoundaries";
 
