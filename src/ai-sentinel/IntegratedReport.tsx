@@ -1,12 +1,28 @@
-import React, { useState } from 'react';
-import { CheckCircle, Globe, Megaphone, Shield, Cookie, Camera, Database, Network, Code, Eye } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import {
+  CheckCircle,
+  Globe,
+  Megaphone,
+  Shield,
+  Cookie,
+  Camera,
+  Database,
+  Network,
+  Code,
+  Eye,
+  AlertTriangle,
+  XCircle
+} from 'lucide-react';
+import { getApiBaseUrl, resolveScreenshotUrl } from '../utils/api-base';
 
 interface ScenarioResult {
   latestConsent: {
     ad_user_data: string;
-    ad_personalization: string;
+   ad_personalization: string;
     ad_storage: string;
     analytics_storage: string;
+    functionality_storage: string;
+    security_storage: string;
   };
   cookies: Array<{
     name: string;
@@ -16,13 +32,22 @@ interface ScenarioResult {
   gaAdsRequests: Array<{
     url: string;
     ts: number;
+    frameUrl?: string;
+    resourceType?: string;
+    method?: string;
   }>;
   gtagCalls: any[];
   dataLayer: any[];
+  dataLayerSnapshot?: any[];
+  llmTestResult?: boolean;
+  llmServiceAvailable?: boolean;
   artifacts: {
     screenshotPath?: string;
+    screenshotDataUrl?: string;
     tracePath?: string;
   };
+  warnings?: string[];
+  skipped?: boolean;
 }
 
 interface ConsentTestResult {
@@ -48,51 +73,239 @@ interface ConsentTestResult {
 interface IntegratedReportProps {
   result: ConsentTestResult;
   activeTab: string;
-  customScenarios?: Array<{
-    name: string;
-    analytics: boolean;
-    marketing: boolean;
-    preferences: boolean;
-  }>;
 }
 
-const IntegratedReport: React.FC<IntegratedReportProps> = ({ result, activeTab, customScenarios }) => {
+interface ScenarioSummary {
+  key: string;
+  name: string;
+  weight: number;
+  score: number;
+  status: 'PASS' | 'FAIL';
+  issues: string[];
+  cookies: number;
+  requests: number;
+}
+
+const IntegratedReport: React.FC<IntegratedReportProps> = ({ result, activeTab }) => {
   const [selectedScenario, setSelectedScenario] = useState('reject');
   const [expandedDetails, setExpandedDetails] = useState<string | null>(null);
+  const [screenshotPreview, setScreenshotPreview] = useState<string | null>(null);
+  const apiBaseUrl = useMemo(() => getApiBaseUrl(), []);
 
   // Determina lo scenario attivo
   const activeScenario = result.results[selectedScenario];
-  
-  // Calcola il punteggio di conformità
-  const complianceScore = result.summary.pass ? 100 : 0;
+  const screenshotArtifacts = useMemo(() => {
+    const scenarios = Object.values(result.results);
+    return scenarios.find(s => s.artifacts?.screenshotDataUrl || s.artifacts?.screenshotPath)?.artifacts;
+  }, [result.results]);
+
+  const scenarioSummaries: ScenarioSummary[] = useMemo(() => {
+    const summaries: ScenarioSummary[] = [];
+
+    const buildIssues = (label: string, cookies: number, requests: number, consentChecks: Array<{ cond: boolean; msg: string }>) => {
+      const issues: string[] = [];
+      if (cookies > 0) issues.push(`${cookies} cookie non necessari rilevati`);
+      if (requests > 0) issues.push(`${requests} richieste GA/Ads intercettate`);
+      consentChecks.forEach(({ cond, msg }) => { if (cond) issues.push(msg); });
+      return issues;
+    };
+
+    const reject = result.results.reject;
+    if (reject) {
+      if (reject.skipped) {
+        summaries.push({
+          key: 'reject',
+          name: 'Reject All',
+          weight: 0,
+          score: 100,
+          status: 'PASS',
+          issues: ['Scenario non eseguito (modalità onlyReject)'],
+          cookies: 0,
+          requests: 0
+        });
+      } else {
+      const cookies = reject.cookies?.length || 0;
+      const requests = reject.gaAdsRequests?.length || 0;
+      
+      // PRIORITÀ: Usa il risultato LLM se disponibile
+      if (reject.llmTestResult !== undefined && reject.llmTestResult !== null) {
+        // Usa il risultato LLM per determinare il punteggio
+        const llmPassed = reject.llmTestResult;
+        summaries.push({
+          key: 'reject',
+          name: 'Reject All',
+          weight: 0.7,
+          score: llmPassed ? 100 : 0,
+          status: llmPassed ? 'PASS' : 'FAIL',
+          issues: llmPassed ? [] : ['Test LLM: Consensi non rifiutati correttamente'],
+          cookies,
+          requests
+        });
+      } else {
+        // Fallback alla logica vecchia se LLM non disponibile
+        const consentValues = Object.values(reject.latestConsent || {});
+        const consentIssues = consentValues.some(value => value === 'granted');
+        const issues = buildIssues('Reject All', cookies, requests, [
+          { cond: consentIssues, msg: 'Consent Mode riporta valori "granted" dopo il rifiuto' }
+        ]);
+        summaries.push({
+          key: 'reject',
+          name: 'Reject All',
+          weight: 0.7,
+          score: issues.length === 0 ? 100 : 0,
+          status: issues.length === 0 ? 'PASS' : 'FAIL',
+          issues,
+          cookies,
+          requests
+        });
+      }
+    }
+    }
+
+    const accept = result.results.accept;
+    if (accept) {
+      if (accept.skipped) {
+        summaries.push({
+          key: 'accept',
+          name: 'Accept All',
+          weight: 0,
+          score: 100,
+          status: 'PASS',
+          issues: ['Scenario non eseguito (modalità onlyReject)'],
+          cookies: 0,
+          requests: 0
+        });
+      } else {
+      const cookies = accept.cookies?.length || 0;
+      const requests = accept.gaAdsRequests?.length || 0;
+      
+      // PRIORITÀ: Usa il risultato LLM se disponibile
+      if (accept.llmTestResult !== undefined && accept.llmTestResult !== null) {
+        // Usa il risultato LLM per determinare il punteggio
+        const llmPassed = accept.llmTestResult;
+        summaries.push({
+          key: 'accept',
+          name: 'Accept All',
+          weight: 0.1,
+          score: llmPassed ? 100 : 0,
+          status: llmPassed ? 'PASS' : 'FAIL',
+          issues: llmPassed ? [] : ['Test LLM: Consensi non accettati correttamente'],
+          cookies,
+          requests
+        });
+      } else {
+        // Fallback alla logica vecchia se LLM non disponibile
+        const consentValues = Object.values(accept.latestConsent || {});
+        const consentGranted = consentValues.some(value => value === 'granted');
+        const issues: string[] = [];
+        if (!consentGranted) {
+          issues.push('Consent Mode non riporta valori "granted" dopo l\'accettazione');
+        }
+        if (requests === 0 && cookies === 0) {
+          issues.push('Nessuna attività di tracciamento rilevata dopo l\'accettazione');
+        }
+        summaries.push({
+          key: 'accept',
+          name: 'Accept All',
+          weight: 0.1,
+          score: issues.length === 0 ? 100 : 40,
+          status: issues.length === 0 ? 'PASS' : 'FAIL',
+          issues,
+          cookies,
+          requests
+        });
+      }
+    }
+    }
+
+    Object.entries(result.results)
+      .filter(([key]) => key.startsWith('custom-'))
+      .forEach(([key, scenarioData]) => {
+        if (scenarioData.skipped) {
+          summaries.push({
+            key,
+            name: key.replace('custom-', 'Custom '),
+            weight: 0,
+            score: 100,
+            status: 'PASS',
+            issues: ['Scenario non eseguito (modalità onlyReject)'],
+            cookies: 0,
+            requests: 0
+          });
+          return;
+        }
+        const cookies = scenarioData.cookies?.length || 0;
+        const requests = scenarioData.gaAdsRequests?.length || 0;
+        const issues = buildIssues(key, cookies, requests, []);
+        summaries.push({
+          key,
+          name: key.replace('custom-', 'Custom '),
+          weight: 0.2 / Math.max(1, Object.keys(result.results).filter(k => k.startsWith('custom-')).length),
+          score: issues.length === 0 ? 100 : Math.max(0, 100 - issues.length * 40),
+          status: issues.length === 0 ? 'PASS' : 'FAIL',
+          issues,
+          cookies,
+          requests
+        });
+      });
+
+    return summaries;
+  }, [result.results]);
+
+  const weightedScore = useMemo(() => {
+    if (scenarioSummaries.length === 0) return 0;
+    const totalWeight = scenarioSummaries.reduce((sum, scenario) => sum + scenario.weight, 0) || 1;
+    return Math.round(
+      scenarioSummaries.reduce((sum, scenario) => sum + scenario.score * scenario.weight, 0) / totalWeight
+    );
+  }, [scenarioSummaries]);
+
+  const failingIssues = useMemo(() => (
+    scenarioSummaries
+      .filter(s => s.status === 'FAIL' && s.issues.length > 0)
+      .map(s => ({ name: s.name, issues: s.issues }))
+  ), [scenarioSummaries]);
+
+  const acceptScenarioData = result.results.accept;
+
+  const complianceStatus = useMemo(() => {
+    if (weightedScore >= 80) {
+      return {
+        label: 'CONFORMITÀ ELEVATA',
+        tone: 'success',
+        description: 'Il sito rispetta correttamente le preferenze di consenso nelle condizioni testate.'
+      };
+    }
+    if (weightedScore >= 60) {
+      return {
+        label: 'ATTENZIONE',
+        tone: 'warning',
+        description: 'Sono emerse aree di miglioramento: alcuni scenari richiedono verifica.'
+      };
+    }
+    return {
+      label: 'PROBLEMI CRITICI',
+      tone: 'danger',
+      description: 'Il sito non rispetta le preferenze di consenso nei casi fondamentali (es. rifiuto).' 
+    };
+  }, [weightedScore]);
+
+  const toneIcon = complianceStatus.tone === 'success'
+    ? CheckCircle
+    : complianceStatus.tone === 'warning'
+      ? AlertTriangle
+      : XCircle;
+  const ToneIcon = toneIcon;
 
   // Funzione per ottenere il nome personalizzato dello scenario
   const getScenarioDisplayName = (scenarioKey: string) => {
     if (scenarioKey === 'reject') return 'Reject All';
     if (scenarioKey === 'accept') return 'Accept All';
     
-    // Per scenari custom, cerca il nome personalizzato
-    if (customScenarios && scenarioKey.startsWith('custom-')) {
-      // Estrai le impostazioni dallo scenario key
-      const scenarioData = result.results[scenarioKey];
-      if (scenarioData && scenarioData.selectedCategories) {
-        const { analytics, marketing, preferences } = scenarioData.selectedCategories;
-        
-        // Trova lo scenario custom corrispondente
-        const matchingScenario = customScenarios.find(scenario => 
-          scenario.analytics === analytics &&
-          scenario.marketing === marketing &&
-          scenario.preferences === preferences
-        );
-        
-        if (matchingScenario) {
-          return matchingScenario.name;
-        }
-      }
+    // Scenari custom non più supportati
+    if (scenarioKey.startsWith('custom-')) {
+      return 'Custom Scenario (Non supportato)';
     }
-    
-    // Fallback al nome tecnico
-    return scenarioKey.replace('custom-', 'Custom ');
   };
 
   return (
@@ -106,107 +319,115 @@ const IntegratedReport: React.FC<IntegratedReportProps> = ({ result, activeTab, 
       </div>
 
       {/* Compliance Status Banner */}
-      <div className="bg-green-50 border border-green-200 rounded-lg p-6">
-        <div className="flex items-center space-x-3">
-          <CheckCircle className="w-8 h-8 text-green-600" />
+      <div className={
+        `rounded-lg p-6 border ${
+          complianceStatus.tone === 'success'
+            ? 'bg-green-50 border-green-200'
+            : complianceStatus.tone === 'warning'
+              ? 'bg-yellow-50 border-yellow-200'
+              : 'bg-red-50 border-red-200'
+        }`
+      }>
+        <div className="flex items-start space-x-3">
+          <ToneIcon className={`w-8 h-8 ${
+            complianceStatus.tone === 'success'
+              ? 'text-green-600'
+              : complianceStatus.tone === 'warning'
+                ? 'text-yellow-600'
+                : 'text-red-600'
+          }`} />
           <div>
-            <h2 className="text-2xl font-bold text-green-800">CONFORMITÀ GDPR: COMPLETA</h2>
-            <p className="text-green-700 mt-1">
-              Il sito rispetta correttamente tutte le preferenze di consenso dell'utente. Nessuna violazione GDPR rilevata.
-            </p>
+            <h2 className="text-2xl font-bold text-gray-900">{complianceStatus.label}</h2>
+            <p className="mt-1 text-gray-700">{complianceStatus.description}</p>
+            <div className="mt-3">
+              <div className="flex items-center justify-between text-sm font-medium text-gray-700">
+                <span>Punteggio complessivo</span>
+                <span>{weightedScore}%</span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-2 mt-2">
+                <div
+                  className={`h-2 rounded-full transition-all ${
+                    weightedScore >= 80
+                      ? 'bg-green-500'
+                      : weightedScore >= 60
+                        ? 'bg-yellow-500'
+                        : 'bg-red-500'
+                  }`}
+                  style={{ width: `${weightedScore}%` }}
+                />
+              </div>
+            </div>
           </div>
         </div>
+        {failingIssues.length > 0 && (
+          <div className="mt-4 bg-white/70 border border-red-200 rounded-lg p-4 text-sm text-red-700">
+            <h3 className="font-semibold mb-2">Motivi principali</h3>
+            <ul className="space-y-2 list-disc pl-5">
+              {failingIssues.map((item, idx) => (
+                <li key={idx}>
+                  <span className="font-medium">{item.name}</span>: {item.issues.join(' • ')}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
 
       {/* Compliance Details */}
       <div>
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center space-between justify-between mb-6">
           <div className="flex items-center space-x-2">
             <Shield className="w-6 h-6 text-gray-600" />
-            <h3 className="text-xl font-semibold text-gray-900">Stato Conformità GDPR</h3>
+            <h3 className="text-xl font-semibold text-gray-900">Dettaglio scenari</h3>
           </div>
-          <span className="px-4 py-2 bg-green-100 text-green-800 text-sm font-medium rounded-full flex items-center space-x-2">
-            <CheckCircle className="w-5 h-5" />
-            <span>CONFORME</span>
-          </span>
+          <span className="text-sm text-gray-500">Tab: {activeTab}</span>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Analytics Card */}
-          <div className="bg-white border border-gray-200 rounded-lg p-6 relative">
-            <div className="absolute top-4 right-4">
-              <CheckCircle className="w-6 h-6 text-green-600" />
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {scenarioSummaries.map(summary => (
+            <div key={summary.key} className="bg-white border border-gray-200 rounded-lg p-6 relative">
+              <div className="absolute top-4 right-4">
+                {summary.status === 'PASS' ? (
+                  <CheckCircle className="w-6 h-6 text-green-600" />
+                ) : (
+                  <XCircle className="w-6 h-6 text-red-600" />
+                )}
+              </div>
+              <div className="flex items-center space-x-3 mb-4">
+                {summary.key === 'reject' && <Megaphone className="w-8 h-8 text-red-600" />}
+                {summary.key === 'accept' && <Globe className="w-8 h-8 text-blue-600" />}
+                {summary.key !== 'reject' && summary.key !== 'accept' && <Cookie className="w-8 h-8 text-purple-600" />}
+                <h4 className="text-lg font-semibold text-gray-900">{summary.name}</h4>
+              </div>
+              <div className="flex items-center justify-between text-sm text-gray-600">
+                <span>Peso</span>
+                <span>{Math.round(summary.weight * 100)}%</span>
+              </div>
+              <div className="flex items-center justify-between text-sm text-gray-600">
+                <span>Punteggio scenario</span>
+                <span className={summary.status === 'PASS' ? 'text-green-600 font-semibold' : 'text-red-600 font-semibold'}>
+                  {summary.score}%
+                </span>
+              </div>
+              <div className="mt-3 space-y-2 text-sm text-gray-500">
+                <div className="flex justify-between">
+                  <span>Cookie rilevati</span>
+                  <span>{summary.cookies}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Richieste GA/Ads</span>
+                  <span>{summary.requests}</span>
+                </div>
+              </div>
+              {summary.issues.length > 0 && (
+                <ul className="mt-3 bg-red-50 border border-red-200 rounded-md p-3 text-xs text-red-700 space-y-1">
+                  {summary.issues.map((issue, idx) => (
+                    <li key={idx}>• {issue}</li>
+                  ))}
+                </ul>
+              )}
             </div>
-            <div className="flex items-center space-x-3 mb-4">
-              <Globe className="w-8 h-8 text-blue-600" />
-              <h4 className="text-lg font-semibold text-gray-900">Analytics</h4>
-            </div>
-            <p className="text-gray-600 mb-4">
-              Il sito rispetta correttamente le preferenze di consenso per i cookie analytics
-            </p>
-            <div className="space-y-2 text-sm text-gray-500">
-              <div>Cookie rilevati: 0</div>
-              <div>Consenso rispettato: Si</div>
-              <div>Blocco funzionante: Si</div>
-            </div>
-          </div>
-
-          {/* Marketing Card */}
-          <div className="bg-white border border-gray-200 rounded-lg p-6 relative">
-            <div className="absolute top-4 right-4">
-              <CheckCircle className="w-6 h-6 text-green-600" />
-            </div>
-            <div className="flex items-center space-x-3 mb-4">
-              <Megaphone className="w-8 h-8 text-purple-600" />
-              <h4 className="text-lg font-semibold text-gray-900">Marketing</h4>
-            </div>
-            <p className="text-gray-600 mb-4">
-              Il sito rispetta correttamente le preferenze di consenso per i cookie marketing
-            </p>
-            <div className="space-y-2 text-sm text-gray-500">
-              <div>Cookie rilevati: 0</div>
-              <div>Consenso rispettato: Si</div>
-              <div>Blocco funzionante: Si</div>
-            </div>
-          </div>
-
-          {/* Preferences Card */}
-          <div className="bg-white border border-gray-200 rounded-lg p-6 relative">
-            <div className="absolute top-4 right-4">
-              <CheckCircle className="w-6 h-6 text-green-600" />
-            </div>
-            <div className="flex items-center space-x-3 mb-4">
-              <Shield className="w-8 h-8 text-green-600" />
-              <h4 className="text-lg font-semibold text-gray-900">Preferenze</h4>
-            </div>
-            <p className="text-gray-600 mb-4">
-              Cookie di preferenze sempre attivi (necessari per il funzionamento del sito)
-            </p>
-            <div className="space-y-2 text-sm text-gray-500">
-              <div>Cookie rilevati: 0</div>
-              <div>Consenso rispettato: Si</div>
-              <div>Blocco funzionante: Si</div>
-            </div>
-          </div>
-
-          {/* Necessary Card */}
-          <div className="bg-white border border-gray-200 rounded-lg p-6 relative">
-            <div className="absolute top-4 right-4">
-              <CheckCircle className="w-6 h-6 text-green-600" />
-            </div>
-            <div className="flex items-center space-x-3 mb-4">
-              <Cookie className="w-8 h-8 text-orange-600" />
-              <h4 className="text-lg font-semibold text-gray-900">Necessari</h4>
-            </div>
-            <p className="text-gray-600 mb-4">
-              Cookie necessari sempre attivi (richiesti per il funzionamento del sito)
-            </p>
-            <div className="space-y-2 text-sm text-gray-500">
-              <div>Cookie rilevati: 0</div>
-              <div>Consenso rispettato: Si</div>
-              <div>Blocco funzionante: Si</div>
-            </div>
-          </div>
+          ))}
         </div>
       </div>
 
@@ -214,10 +435,25 @@ const IntegratedReport: React.FC<IntegratedReportProps> = ({ result, activeTab, 
       <div className="bg-gray-50 rounded-lg p-6">
         <div className="flex items-center justify-between mb-4">
           <span className="text-lg font-semibold text-gray-700">Punteggio Complessivo</span>
-          <span className="text-2xl font-bold text-green-600">{complianceScore}%</span>
+          <span className={`text-2xl font-bold ${
+            weightedScore >= 80
+              ? 'text-green-600'
+              : weightedScore >= 60
+                ? 'text-yellow-600'
+                : 'text-red-600'
+          }`}>{weightedScore}%</span>
         </div>
         <div className="w-full bg-gray-200 rounded-full h-3">
-          <div className="h-full bg-green-600 rounded-full transition-all duration-1000" style={{ width: `${complianceScore}%` }}></div>
+          <div
+            className={`h-full rounded-full transition-all duration-1000 ${
+              weightedScore >= 80
+                ? 'bg-green-600'
+                : weightedScore >= 60
+                  ? 'bg-yellow-500'
+                  : 'bg-red-500'
+            }`}
+            style={{ width: `${weightedScore}%` }}
+          />
         </div>
       </div>
 
@@ -228,86 +464,95 @@ const IntegratedReport: React.FC<IntegratedReportProps> = ({ result, activeTab, 
             <Code className="w-6 h-6 text-gray-600" />
             <h3 className="text-xl font-semibold text-gray-900">Dettagli Tecnici</h3>
           </div>
-          <div className="flex space-x-2">
-            <button
-              onClick={() => setSelectedScenario('reject')}
-              className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors ${
-                selectedScenario === 'reject' 
-                  ? 'bg-blue-600 text-white' 
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
-            >
-              Reject All
-            </button>
+        </div>
+
+        {/* Screenshot Section */}
+        {screenshotArtifacts && (() => {
+          const rawImage = screenshotArtifacts.screenshotDataUrl || screenshotArtifacts.screenshotPath || '';
+          const screenshotUrl = resolveScreenshotUrl(rawImage, apiBaseUrl);
+          const isDataUrl = rawImage.startsWith('data:');
+
+          return (
+            <div className="mb-6">
+              <div className="flex items-center space-x-2 mb-3">
+                <Camera className="w-5 h-5 text-gray-600" />
+                <h4 className="font-medium text-gray-900">Screenshot Cookie Banner</h4>
+              </div>
+              <div className="bg-gray-100 rounded-lg p-4">
+                <button
+                  type="button"
+                  onClick={() => setScreenshotPreview(screenshotUrl)}
+                  className="w-full max-w-2xl mx-auto block focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                >
+                  <img 
+                    src={screenshotUrl}
+                    alt="Cookie Banner Screenshot"
+                    className="w-full rounded-lg shadow-sm border border-gray-200 hover:shadow-lg transition-shadow"
+                    onError={(e) => {
+                      console.error('Screenshot load error:', e);
+                      (e.target as HTMLImageElement).style.display = 'none';
+                      (e.target as HTMLImageElement).parentElement?.nextElementSibling?.classList.remove('hidden');
+                    }}
+                  />
+                </button>
+                <div className="hidden text-center text-gray-600 mt-2">
+                  Screenshot non disponibile: {rawImage}
+                  {!isDataUrl && (
+                    <>
+                      <br />
+                      <small>URL tentato: {screenshotUrl}</small>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* Scenario Selector CTA */}
+        <div className="flex flex-wrap justify-center gap-2 mb-8">
+          <button
+            onClick={() => setSelectedScenario('reject')}
+            className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+              selectedScenario === 'reject'
+                ? 'bg-blue-600 text-white shadow'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            }`}
+          >
+            Reject All
+          </button>
+          {!acceptScenarioData?.skipped && (
             <button
               onClick={() => setSelectedScenario('accept')}
-              className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors ${
-                selectedScenario === 'accept' 
-                  ? 'bg-blue-600 text-white' 
+              className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                selectedScenario === 'accept'
+                  ? 'bg-blue-600 text-white shadow'
                   : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
               }`}
             >
               Accept All
             </button>
-            {Object.keys(result.results).filter(key => key.startsWith('custom-')).map(key => (
-              <button
-                key={key}
-                onClick={() => setSelectedScenario(key)}
-                className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors ${
-                  selectedScenario === key 
-                    ? 'bg-blue-600 text-white' 
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                {getScenarioDisplayName(key)}
-              </button>
-            ))}
-          </div>
+          )}
+          {Object.entries(result.results)
+            .filter(([key, scenario]) => key.startsWith('custom-') && !scenario.skipped)
+            .map(([key]) => (
+            <button
+              key={key}
+              onClick={() => setSelectedScenario(key)}
+              className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                selectedScenario === key
+                  ? 'bg-blue-600 text-white shadow'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
+            >
+              {getScenarioDisplayName(key)}
+            </button>
+          ))}
         </div>
 
-        {/* Screenshot Section */}
-        {activeScenario.artifacts?.screenshotPath && (
-          <div className="mb-6">
-            <div className="flex items-center space-x-2 mb-3">
-              <Camera className="w-5 h-5 text-gray-600" />
-              <h4 className="font-medium text-gray-900">Screenshot Cookie Banner</h4>
-            </div>
-            <div className="bg-gray-100 rounded-lg p-4">
-              <img 
-                src={`/api/screenshot/${(() => {
-                  const imagePath = activeScenario.artifacts.screenshotPath;
-                  // Rimuovi "./" se presente e gestisci correttamente il path
-                  const cleanPath = imagePath.startsWith('./artifacts/') 
-                    ? imagePath.substring(2) // Rimuove "./"
-                    : imagePath.startsWith('artifacts/')
-                    ? imagePath
-                    : `artifacts/${imagePath}`;
-                  return cleanPath;
-                })()}`}
-                alt="Cookie Banner Screenshot"
-                className="w-full max-w-md mx-auto rounded-lg shadow-sm border border-gray-200"
-                onError={(e) => {
-                  console.error('Screenshot load error:', e);
-                  (e.target as HTMLImageElement).style.display = 'none';
-                  (e.target as HTMLImageElement).nextElementSibling!.classList.remove('hidden');
-                }}
-                onLoad={() => {
-                  console.log('Screenshot loaded successfully');
-                }}
-              />
-              <div className="hidden text-center text-gray-600 mt-2">
-                Screenshot non disponibile: {activeScenario.artifacts.screenshotPath}
-                <br />
-                <small>URL tentato: /api/screenshot/{(() => {
-                  const imagePath = activeScenario.artifacts.screenshotPath;
-                  return imagePath.startsWith('./artifacts/') 
-                    ? imagePath.substring(2)
-                    : imagePath.startsWith('artifacts/')
-                    ? imagePath
-                    : `artifacts/${imagePath}`;
-                })()}</small>
-              </div>
-            </div>
+        {activeScenario?.skipped && (
+          <div className="mb-6 bg-yellow-50 border border-yellow-200 text-yellow-800 rounded-lg p-4 text-sm">
+            Scenario "{getScenarioDisplayName(selectedScenario)}" non eseguito in questa sessione (modalità onlyReject attiva).
           </div>
         )}
 
@@ -399,48 +644,81 @@ const IntegratedReport: React.FC<IntegratedReportProps> = ({ result, activeTab, 
                 {activeScenario.gaAdsRequests.map((request, index) => (
                   <div key={index} className="bg-white rounded p-2 text-xs font-mono break-all">
                     <div className="text-gray-500 mb-1">
-                      {new Date(request.ts).toLocaleTimeString('it-IT')}
+                      <span>{new Date(request.ts).toLocaleTimeString('it-IT')}</span>
+                      {request.method && (
+                        <span className="ml-2 uppercase text-gray-700">{request.method}</span>
+                      )}
                     </div>
                     <div className="text-gray-800">{request.url}</div>
+                    {request.frameUrl && (
+                      <div className="text-gray-500 mt-1">Frame: {request.frameUrl}</div>
+                    )}
+                    {request.resourceType && (
+                      <div className="text-gray-500">Tipo: {request.resourceType}</div>
+                    )}
                   </div>
                 ))}
               </div>
             )}
           </div>
 
-          {/* DataLayer Events */}
+          {/* Tracking Overview */}
           <div className="bg-gray-50 rounded-lg p-4">
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center space-x-2">
                 <Database className="w-5 h-5 text-gray-600" />
-                <span className="font-medium text-gray-900">DataLayer Events</span>
+                <span className="font-medium text-gray-900">Tracking Overview</span>
               </div>
-              <span className="bg-blue-100 text-blue-800 text-xs font-medium px-2 py-1 rounded-full">
-                {activeScenario.dataLayer.length}
-              </span>
             </div>
-            <div className="text-sm text-gray-600">
-              {activeScenario.dataLayer.length === 0 ? 'Nessun evento rilevato' : `${activeScenario.dataLayer.length} eventi nel dataLayer`}
-            </div>
-          </div>
-
-          {/* Gtag Calls */}
-          <div className="bg-gray-50 rounded-lg p-4">
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center space-x-2">
-                <Code className="w-5 h-5 text-gray-600" />
-                <span className="font-medium text-gray-900">Gtag Calls</span>
-              </div>
-              <span className="bg-blue-100 text-blue-800 text-xs font-medium px-2 py-1 rounded-full">
-                {activeScenario.gtagCalls.length}
-              </span>
-            </div>
-            <div className="text-sm text-gray-600">
-              {activeScenario.gtagCalls.length === 0 ? 'Nessuna chiamata rilevata' : `${activeScenario.gtagCalls.length} chiamate gtag`}
+            <div className="text-sm text-gray-600 space-y-1">
+              <div>DataLayer snapshot: {activeScenario.dataLayerSnapshot?.length ?? 0} elementi</div>
+              <div>Eventi intercettati (live): {activeScenario.dataLayer.length}</div>
+              <div>Chiamate gtag intercettate: {activeScenario.gtagCalls.length}</div>
             </div>
           </div>
         </div>
+
+        {/* DataLayer Snapshot */}
+        <div className="mt-6">
+          <div className="bg-gray-50 rounded-lg p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center space-x-2">
+                <Code className="w-5 h-5 text-gray-600" />
+                <span className="font-medium text-gray-900">DataLayer Snapshot</span>
+              </div>
+              <span className="text-xs text-gray-500">Scenario: {getScenarioDisplayName(selectedScenario)}</span>
+            </div>
+            {activeScenario.dataLayerSnapshot && activeScenario.dataLayerSnapshot.length > 0 ? (
+              <pre className="bg-white p-3 rounded border text-xs overflow-x-auto max-h-72">
+                {JSON.stringify(activeScenario.dataLayerSnapshot, null, 2)}
+              </pre>
+            ) : (
+              <p className="text-sm text-gray-600">Nessun evento dataLayer registrato per questo scenario.</p>
+            )}
+          </div>
+        </div>
       </div>
+
+      {screenshotPreview && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          onClick={() => setScreenshotPreview(null)}
+        >
+          <div className="max-w-4xl w-full px-6" onClick={(e) => e.stopPropagation()}>
+            <div className="bg-white rounded-xl shadow-xl overflow-hidden relative">
+              <button
+                type="button"
+                className="absolute top-3 right-3 text-2xl leading-none text-gray-500 hover:text-gray-800"
+                onClick={() => setScreenshotPreview(null)}
+                aria-label="Chiudi anteprima"
+              >
+                ×
+              </button>
+              <img src={screenshotPreview} alt="Anteprima cookie banner" className="w-full h-auto" />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

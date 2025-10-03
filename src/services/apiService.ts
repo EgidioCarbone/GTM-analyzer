@@ -30,7 +30,7 @@ interface AnalysisResponse {
 }
 
 class ApiService {
-  private baseUrl = 'http://localhost:4001/api';
+  private baseUrl = 'http://localhost:4004/api';
   private requests = new Map<string, AnalysisResponse>();
 
   async analyzeWebsite(request: AnalysisRequest): Promise<ApiResponse<AnalysisResponse>> {
@@ -224,7 +224,7 @@ class ApiService {
   // WebSocket connection for real-time updates
   connectWebSocket(onMessage: (data: any) => void): WebSocket | null {
     try {
-      const ws = new WebSocket('ws://localhost:4001/ws');
+      const ws = new WebSocket('ws://localhost:4004/ws');
       
       ws.onmessage = (event) => {
         try {

@@ -50,6 +50,7 @@ interface NewConsentReportProps {
         latestConsent: any;
         artifacts?: {
           screenshotPath?: string;
+          screenshotDataUrl?: string;
           tracePath?: string;
         };
       };

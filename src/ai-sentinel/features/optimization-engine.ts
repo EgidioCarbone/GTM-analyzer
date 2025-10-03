@@ -87,8 +87,8 @@ window.consentTo = true;`
   }
 
   private hasVisibleBanner(results: any): boolean {
-    return !!((results?.results?.accept?.artifacts?.screenshotPath) 
-      && results.results.accept.artifacts.screenshotPath);
+    const artifacts = results?.results?.accept?.artifacts;
+    return Boolean(artifacts?.screenshotDataUrl || artifacts?.screenshotPath);
   }
 
   private isECommerce(results: any): boolean {

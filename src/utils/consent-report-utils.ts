@@ -20,10 +20,21 @@ export const calculateOverallStatus = (scenarios: Array<{ status: TestStatus }>)
 /**
  * Calcola il punteggio percentuale del report
  */
-export const calculateOverallScore = (scenarios: Array<{ status: TestStatus }>): number => {
+export const calculateOverallScore = (scenarios: Array<{ status: TestStatus; score?: number; weight?: number }>): number => {
   if (scenarios.length === 0) return 0;
-  const passedScenarios = scenarios.filter(s => s.status === 'PASS').length;
-  return Math.round((passedScenarios / scenarios.length) * 100);
+
+  const totalWeightedScore = scenarios.reduce((sum, scenario) => {
+    const weight = typeof scenario.weight === 'number' ? scenario.weight : 1;
+    const score = typeof scenario.score === 'number'
+      ? scenario.score
+      : (scenario.status === 'PASS' ? 100 : 0);
+    return sum + score * weight;
+  }, 0);
+
+  const totalWeight = scenarios.reduce((sum, scenario) => sum + (typeof scenario.weight === 'number' ? scenario.weight : 1), 0);
+  if (totalWeight === 0) return 0;
+
+  return Math.round(totalWeightedScore / totalWeight);
 };
 
 /**

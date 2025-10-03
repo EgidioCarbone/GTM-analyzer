@@ -7,7 +7,12 @@ export interface ConsentReportData {
     name: string;
     status: 'PASS' | 'FAIL';
     description: string;
+    weight: number;
+    score: number;
+    issues?: string[];
   }>;
+  weightedScore?: number;
+  scenarioIssues?: Array<{ name: string; issues: string[] }>;
   googleConsent: {
     analytics_storage: 'granted' | 'denied';
     ad_storage: 'granted' | 'denied';
@@ -30,6 +35,9 @@ export interface ConsentReportData {
     timestamp: number;
     category: 'analytics' | 'ads' | 'marketing' | 'other';
     blocked: boolean;
+    frameUrl?: string;
+    resourceType?: string;
+    method?: string;
   }>;
   recommendations: string[];
 }
@@ -65,6 +73,14 @@ export const useConsentReport = (
   // Funzione per calcolare il punteggio percentuale
   const getOverallScore = (): number => {
     if (!data) return 0;
+    if (typeof data.weightedScore === 'number') return data.weightedScore;
+    const totalWeight = data.scenarios.reduce((acc, scenario) => acc + (scenario.weight || 0), 0);
+    if (totalWeight > 0) {
+      return Math.round(
+        data.scenarios.reduce((sum, scenario) => sum + (scenario.score || 0) * (scenario.weight || 0), 0) /
+        totalWeight
+      );
+    }
     return Math.round((data.scenarios.filter(s => s.status === 'PASS').length / data.scenarios.length) * 100);
   };
 

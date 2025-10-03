@@ -9,6 +9,9 @@ export interface Scenario {
   name: string;
   status: TestStatus;
   description: string;
+  weight?: number;
+  score?: number;
+  issues?: string[];
 }
 
 export interface GoogleConsentMode {
@@ -37,6 +40,9 @@ export interface NetworkRequest {
   timestamp: number;
   category: NetworkCategory;
   blocked: boolean;
+  frameUrl?: string;
+  resourceType?: string;
+  method?: string;
 }
 
 export interface ConsentReportData {

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { toast } from 'react-hot-toast';
 import { CheckCircle, Loader2, Circle, Shield, Clock, Lock, Check, Globe, Megaphone, Cookie } from 'lucide-react';
 import ConsentReportWrapper from './ConsentReportWrapper';
@@ -9,6 +9,7 @@ interface ConsentTestOptions {
   captureScreens: boolean;
   trace: boolean;
   region: string;
+  onlyReject: boolean;
 }
 
 interface ConsentTestResult {
@@ -37,6 +38,8 @@ interface ScenarioResult {
     ad_personalization: string;
     ad_storage: string;
     analytics_storage: string;
+    functionality_storage: string;
+    security_storage: string;
   };
   cookies: Array<{
     name: string;
@@ -46,21 +49,22 @@ interface ScenarioResult {
   gaAdsRequests: Array<{
     url: string;
     ts: number;
+    frameUrl?: string;
+    resourceType?: string;
+    method?: string;
   }>;
   gtagCalls: any[];
   dataLayer: any[];
+  dataLayerSnapshot?: any[];
   artifacts: {
     screenshotPath?: string;
+    screenshotDataUrl?: string;
     tracePath?: string;
   };
+  warnings?: string[];
+  skipped?: boolean;
 }
 
-interface CustomScenario {
-  name: string;
-  analytics: boolean;
-  marketing: boolean;
-  preferences: boolean;
-}
 
 export default function ConsentTestBPage() {
   const [url, setUrl] = useState('');
@@ -69,7 +73,8 @@ export default function ConsentTestBPage() {
     timeoutHardMs: 25000,
     captureScreens: true,
     trace: false,
-    region: 'EU'
+    region: 'EU',
+    onlyReject: true
   });
   const [loading, setLoading] = useState(false);
   const [showProgressModal, setShowProgressModal] = useState(false);
@@ -77,9 +82,8 @@ export default function ConsentTestBPage() {
   const [stepsStatus, setStepsStatus] = useState<string[]>([]);
   const [result, setResult] = useState<ConsentTestResult | null>(null);
   const [activeTab, setActiveTab] = useState<string>('reject');
-  const [customScenarios, setCustomScenarios] = useState<CustomScenario[]>([]);
-  const [showCustomScenario, setShowCustomScenario] = useState(false);
   const [showTransition, setShowTransition] = useState(false);
+  const reportContainerRef = useRef<HTMLDivElement>(null);
 
   // Definizione degli step per il test di consenso
   const consentTestSteps = [
@@ -172,15 +176,6 @@ export default function ConsentTestBPage() {
         body: JSON.stringify({
           url,
           options,
-          customScenarios: customScenarios.length > 0 ? customScenarios.map(scenario => 
-            ({
-              custom: {
-                analytics: scenario.analytics,
-                marketing: scenario.marketing,
-                preferences: scenario.preferences
-              }
-            })
-          ) : undefined
         }),
       });
 
@@ -293,41 +288,69 @@ export default function ConsentTestBPage() {
     }
   };
 
-  const addCustomScenario = () => {
-    const nameInput = document.getElementById('scenario-name') as HTMLInputElement;
-    const analyticsInput = document.getElementById('analytics-enabled') as HTMLInputElement;
-    const marketingInput = document.getElementById('marketing-enabled') as HTMLInputElement;
-    const preferencesInput = document.getElementById('preferences-enabled') as HTMLInputElement;
-    
-    const name = nameInput.value;
-    
-    if (!name) {
-      toast.error('Inserire un nome per lo scenario');
+
+  const handleDownloadPdf = () => {
+    if (!result) {
+      toast.error('Nessun report da esportare');
       return;
     }
 
-    const newScenario: CustomScenario = {
-      name,
-      analytics: analyticsInput.checked,
-      marketing: marketingInput.checked,
-      preferences: preferencesInput.checked
-    };
+    const container = reportContainerRef.current;
+    if (!container) {
+      toast.error('Sezione report non disponibile');
+      return;
+    }
 
-    setCustomScenarios(prev => [...prev, newScenario]);
-    
-    // Reset form
-    nameInput.value = '';
-    analyticsInput.checked = false;
-    marketingInput.checked = false;
-    preferencesInput.checked = false;
-    
-    toast.success('Scenario custom aggiunto');
+    const promise = (async () => {
+      const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
+        import('html2canvas'),
+        import('jspdf')
+      ]);
+
+      const canvas = await html2canvas(container, {
+        scale: 2,
+        useCORS: true,
+        logging: false
+      });
+      const imgData = canvas.toDataURL('image/png');
+
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+      const pageHeight = pdf.internal.pageSize.getHeight();
+
+      let heightLeft = pdfHeight;
+      let position = 0;
+
+      pdf.addImage(imgData, 'PNG', 0, position, pdfWidth, pdfHeight);
+      heightLeft -= pageHeight;
+
+      while (heightLeft > 0) {
+        position = heightLeft - pdfHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, 'PNG', 0, position, pdfWidth, pdfHeight);
+        heightLeft -= pageHeight;
+      }
+
+      const hostname = (() => {
+        try {
+          return new URL(result.url).hostname;
+        } catch {
+          return 'report';
+        }
+      })();
+
+      const dateStr = new Date(result.generatedAt || Date.now()).toISOString().split('T')[0];
+      pdf.save(`ai-sentinel-${hostname}-${dateStr}.pdf`);
+    })();
+
+    toast.promise(promise, {
+      loading: 'Generazione PDF in corso...',
+      success: 'PDF scaricato con successo',
+      error: (err) => `Errore durante l\'esportazione: ${err instanceof Error ? err.message : 'Operazione fallita'}`
+    });
   };
 
-  const removeCustomScenario = (index: number) => {
-    setCustomScenarios(prev => prev.filter((_, i) => i !== index));
-    toast.success('Scenario custom rimosso');
-  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-pink-50 relative overflow-hidden flex flex-col">
@@ -370,6 +393,7 @@ export default function ConsentTestBPage() {
                 <p className="text-lg text-gray-600 font-medium">
               Test automatico di conformità GDPR per la gestione del consenso cookie
             </p>
+            
           </div>
 
         {/* Input Form */}
@@ -390,91 +414,6 @@ export default function ConsentTestBPage() {
               />
             </div>
 
-            {/* Custom Scenarios */}
-            <div className="border-t pt-4">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-medium text-gray-900">Scenari Custom</h3>
-                <button
-                  onClick={() => setShowCustomScenario(!showCustomScenario)}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
-                >
-                  {showCustomScenario ? 'Nascondi' : 'Aggiungi Scenario'}
-                </button>
-              </div>
-
-              {showCustomScenario && (
-                <div className="bg-gray-50 rounded-lg p-4 mb-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label htmlFor="scenario-name" className="block text-sm font-medium text-gray-700 mb-1">
-                        Nome Scenario
-                      </label>
-                      <input
-                        type="text"
-                        id="scenario-name"
-                        placeholder="es. Solo Analytics"
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="flex items-center">
-                        <input
-                          type="checkbox"
-                          id="analytics-enabled"
-                          className="mr-2"
-                        />
-                        <span className="text-sm text-gray-700">Analytics</span>
-                      </label>
-                      <label className="flex items-center">
-                        <input
-                          type="checkbox"
-                          id="marketing-enabled"
-                          className="mr-2"
-                        />
-                        <span className="text-sm text-gray-700">Marketing</span>
-                      </label>
-                      <label className="flex items-center">
-                        <input
-                          type="checkbox"
-                          id="preferences-enabled"
-                          className="mr-2"
-                        />
-                        <span className="text-sm text-gray-700">Preferenze</span>
-                      </label>
-                    </div>
-                  </div>
-                  <button
-                    onClick={addCustomScenario}
-                    className="mt-4 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm"
-                  >
-                    Aggiungi Scenario
-                  </button>
-                </div>
-              )}
-
-              {customScenarios.length > 0 && (
-                <div className="space-y-2">
-                  {customScenarios.map((scenario, index) => (
-                    <div key={index} className="flex items-center justify-between bg-gray-50 rounded-lg p-3">
-                      <div>
-                        <span className="font-medium text-gray-900">{scenario.name}</span>
-                        <div className="text-sm text-gray-600">
-                          Analytics: {scenario.analytics ? 'ON' : 'OFF'}, 
-                          Marketing: {scenario.marketing ? 'ON' : 'OFF'}, 
-                          Preferences: {scenario.preferences ? 'ON' : 'OFF'}
-                        </div>
-                      </div>
-                      <button
-                        onClick={() => removeCustomScenario(index)}
-                        className="text-red-600 hover:text-red-800 text-sm"
-                      >
-                        Rimuovi
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
 
                   <div className="flex justify-center">
             <button
@@ -729,7 +668,6 @@ export default function ConsentTestBPage() {
                   onClick={() => {
                     setResult(null);
                     setUrl('');
-                    setCustomScenarios([]);
                     setActiveTab('reject');
                   }}
                   className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium flex items-center justify-center space-x-2"
@@ -740,7 +678,10 @@ export default function ConsentTestBPage() {
                   <span>Ripeti Test</span>
                 </button>
                 
-                <button className="w-full px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium flex items-center justify-center space-x-2">
+                <button
+                  onClick={handleDownloadPdf}
+                  className="w-full px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium flex items-center justify-center space-x-2"
+                >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
                   </svg>
@@ -753,20 +694,14 @@ export default function ConsentTestBPage() {
                   </svg>
                   <span>Invia Email</span>
                 </button>
-                
-                <button className="w-full px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors font-medium flex items-center justify-center space-x-2">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
-                  </svg>
-                  <span>Impostazioni</span>
-                </button>
               </div>
             </div>
             
             {/* Report completo - senza box, integrato nella pagina */}
             <div className="pr-32"> {/* Spazio per la sezione laterale */}
-              <ConsentReportWrapper result={result} activeTab={activeTab} customScenarios={customScenarios} />
+              <div ref={reportContainerRef}>
+                <ConsentReportWrapper result={result} activeTab={activeTab} />
+              </div>
             </div>
           </div>
         )}

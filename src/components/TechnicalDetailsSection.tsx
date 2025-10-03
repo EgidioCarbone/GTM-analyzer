@@ -1,18 +1,21 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Code, Camera, Database, Network, Eye, EyeOff } from 'lucide-react';
+import { getApiBaseUrl, resolveScreenshotUrl } from '../utils/api-base';
 
 interface TechnicalDetailsSectionProps {
   scenarios: {
     name: string;
-    data: {
-      cookies: Array<{ name: string; domain: string; expires: number }>;
-      gaAdsRequests: Array<{ url: string; ts: number }>;
-      gtagCalls: any[];
-      dataLayer: any[];
-      latestConsent: any;
-      artifacts?: {
-        screenshotPath?: string;
-        tracePath?: string;
+      data: {
+        cookies: Array<{ name: string; domain: string; expires: number }>;
+        gaAdsRequests: Array<{ url: string; ts: number }>;
+        gtagCalls: any[];
+        dataLayer: any[];
+        dataLayerSnapshot?: any[];
+        latestConsent: any;
+        artifacts?: {
+          screenshotPath?: string;
+          screenshotDataUrl?: string;
+          tracePath?: string;
       };
     };
   }[];
@@ -21,6 +24,7 @@ interface TechnicalDetailsSectionProps {
 const TechnicalDetailsSection: React.FC<TechnicalDetailsSectionProps> = ({ scenarios }) => {
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
   const [selectedScenario, setSelectedScenario] = useState(0);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   const toggleSection = (sectionId: string) => {
     setExpandedSections(prev => ({
@@ -37,19 +41,50 @@ const TechnicalDetailsSection: React.FC<TechnicalDetailsSectionProps> = ({ scena
     return new Date(ts).toLocaleTimeString('it-IT');
   };
 
+  const apiBaseUrl = useMemo(() => getApiBaseUrl(), []);
   const currentScenario = scenarios[selectedScenario];
+  const screenshotArtifacts = useMemo(() => {
+    const withScreenshot = scenarios.find(s => s.data.artifacts?.screenshotDataUrl || s.data.artifacts?.screenshotPath);
+    return withScreenshot?.data.artifacts;
+  }, [scenarios]);
 
   return (
     <div className="space-y-6">
+      {/* Screenshot card */}
+      {screenshotArtifacts && (() => {
+        const rawImage = screenshotArtifacts.screenshotDataUrl || screenshotArtifacts.screenshotPath || '';
+        const imageSource = resolveScreenshotUrl(rawImage, apiBaseUrl);
+
+        return (
+          <div className="bg-gray-100 rounded-xl p-4">
+            <div className="flex items-center space-x-2 mb-3">
+              <Camera className="w-5 h-5 text-gray-600" />
+              <h4 className="font-medium text-gray-900">Screenshot Cookie Banner</h4>
+            </div>
+            <button
+              type="button"
+              onClick={() => setPreviewUrl(imageSource)}
+              className="w-full max-w-2xl mx-auto block focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+            >
+              <img
+                src={imageSource}
+                alt="Screenshot del cookie banner"
+                className="w-full rounded-lg border border-gray-200 shadow-sm hover:shadow-lg transition-shadow"
+              />
+            </button>
+          </div>
+        );
+      })()}
+
       {/* Scenario Selector */}
-      <div className="flex space-x-2">
-        {scenarios.map((scenario, index) => (
-          <button
-            key={index}
-            onClick={() => setSelectedScenario(index)}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+        <div className="flex flex-wrap justify-center gap-2">
+          {scenarios.map((scenario, index) => (
+            <button
+              key={index}
+              onClick={() => setSelectedScenario(index)}
+            className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
               selectedScenario === index
-                ? 'bg-blue-600 text-white'
+                ? 'bg-blue-600 text-white shadow'
                 : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
             }`}
           >
@@ -60,33 +95,7 @@ const TechnicalDetailsSection: React.FC<TechnicalDetailsSectionProps> = ({ scena
 
       {/* Current Scenario Data */}
       <div className="space-y-4">
-        {/* Screenshots */}
-        {currentScenario.data.artifacts?.screenshotPath && (
-          <div className="bg-gray-50 rounded-lg p-4">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center">
-                <Camera className="w-5 h-5 text-gray-600 mr-2" />
-                <h4 className="font-medium text-gray-900">Screenshot</h4>
-              </div>
-              <button
-                onClick={() => toggleSection('screenshot')}
-                className="text-sm text-blue-600 hover:text-blue-800"
-              >
-                {expandedSections.screenshot ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </button>
-            </div>
-            {expandedSections.screenshot && (
-              <div className="mt-3">
-                <img 
-                  src={currentScenario.data.artifacts?.screenshotPath} 
-                  alt="Screenshot del test"
-                  className="max-w-full h-auto rounded border"
-                />
-              </div>
-            )}
-          </div>
-        )}
-
+        {/* DataLayer Snapshot */}
         {/* Consent Mode State */}
         <div className="bg-gray-50 rounded-lg p-4">
           <div className="flex items-center justify-between mb-3">
@@ -194,56 +203,56 @@ const TechnicalDetailsSection: React.FC<TechnicalDetailsSectionProps> = ({ scena
           )}
         </div>
 
-        {/* DataLayer Events */}
-        <div className="bg-gray-50 rounded-lg p-4">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center">
-              <Database className="w-5 h-5 text-gray-600 mr-2" />
-              <h4 className="font-medium text-gray-900">
-                DataLayer Events ({currentScenario.data.dataLayer.length})
-              </h4>
-            </div>
-            <button
-              onClick={() => toggleSection('datalayer')}
-              className="text-sm text-blue-600 hover:text-blue-800"
-            >
-              {expandedSections.datalayer ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-            </button>
-          </div>
-          {expandedSections.datalayer && (
-            <div className="mt-3">
-              <pre className="bg-white p-3 rounded border text-xs overflow-x-auto max-h-96">
-                {formatJson(currentScenario.data.dataLayer)}
-              </pre>
-            </div>
-          )}
-        </div>
-
-        {/* Gtag Calls */}
+        {/* DataLayer Snapshot */}
         <div className="bg-gray-50 rounded-lg p-4">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center">
               <Code className="w-5 h-5 text-gray-600 mr-2" />
               <h4 className="font-medium text-gray-900">
-                Gtag Calls ({currentScenario.data.gtagCalls.length})
+                DataLayer Snapshot ({currentScenario.data.dataLayerSnapshot?.length ?? 0})
               </h4>
             </div>
             <button
-              onClick={() => toggleSection('gtag')}
+              onClick={() => toggleSection('datalayerSnapshot')}
               className="text-sm text-blue-600 hover:text-blue-800"
             >
-              {expandedSections.gtag ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              {expandedSections.datalayerSnapshot ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
             </button>
           </div>
-          {expandedSections.gtag && (
+          {expandedSections.datalayerSnapshot && (
             <div className="mt-3">
-              <pre className="bg-white p-3 rounded border text-xs overflow-x-auto max-h-96">
-                {formatJson(currentScenario.data.gtagCalls)}
-              </pre>
+              {currentScenario.data.dataLayerSnapshot && currentScenario.data.dataLayerSnapshot.length > 0 ? (
+                <pre className="bg-white p-3 rounded border text-xs overflow-x-auto max-h-64">
+                  {JSON.stringify(currentScenario.data.dataLayerSnapshot, null, 2)}
+                </pre>
+              ) : (
+                <p className="text-sm text-gray-600">Nessun dato dataLayer disponibile</p>
+              )}
             </div>
           )}
         </div>
       </div>
+
+      {previewUrl && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          onClick={() => setPreviewUrl(null)}
+        >
+          <div className="max-w-4xl w-full px-6" onClick={(e) => e.stopPropagation()}>
+            <div className="bg-white rounded-xl shadow-xl overflow-hidden relative">
+              <button
+                type="button"
+                className="absolute top-3 right-3 text-2xl leading-none text-gray-500 hover:text-gray-800"
+                onClick={() => setPreviewUrl(null)}
+                aria-label="Chiudi anteprima"
+              >
+                ×
+              </button>
+              <img src={previewUrl} alt="Anteprima cookie banner" className="w-full h-auto" />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

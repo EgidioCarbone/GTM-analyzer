@@ -243,7 +243,7 @@ async function fetchWebsiteData(url: string): Promise<{
   screenshots: string[];
 }> {
   const res = await fetch(
-    `http://localhost:4001/api/fetchHtmlPuppeteer?url=${encodeURIComponent(url)}&multiStep=true`
+    `http://localhost:4004/api/fetchHtmlPuppeteer?url=${encodeURIComponent(url)}&multiStep=true`
   );
 
   if (!res.ok) throw new Error(`Errore da Puppeteer: ${res.status}`);

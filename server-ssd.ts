@@ -25,7 +25,8 @@ import { normalizeOrigin, isValidUrl } from './src/utils/url.js';
 import { extractCookieBannerWithPuppeteer } from './src/services/cookieBannerExtractor.js';
 import { llmPdfSpec } from './src/services/llmPdfSpec.js';
 import puppeteer from 'puppeteer';
-import { runConsentTest, ConsentTestInputSchema } from './src/ai-sentinel/pw-runner.js';
+import { runConsentTest, ConsentTestInputSchema, type ConsentRunnerDependencies } from './src/ai-sentinel/pw-runner.js';
+import { ConsentLLMService } from './src/ai-sentinel/llm/consent-llm-service.js';
 
 // Global type declarations
 declare global {
@@ -405,6 +406,24 @@ try {
 } catch (error: any) {
   console.log('⚠️  OpenAI service not available:', error.message);
 }
+
+let consentLLMService: ConsentLLMService | undefined;
+if (config.openaiApiKey) {
+  try {
+    consentLLMService = new ConsentLLMService({
+      apiKey: config.openaiApiKey,
+      model: process.env.CONSENT_LLM_MODEL || config.openaiModel,
+      cacheTtlMs: parseInt(process.env.CONSENT_LLM_CACHE_TTL_MS || '604800000'),
+      temperature: parseFloat(process.env.CONSENT_LLM_TEMPERATURE || '0.2'),
+    });
+    console.log('🤖 Consent LLM resolver attivo');
+  } catch (error: any) {
+    console.log('⚠️  Consent LLM service not available:', error.message);
+  }
+} else {
+  console.log('⚠️  Consent LLM disabilitato: manca OPENAI_API_KEY');
+}
+
 const puppeteerRunner = new SSDPuppeteerRunner({
   screenshotDir: 'screenshots',
   timeout: config.runnerStepTimeoutMs,
@@ -2787,7 +2806,11 @@ app.post('/api/consent/audit-pw', async (req, res) => {
     // Esegui il test
     console.log(`[${correlationId}] Running consent test... ${scenarios && scenarios.length > 0 ? `with ${scenarios.length} custom scenarios` : 'basic scenarios only'}`);
     console.log(`[${correlationId}] Passing scenarios to runConsentTest:`, scenarios);
-    const result = await runConsentTest(input, scenarios);
+    const runnerDependencies: ConsentRunnerDependencies | undefined = consentLLMService
+      ? { llmService: consentLLMService }
+      : undefined;
+
+    const result = await runConsentTest(input, scenarios, runnerDependencies);
     
     console.log(`[${correlationId}] Consent test completed successfully`);
     res.json(result);
@@ -2835,10 +2858,33 @@ app.get('/api/screenshot/*', (req, res) => {
   }
   
   console.log('✅ Serving screenshot:', fullPath);
+  
+  // Imposta timeout per evitare connessioni aperte troppo a lungo
+  res.setTimeout(30000, () => {
+    if (!res.headersSent) {
+      console.log('⏰ Screenshot request timeout');
+      res.status(408).json({ error: 'Request timeout' });
+    }
+  });
+  
+  // Gestisci la chiusura della connessione
+  req.on('close', () => {
+    console.log('🔌 Client disconnected during screenshot download');
+  });
+  
   res.sendFile(fullPath, (err) => {
     if (err) {
-      console.error('❌ Error serving screenshot:', err);
-      res.status(500).json({ error: 'Error serving screenshot' });
+      // Log solo se non è un errore di connessione chiusa
+      if (err.code !== 'EPIPE' && err.code !== 'ECONNRESET') {
+        console.error('❌ Error serving screenshot:', err);
+      } else {
+        console.log('🔌 Client disconnected during file transfer');
+      }
+      
+      // Verifica se la risposta è già stata inviata
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Error serving screenshot' });
+      }
     }
   });
 });
@@ -2857,4 +2903,3 @@ app.listen(PORT, () => {
   console.log(`⚙️  Config: GET /api/ssd/config`);
   console.log(`🔑 OpenAI API Key: ${config.openaiApiKey ? '✅ Configured' : '❌ Missing'}`);
 });
-
