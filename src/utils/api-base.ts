@@ -6,9 +6,11 @@ export const getApiBaseUrl = (): string => {
 
   if (typeof window !== 'undefined') {
     const origin = window.location.origin.replace(/\/$/, '');
-    if (origin.includes('localhost:5173')) {
+
+    if (/localhost:517\d$/i.test(origin)) {
       return 'http://localhost:4000';
     }
+
     return origin;
   }
 
@@ -30,4 +32,3 @@ export const resolveScreenshotUrl = (raw: string, apiBaseUrl?: string): string =
   }
   return `/api/screenshot/${cleaned}`;
 };
-

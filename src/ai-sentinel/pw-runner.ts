@@ -1218,7 +1218,12 @@ IMPORTANTE:
   }
 
   private async getDataLayerEvents(page: Page): Promise<ScenarioResult['dataLayer']> {
-    return await page.evaluate(() => (window as any).__dl_events || []);
+    const dataLayer = await page.evaluate(() => (window as any).dataLayer || []);
+    console.log(`🔍 DEBUG getDataLayerEvents: Found ${dataLayer.length} dataLayer events`);
+    if (dataLayer.length > 0) {
+      console.log(`🔍 DEBUG getDataLayerEvents: First few events:`, JSON.stringify(dataLayer.slice(0, 3), null, 2));
+    }
+    return dataLayer;
   }
 
   private isGaAdsRequest(url: string): boolean {

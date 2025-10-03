@@ -55,7 +55,6 @@ interface ScenarioResult {
   }>;
   gtagCalls: any[];
   dataLayer: any[];
-  dataLayerSnapshot?: any[];
   artifacts: {
     screenshotPath?: string;
     screenshotDataUrl?: string;
@@ -380,9 +379,9 @@ export default function ConsentTestBPage() {
         </div>
       </div>
 
-      {/* Main Content - Centrato verticalmente come HomePage */}
-      <main className="flex-1 flex items-center justify-center px-4 sm:px-6 lg:px-8 max-w-6xl mx-auto relative z-10">
-        <div className="w-full">
+      {/* Main Content */}
+      <main className="flex-1 px-4 sm:px-8 lg:px-12 py-12 relative z-10">
+        <div className="w-full mx-auto max-w-none">
           {/* Mostra la schermata iniziale solo se non ci sono risultati */}
           {!result && (
             <>

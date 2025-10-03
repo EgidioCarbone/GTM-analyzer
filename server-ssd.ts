@@ -2873,6 +2873,7 @@ app.get('/api/screenshot/*', (req, res) => {
   res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
   res.header('Access-Control-Allow-Credentials', 'false');
+  res.header('Cross-Origin-Resource-Policy', 'cross-origin');
   res.header('Cache-Control', 'public, max-age=3600'); // Cache per 1 ora
   
   // Imposta timeout per evitare connessioni aperte troppo a lungo

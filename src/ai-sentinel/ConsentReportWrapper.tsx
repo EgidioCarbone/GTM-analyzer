@@ -387,7 +387,6 @@ const ConsentReportWrapper: React.FC<ConsentReportWrapperProps> = ({ result, act
         gaAdsRequests: scenarioData.gaAdsRequests || [],
         gtagCalls: scenarioData.gtagCalls || [],
         dataLayer: scenarioData.dataLayer || [],
-        dataLayerSnapshot: scenarioData.dataLayerSnapshot || [],
         latestConsent: scenarioData.latestConsent || {},
         artifacts: scenarioData.artifacts || {}
       }
