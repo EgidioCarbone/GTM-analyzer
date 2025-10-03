@@ -59,6 +59,7 @@ interface ScenarioResult {
   artifacts: {
     screenshotPath?: string;
     screenshotDataUrl?: string;
+    cookieBannerScreenshotPath?: string;
     tracePath?: string;
   };
   warnings?: string[];

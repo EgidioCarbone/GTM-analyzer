@@ -2837,6 +2837,15 @@ app.use((error, req, res, next) => {
   res.status(httpError.httpStatus).json({ error: { code: httpError.code, message: httpError.message, details: httpError.details } });
 });
 
+// Handle OPTIONS preflight requests for screenshots
+app.options('/api/screenshot/*', (req, res) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+  res.header('Access-Control-Allow-Credentials', 'false');
+  res.status(200).end();
+});
+
 // Serve screenshot images
 app.get('/api/screenshot/*', (req, res) => {
   const imagePath = req.params[0];
@@ -2858,6 +2867,13 @@ app.get('/api/screenshot/*', (req, res) => {
   }
   
   console.log('✅ Serving screenshot:', fullPath);
+  
+  // Aggiungi header CORS per permettere al frontend di caricare le immagini
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+  res.header('Access-Control-Allow-Credentials', 'false');
+  res.header('Cache-Control', 'public, max-age=3600'); // Cache per 1 ora
   
   // Imposta timeout per evitare connessioni aperte troppo a lungo
   res.setTimeout(30000, () => {

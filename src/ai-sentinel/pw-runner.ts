@@ -455,6 +455,7 @@ export interface ScenarioResult {
   llmServiceAvailable?: boolean; // Indica se il servizio LLM era disponibile durante il test
   artifacts: {
     screenshotPath?: string;
+    cookieBannerScreenshotPath?: string;
     tracePath?: string;
   };
   selectedCategories?: {
@@ -675,6 +676,15 @@ export class ConsentTestRunner {
       const banner = await waitCookieBanner(page, 5000, 15000, this.llmService);
       console.log(`✅ Banner rilevato rapidamente`);
 
+      // 📸 NUOVO: Cattura screenshot del cookie banner PRIMA di fare i test
+      console.log(`📸 Catturando screenshot del cookie banner originale...`);
+      const cookieBannerScreenshotPath = await this.captureCookieBannerScreenshot(page, input);
+      if (cookieBannerScreenshotPath) {
+        console.log(`✅ Screenshot cookie banner salvato: ${cookieBannerScreenshotPath}`);
+      } else {
+        console.log(`⚠️ Screenshot cookie banner non catturato`);
+      }
+
       // Pipeline per gestire il banner e cliccare l'azione corrispondente
       const bannerHandled = await this.handleBannerDetectionAndAction(page, scenario, input);
       
@@ -766,7 +776,10 @@ export class ConsentTestRunner {
         dataLayer: dataLayerEvents,
         llmTestResult: this.llmTestResult, // Include il risultato del test LLM
         llmServiceAvailable: !!this.llmService, // Indica se il servizio LLM era disponibile
-        artifacts: { screenshotPath },
+        artifacts: { 
+          screenshotPath,
+          cookieBannerScreenshotPath: cookieBannerScreenshotPath
+        },
         selectedCategories,
         personalizaFlow 
       };
@@ -1276,6 +1289,59 @@ IMPORTANTE:
       return filename;
     } catch (error) {
       console.error('❌ Errore durante screenshot:', error);
+      return undefined; 
+    }
+  }
+
+  /**
+   * 📸 NUOVO: Cattura screenshot del cookie banner ORIGINALE (prima dei test)
+   * Questo screenshot viene mostrato nella sezione "Screenshot Cookie Banner" del frontend
+   */
+  private async captureCookieBannerScreenshot(page: Page, input: ConsentTestInput): Promise<string | undefined> {
+    try {
+      if (!input.options.captureScreens) return undefined;
+      
+      const runId = Date.now().toString();
+      const artifactPath = `./artifacts/${runId}/`;
+      await fs.mkdir(artifactPath, { recursive: true }); 
+      
+      const filename = `${artifactPath}cookie-banner-original.png`;
+      
+      // Cerca il cookie banner (deve essere visibile a questo punto)
+      const bannerElement = await this.findCookieBannerElement(page);
+      
+      if (bannerElement) {
+        // Screenshot solo dell'area del cookie banner con padding
+        const boundingBox = await bannerElement.boundingBox();
+        if (boundingBox) {
+          // Aggiungi padding per catturare meglio il banner
+          const padding = 30; // Più padding per il banner originale
+          const screenshotArea = {
+            x: Math.max(0, boundingBox.x - padding),
+            y: Math.max(0, boundingBox.y - padding),
+            width: boundingBox.width + (padding * 2),
+            height: boundingBox.height + (padding * 2)
+          };
+          
+          await page.screenshot({ 
+            path: filename, 
+            clip: screenshotArea 
+          });
+          console.log('📸 Cookie banner originale catturato con padding');
+        } else {
+          // Fallback: screenshot dell'elemento senza bounding box
+          await bannerElement.screenshot({ path: filename });
+          console.log('📸 Cookie banner originale catturato (senza padding)');
+        }
+      } else {
+        // Fallback: screenshot dell'intera pagina
+        await page.screenshot({ path: filename, fullPage: true });
+        console.log('⚠️ Banner originale non trovato, screenshot full page catturato');
+      }
+      
+      return filename;
+    } catch (error) {
+      console.error('❌ Errore durante cattura banner originale:', error);
       return undefined; 
     }
   }

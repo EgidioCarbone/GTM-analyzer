@@ -44,6 +44,7 @@ interface ScenarioResult {
   artifacts: {
     screenshotPath?: string;
     screenshotDataUrl?: string;
+    cookieBannerScreenshotPath?: string;
     tracePath?: string;
   };
   warnings?: string[];
@@ -96,7 +97,23 @@ const IntegratedReport: React.FC<IntegratedReportProps> = ({ result, activeTab }
   const activeScenario = result.results[selectedScenario];
   const screenshotArtifacts = useMemo(() => {
     const scenarios = Object.values(result.results);
-    return scenarios.find(s => s.artifacts?.screenshotDataUrl || s.artifacts?.screenshotPath)?.artifacts;
+    return scenarios.find(s => s.artifacts?.screenshotDataUrl || s.artifacts?.screenshotPath || s.artifacts?.cookieBannerScreenshotPath)?.artifacts;
+  }, [result.results]);
+
+  const cookieBannerScreenshotArtifacts = useMemo(() => {
+    const scenarios = Object.values(result.results);
+    console.log('🔍 DEBUG: Cercando cookieBannerScreenshotArtifacts...');
+    console.log('🔍 DEBUG: Scenarios disponibili:', scenarios.map(s => ({
+      scenario: s,
+      artifacts: s.artifacts,
+      cookieBannerScreenshotPath: s.artifacts?.cookieBannerScreenshotPath,
+      screenshotPath: s.artifacts?.screenshotPath
+    })));
+    
+    // Priorità: cerca prima cookieBannerScreenshotPath, poi screenshotPath come fallback
+    const found = scenarios.find(s => s.artifacts?.cookieBannerScreenshotPath || s.artifacts?.screenshotPath)?.artifacts;
+    console.log('🔍 DEBUG: cookieBannerScreenshotArtifacts trovato:', found);
+    return found;
   }, [result.results]);
 
   const scenarioSummaries: ScenarioSummary[] = useMemo(() => {
@@ -134,7 +151,7 @@ const IntegratedReport: React.FC<IntegratedReportProps> = ({ result, activeTab }
         summaries.push({
           key: 'reject',
           name: 'Reject All',
-          weight: 0.7,
+          weight: 0.5,
           score: llmPassed ? 100 : 0,
           status: llmPassed ? 'PASS' : 'FAIL',
           issues: llmPassed ? [] : ['Test LLM: Consensi non rifiutati correttamente'],
@@ -151,7 +168,7 @@ const IntegratedReport: React.FC<IntegratedReportProps> = ({ result, activeTab }
         summaries.push({
           key: 'reject',
           name: 'Reject All',
-          weight: 0.7,
+          weight: 0.5,
           score: issues.length === 0 ? 100 : 0,
           status: issues.length === 0 ? 'PASS' : 'FAIL',
           issues,
@@ -186,7 +203,7 @@ const IntegratedReport: React.FC<IntegratedReportProps> = ({ result, activeTab }
         summaries.push({
           key: 'accept',
           name: 'Accept All',
-          weight: 0.1,
+          weight: 0.5,
           score: llmPassed ? 100 : 0,
           status: llmPassed ? 'PASS' : 'FAIL',
           issues: llmPassed ? [] : ['Test LLM: Consensi non accettati correttamente'],
@@ -207,8 +224,8 @@ const IntegratedReport: React.FC<IntegratedReportProps> = ({ result, activeTab }
         summaries.push({
           key: 'accept',
           name: 'Accept All',
-          weight: 0.1,
-          score: issues.length === 0 ? 100 : 40,
+          weight: 0.5,
+          score: issues.length === 0 ? 100 : 0,
           status: issues.length === 0 ? 'PASS' : 'FAIL',
           issues,
           cookies,
@@ -467,8 +484,8 @@ const IntegratedReport: React.FC<IntegratedReportProps> = ({ result, activeTab }
         </div>
 
         {/* Screenshot Section */}
-        {screenshotArtifacts && (() => {
-          const rawImage = screenshotArtifacts.screenshotDataUrl || screenshotArtifacts.screenshotPath || '';
+        {cookieBannerScreenshotArtifacts && (() => {
+          const rawImage = cookieBannerScreenshotArtifacts.cookieBannerScreenshotPath || cookieBannerScreenshotArtifacts.screenshotDataUrl || cookieBannerScreenshotArtifacts.screenshotPath || '';
           const screenshotUrl = resolveScreenshotUrl(rawImage, apiBaseUrl);
           const isDataUrl = rawImage.startsWith('data:');
 
@@ -488,8 +505,14 @@ const IntegratedReport: React.FC<IntegratedReportProps> = ({ result, activeTab }
                     src={screenshotUrl}
                     alt="Cookie Banner Screenshot"
                     className="w-full rounded-lg shadow-sm border border-gray-200 hover:shadow-lg transition-shadow"
+                    crossOrigin="anonymous"
+                    onLoad={() => {
+                      console.log('✅ Screenshot caricato con successo:', screenshotUrl);
+                    }}
                     onError={(e) => {
-                      console.error('Screenshot load error:', e);
+                      console.error('❌ Screenshot load error:', e);
+                      console.error('❌ URL che ha fallito:', screenshotUrl);
+                      console.error('❌ Raw image path:', rawImage);
                       (e.target as HTMLImageElement).style.display = 'none';
                       (e.target as HTMLImageElement).parentElement?.nextElementSibling?.classList.remove('hidden');
                     }}
