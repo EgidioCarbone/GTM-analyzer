@@ -695,6 +695,7 @@ export class ConsentTestRunner {
       // NUOVO: Usa sempre la funzione getLatestConsentState per estrarre i dati dal dataLayer
       console.log(`[${scenario}] Estraendo consent state dal dataLayer...`);
       const latestConsent = await this.getLatestConsentState(page);
+      console.log(`🔍 DEBUG: latestConsent extracted:`, JSON.stringify(latestConsent, null, 2));
       const cookies = await this.getSensitiveCookies(context);
       const gtagCalls = await this.getGtagCallsData(page);
       const dataLayerEvents = await this.getDataLayerEvents(page);
@@ -1048,7 +1049,9 @@ ${JSON.stringify(dataLayer, null, 2)}
 DOMANDA: I consensi sono stati rifiutati correttamente? 
 
 IMPORTANTE: 
-- Se vedi consensi "granted" per analytics_storage e security_storage, è NORMALE e il test deve essere considerato PASSATO
+- Se NON vedi eventi di consenso nel dataLayer dopo il rifiuto, è NORMALE e il test è PASSATO
+- Se vedi consensi "granted" per marketing/ads (ad_storage, ad_user_data, ad_personalization), il test è FALLITO
+- Analytics e security possono essere "granted" anche dopo il rifiuto (è normale)
 - Rispondi solo "SI" o "NO"`;
 
       console.log('🤖 RICHIESTA LLM (verifica test reject):');
@@ -1129,6 +1132,11 @@ IMPORTANTE:
   }
 
   private async getLatestConsentState(page: Page): Promise<ScenarioResult['latestConsent']> {
+    // Log del dataLayer raw prima del parsing
+    const rawDataLayer = await page.evaluate(() => (window as any).dataLayer || []);
+    console.log('🔍 DEBUG: Raw dataLayer length:', rawDataLayer.length);
+    console.log('🔍 DEBUG: Raw dataLayer content:', JSON.stringify(rawDataLayer, null, 2));
+    
     return await page.evaluate(() => {
       const w = window as any;
       
@@ -1152,6 +1160,14 @@ IMPORTANTE:
             console.log('🔍 Found consent update in array:', latestConsent);
             break;
           }
+        }
+        
+        // NUOVO: Cerca oggetti con chiavi numeriche {"0":"consent","1":"update","2":{...}}
+        if (typeof event === 'object' && !Array.isArray(event) && event['0'] === 'consent' && event['1'] === 'update' && typeof event['2'] === 'object') {
+          console.log('🔍 Object with numeric keys found: {"0":"consent","1":"update","2":{...}}');
+          latestConsent = { ...event['2'] };
+          console.log('🔍 Found consent update in object with numeric keys:', latestConsent);
+          break;
         }
         
         // Cerca oggetti con event gtm_consent_update

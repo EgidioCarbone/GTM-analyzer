@@ -183,49 +183,76 @@ export class SSDPuppeteerRunner {
   }
 
   /**
-   * Set up dataLayer tracking
+   * Set up dataLayer tracking - IMPROVED VERSION based on working manual code
    */
   private async setupDataLayerTracking(): Promise<void> {
     if (!this.page) return;
 
-    await this.page.evaluateOnNewDocument(() => {
-      // Override dataLayer.push to capture events
-      if (window.dataLayer) {
-        const originalPush = window.dataLayer.push;
-        window.dataLayer.push = function(...args: any[]) {
-          const result = originalPush.apply(this, args);
-          
-          // Emit custom event for our tracking
-          window.dispatchEvent(new CustomEvent('dataLayerPush', {
-            detail: {
-              timestamp: Date.now(),
-              payload: args[0],
-            }
-          }));
-          
-          return result;
-        };
-      } else {
-        // Initialize dataLayer if it doesn't exist
-        window.dataLayer = [];
-        window.dataLayer.push = function(...args: any[]) {
-          window.dataLayer.push.apply(this, args);
-          
-          window.dispatchEvent(new CustomEvent('dataLayerPush', {
-            detail: {
-              timestamp: Date.now(),
-              payload: args[0],
-            }
-          }));
-        };
+    const enableDataLayerDebug = process.env.SSD_DEBUG_LOGS === '1';
+    console.log('[ssd][config] dataLayer debug =', enableDataLayerDebug);
+
+    // Expose function to capture events in the backend
+    await this.page.exposeFunction('__ssdCaptureDataLayerEvent', (event: DataLayerEvent) => {
+      this.dataLayerEvents.push(event);
+      if (enableDataLayerDebug) {
+        try {
+          const label = typeof event?.payload?.event === 'string' ? event.payload.event : '(no-event-field)';
+          console.log('[ssd][dataLayer]', label, JSON.stringify(event.payload).slice(0, 500));
+        } catch (error) {
+          console.warn('[ssd][dataLayer] logging failed', error);
+        }
       }
     });
 
-    // Listen for dataLayer events
-    this.page.on('console', (msg) => {
-      if (msg.type() === 'log' && msg.text().includes('dataLayer')) {
-        // Handle console-based dataLayer events if needed
+    // Inject the EXACT working code from manual testing - UNIVERSAL VERSION
+    await this.page.evaluateOnNewDocument(() => {
+      console.log('[ssd][hook] Using UNIVERSAL dataLayer hook - exact copy of working manual code');
+      
+      // EXACT COPY of the working manual code - NO CHANGES
+      const logEvent = (label: string, payload: any) => {
+        try {
+          // Forward to backend capture function
+          // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+          // @ts-ignore injected via exposeFunction
+          window.__ssdCaptureDataLayerEvent?.({
+            timestamp: Date.now(),
+            payload,
+          });
+
+          // Also log to console for debugging (like manual code)
+          console.log(`[DL HOOK] ${label}`, JSON.stringify(payload, null, 2));
+        } catch (error) {
+          console.warn('Failed to log dataLayer event', error);
+        }
+      };
+
+      const patch = (arr: any[], label: string) => {
+        if (!Array.isArray(arr) || arr.__patched) return arr;
+        const originalPush = arr.push;
+        Object.defineProperty(arr, 'push', {
+          configurable: true,
+          writable: true,
+          value: function patchedPush(...items: any[]) {
+            items.forEach(ev => logEvent(label, ev));
+            return originalPush.apply(this, items);
+          },
+        });
+        arr.__patched = true;
+        arr.forEach(ev => logEvent(`${label} (existing)`, ev));
+        return arr;
+      };
+
+      window.dataLayer = patch(window.dataLayer || [], 'window.dataLayer');
+
+      if (window.google_tag_manager) {
+        Object.values(window.google_tag_manager).forEach(container => {
+          if (container && container.dataLayer) {
+            container.dataLayer = patch(container.dataLayer, 'gtm.dataLayer');
+          }
+        });
       }
+
+      console.log('Hook attivo: ora premi il link header e guarda i log sopra.');
     });
   }
 
@@ -333,6 +360,8 @@ export class SSDPuppeteerRunner {
   ): Promise<TestResult[]> {
     if (!this.page) throw new SSDRunnerError('Page not initialized');
 
+    console.log('[ssd][runner] runTestSection start');
+
     const results: TestResult[] = [];
 
     try {
@@ -371,12 +400,22 @@ export class SSDPuppeteerRunner {
     const results: TestResult[] = [];
     const targetResolver = new SSDTargetResolver(this.page, this.timeout);
     const expectationMatcher = new SSDExpectationMatcher(this.page, { fuzzy: this.fuzzy });
+    const debugLogsEnabled = process.env.SSD_DEBUG_LOGS === '1';
+    if (debugLogsEnabled) {
+      console.log('[ssd][step] Debug logging enabled for run');
+    }
 
     for (let stepIndex = 0; stepIndex < test.steps.length; stepIndex++) {
       const step = test.steps[stepIndex];
+      console.log('[ssd][runner] before step loop index', stepIndex);
       const stepStartTime = Date.now();
+      console.log('[ssd][runner] stepStartTime', stepStartTime);
 
       try {
+        if (debugLogsEnabled) {
+          console.log('[ssd][step]', `Step ${stepIndex} started at ${stepStartTime}`);
+        }
+
         // Execute the step
         await this.executeStep(step, targetResolver);
 
@@ -386,6 +425,20 @@ export class SSDPuppeteerRunner {
           console.log(`[Step ${stepIndex}] SPA wait completed: ${waitReason}`);
         } catch (error) {
           console.warn(`[Step ${stepIndex}] SPA wait failed, continuing:`, error);
+        }
+
+        const stepEndTime = Date.now();
+        const capturedEvents = this.dataLayerEvents.filter(e => e.timestamp >= stepStartTime && e.timestamp <= stepEndTime);
+
+        if (options.debugLogging) {
+          capturedEvents.forEach(event => {
+            const label = typeof event?.payload?.event === 'string' ? event.payload.event : '(no-event-field)';
+            console.log('[ssd][dataLayerStep]', label, JSON.stringify(event.payload).slice(0, 500));
+          });
+        }
+
+        if (debugLogsEnabled) {
+          console.log('[ssd][step]', `[Step ${stepIndex}] captured ${capturedEvents.length} dataLayer events: ${capturedEvents.map(e => e.payload?.event || '(no-event)').join(', ')}`);
         }
 
         // Check expectations
@@ -439,6 +492,7 @@ export class SSDPuppeteerRunner {
         results.push(result);
 
       } catch (error) {
+        console.error('[ssd][runner] step error', error);
         // Handle step execution error
         const stepPath = `tests[${testSpec.tests.indexOf(test)}].steps[${stepIndex}]`;
         const failureScreenshot = await this.takeFailureScreenshot(stepPath);
@@ -526,8 +580,22 @@ export class SSDPuppeteerRunner {
     console.log(`[Click Step] ✅ Target resolved: ${resolution.selector} (method: ${resolution.method}, confidence: ${resolution.confidence})`);
     
     try {
-      await resolution.element.click();
-      console.log(`[Click Step] ✅ Click executed successfully`);
+      const clickStart = Date.now();
+      const clickPromise = resolution.element.click();
+
+      try {
+        await Promise.all([
+          clickPromise,
+          this.page!.waitForNavigation({ waitUntil: 'networkidle0', timeout: this.navTimeout }),
+        ]);
+        console.log(`[Click Step] ✅ Navigation completed after ${Date.now() - clickStart}ms`);
+        await this.setupDataLayerTracking();
+      } catch (navError) {
+        console.warn('[Click Step] ⚠ Navigation wait failed or not detected, falling back to manual wait:', navError);
+        await clickPromise;
+        await this.page!.waitForTimeout(2000);
+        await this.setupDataLayerTracking();
+      }
     } catch (clickError) {
       console.error(`[Click Step] ❌ Click failed:`, clickError);
       throw new SSDRunnerError(`Click failed: ${clickError.message}`);
@@ -540,6 +608,10 @@ export class SSDPuppeteerRunner {
     } catch (error) {
       console.warn(`[Click Step] SPA wait failed, continuing:`, error);
     }
+  }
+
+  private async isLikelyNavigationClick(_: ElementHandle<Element>, step: any): Promise<boolean> {
+    return Array.isArray(step?.expect) && step.expect.some((exp: any) => exp?.type === 'navigation');
   }
 
   /**
@@ -920,3 +992,4 @@ export class SSDPuppeteerRunner {
     this.trackingHits = [];
   }
 }
+

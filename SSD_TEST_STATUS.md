@@ -71,6 +71,64 @@ To enable the complete PDF-to-DSL conversion and test execution, you need to:
 - ✅ **Security**: Rate limiting, validation, host allowlists
 - ✅ **Navigation**: Integrated into existing app structure
 
+### 🧾 **Report Payload (Frontend Expectations)**
+
+When the backend completes `POST /api/ssd/run` it should return either:
+
+```json
+{
+  "report": {
+    "summary": {
+      "steps": 4,
+      "passed": 3,
+      "failed": 1,
+      "duration": 48000,
+      "consentProfiles": ["accept", "reject"]
+    },
+    "results": [
+      {
+        "section": "Checkout",
+        "stepIndex": 0,
+        "description": "Accept cookie banner",
+        "status": "PASS",
+        "reasons": [],
+        "evidence": {
+          "screenshotPathOrB64": "screenshots/accept.png",
+          "dataLayerEvents": [
+            { "timestamp": 1700000000000, "payload": { "event": "consent_accept" } }
+          ],
+          "trackingHits": []
+        },
+        "timings": {
+          "startTime": 1700000000000,
+          "endTime": 1700000008000,
+          "duration": 8000
+        }
+      }
+    ],
+    "cookieConsentTest": {
+      "status": "PASS",
+      "description": "Banner handled correctly",
+      "details": "...",
+      "events": ["gtm.js", "consent_accept"]
+    },
+    "pdfTests": {
+      "status": "FAIL",
+      "description": "Generated DSL execution",
+      "details": "Missing event header_menu_click",
+      "expectedEvent": "header_menu_click",
+      "error": "..."
+    },
+    "artifacts": {
+      "screenshotsFolder": "screenshots",
+      "rawLogsPath": "logs/run-123.json"
+    }
+  }
+}
+```
+
+`summary` and `results` are mandatory. `cookieConsentTest`, `pdfTests`, and `artifacts` are optional but, when provided, appear in the UI. Additional properties are preserved and can be surfaced later without code changes.
+
 ### 🎉 **Ready to Use**
 
 The SSD Test feature is now fully integrated and ready for use. Users can:
@@ -89,4 +147,3 @@ The feature works with mock responses for immediate testing and can be fully act
 - `SSD_TEST_STATUS.md` - This status document
 
 **Status**: ✅ **COMPLETE AND READY FOR PRODUCTION USE**
-
