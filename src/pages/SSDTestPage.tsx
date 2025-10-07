@@ -142,19 +142,20 @@ export default function SSDTestPage() {
   // Normalize URL before sending to server
   const normalizeUrl = (input: string): string => {
     if (!input || typeof input !== "string") return input;
-    
-    let s = input.trim();
-    
-    // Add https:// if no protocol is provided
-    if (!/^https?:\/\//i.test(s)) {
-      s = "https://" + s;
+
+    let candidate = input.trim();
+
+    if (!/^https?:\/\//i.test(candidate)) {
+      candidate = `https://${candidate}`;
     }
-    
+
     try {
-      const url = new URL(s);
-      return url.origin; // Return normalized origin
+      const url = new URL(candidate);
+      // Keep path/query/hash so tests can target deep pages, but strip default port and collapse redundant slashes
+      url.hash = url.hash.trim();
+      return url.toString();
     } catch {
-      return input; // Return original if invalid
+      return input;
     }
   };
 
@@ -640,6 +641,7 @@ export default function SSDTestPage() {
       url: '',
       pdfFile: null,
       dsl: null,
+      pdfContent: null,
       report: null,
       isLoading: false,
       error: null,

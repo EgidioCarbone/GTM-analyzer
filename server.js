@@ -199,11 +199,16 @@ app.post('/api/ssd/run', async (req, res) => {
     const { dsl, runOptions = {} } = validation.data;
 
     // Determine consent profiles to run
-    const consentProfiles = dsl.consent || ['accept'];
+    let consentProfiles = Array.isArray(dsl.consent) && dsl.consent.length > 0
+      ? [...dsl.consent]
+      : ['accept'];
+
     if (runOptions.consent === 'both') {
-      consentProfiles.push('reject');
-    } else if (runOptions.consent) {
-      consentProfiles[0] = runOptions.consent;
+      consentProfiles = ['accept', 'reject'];
+    } else if (runOptions.consent === 'accept' || runOptions.consent === 'reject') {
+      consentProfiles = [runOptions.consent];
+    } else {
+      consentProfiles = Array.from(new Set(consentProfiles));
     }
 
     // Create runner configuration
