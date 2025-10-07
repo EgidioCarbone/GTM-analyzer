@@ -199,6 +199,20 @@ function calculateDoublePageView(cv: GTMContainerVersion) {
     return (tag.parameter || []).find((p: any) => p.key === key)?.value;
   };
 
+  // Normalizza valori GTM (stringhe) in booleano
+  const interpretBoolean = (value: any, fallback = true): boolean => {
+    if (value === undefined || value === null) return fallback;
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'number') return value !== 0;
+    if (typeof value === 'string') {
+      const normalized = value.trim().toLowerCase();
+      if (normalized === '') return fallback;
+      if (['false', '0', 'no', 'off'].includes(normalized)) return false;
+      if (['true', '1', 'yes', 'on'].includes(normalized)) return true;
+    }
+    return Boolean(value);
+  };
+
   // Helper per ottenere firing triggers
   const getFiringTriggers = (tag: any): string[] => {
     if (Array.isArray(tag.firingTriggerId)) {
@@ -230,7 +244,7 @@ function calculateDoublePageView(cv: GTMContainerVersion) {
     id: tag.tagId,
     name: tag.name,
     type: tag.type,
-    send_page_view: getParam(tag, 'send_page_view') !== false, // default true se assente
+    send_page_view: interpretBoolean(getParam(tag, 'send_page_view')), // default true se assente
     firingTriggers: getFiringTriggers(tag)
   }));
 

@@ -45,6 +45,12 @@ import {
 
 type TabType = 'tags' | 'triggers' | 'variables';
 
+type AutoFilter = {
+  id: string;
+  label: string;
+  clear: () => void;
+};
+
 interface ContainerManagerPageProps {}
 
 // Interfaccia per tracciare la cronologia delle modifiche
@@ -1585,6 +1591,8 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
   const [showVarUnused, setShowVarUnused] = useState(false);
   const [showVarDuplicate, setShowVarDuplicate] = useState(false);
 
+  const [autoFilters, setAutoFilters] = useState<AutoFilter[]>([]);
+
   // Stato per la modale di eliminazione
   const [deleteModal, setDeleteModal] = useState<{
     isOpen: boolean;
@@ -1648,81 +1656,187 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
     totalCount: 0
   });
 
+  const resetFilters = () => {
+    setSelectedTypes([]);
+    setShowUA(false);
+    setShowPaused(false);
+    setShowUnused(false);
+    setShowNaming(false);
+    setShowNoTrigger(false);
+    setShowConsent(false);
+    setShowHtmlSecurityCritical(false);
+    setShowHtmlSecurityMajor(false);
+    setShowHtmlSecurityMinor(false);
+    setShowTrgAllPages(false);
+    setShowTrgTiming(false);
+    setShowTrgUnused(false);
+    setShowTrgDuplicate(false);
+    setShowVarDlv(false);
+    setShowVarLookup(false);
+    setShowVarRegex(false);
+    setShowVarCss(false);
+    setShowVarJs(false);
+    setShowVarUnused(false);
+    setShowVarDuplicate(false);
+  };
+
+  const applyNavFilter = (navFilter: string, navTab?: string): AutoFilter[] => {
+    const filters: AutoFilter[] = [];
+
+    const addToggle = (
+      id: string,
+      label: string,
+      setter: React.Dispatch<React.SetStateAction<boolean>>
+    ) => {
+      setter(true);
+      filters.push({
+        id,
+        label,
+        clear: () => setter(false),
+      });
+    };
+
+    const addSelectedTypesFilter = (id: string, label: string, types: string[]) => {
+      const uniqueTypes = [...new Set(types)];
+      setSelectedTypes(() => uniqueTypes);
+      filters.push({
+        id,
+        label,
+        clear: () =>
+          setSelectedTypes((prev) => prev.filter((type) => !uniqueTypes.includes(type))),
+      });
+    };
+
+    switch (navFilter) {
+      case 'ua':
+        addToggle('ua', 'Tag UA (obsoleti)', setShowUA);
+        break;
+      case 'paused':
+        addToggle('paused', 'Tag in pausa', setShowPaused);
+        break;
+      case 'unused':
+        addToggle('unused', 'Elementi non utilizzati', setShowUnused);
+        break;
+      case 'naming':
+        addToggle('naming', 'Naming non standard', setShowNaming);
+        break;
+      case 'no-trigger':
+        addToggle('no-trigger', 'Tag senza trigger', setShowNoTrigger);
+        break;
+      case 'ga4':
+        addSelectedTypesFilter(
+          'ga4',
+          'Tag GA4 (config & event)',
+          ['googtag', 'ga4', 'gaawe', 'gaawc', 'ga4_config']
+        );
+        break;
+      case 'marketing':
+      case 'consent':
+        addToggle('consent', 'Consent mancanti', setShowConsent);
+        break;
+      case 'quality':
+        if (navTab === 'triggers') {
+          addToggle('quality:trg:allpages', 'Trigger · All Pages', setShowTrgAllPages);
+          addToggle('quality:trg:timing', 'Trigger · Timing', setShowTrgTiming);
+          addToggle('quality:trg:unused', 'Trigger · Non utilizzati', setShowTrgUnused);
+          addToggle('quality:trg:duplicate', 'Trigger · Duplicati', setShowTrgDuplicate);
+        } else if (navTab === 'variables') {
+          addToggle('quality:var:dlv', 'Variabili · DLV senza fallback', setShowVarDlv);
+          addToggle('quality:var:lookup', 'Variabili · Lookup senza default', setShowVarLookup);
+          addToggle('quality:var:regex', 'Variabili · Regex fragili', setShowVarRegex);
+          addToggle('quality:var:css', 'Variabili · CSS fragili', setShowVarCss);
+          addToggle('quality:var:js', 'Variabili · JS non sicuro', setShowVarJs);
+          addToggle('quality:var:unused', 'Variabili · Non utilizzate', setShowVarUnused);
+          addToggle('quality:var:duplicate', 'Variabili · Duplicate', setShowVarDuplicate);
+        } else {
+          addToggle('quality:tag:naming', 'Tag · Naming non standard', setShowNaming);
+          addToggle('quality:tag:no-trigger', 'Tag · Senza trigger', setShowNoTrigger);
+        }
+        break;
+      case 'html-security-critical':
+        addToggle('html:critical', 'Sicurezza HTML · Critici', setShowHtmlSecurityCritical);
+        break;
+      case 'html-security-major':
+        addToggle('html:major', 'Sicurezza HTML · Maggiori', setShowHtmlSecurityMajor);
+        break;
+      case 'html-security-minor':
+        addToggle('html:minor', 'Sicurezza HTML · Minori', setShowHtmlSecurityMinor);
+        break;
+      case 'html':
+        addToggle('html:critical', 'Sicurezza HTML · Critici', setShowHtmlSecurityCritical);
+        addToggle('html:major', 'Sicurezza HTML · Maggiori', setShowHtmlSecurityMajor);
+        addToggle('html:minor', 'Sicurezza HTML · Minori', setShowHtmlSecurityMinor);
+        break;
+      case 'trg-allpages':
+        addToggle('quality:trg:allpages', 'Trigger · All Pages', setShowTrgAllPages);
+        break;
+      case 'trg-timing':
+        addToggle('quality:trg:timing', 'Trigger · Timing', setShowTrgTiming);
+        break;
+      case 'trg-unused':
+        addToggle('quality:trg:unused', 'Trigger · Non utilizzati', setShowTrgUnused);
+        break;
+      case 'trg-duplicate':
+        addToggle('quality:trg:duplicate', 'Trigger · Duplicati', setShowTrgDuplicate);
+        break;
+      case 'var-dlv':
+        addToggle('quality:var:dlv', 'Variabili · DLV senza fallback', setShowVarDlv);
+        break;
+      case 'var-lookup':
+        addToggle('quality:var:lookup', 'Variabili · Lookup senza default', setShowVarLookup);
+        break;
+      case 'var-regex':
+        addToggle('quality:var:regex', 'Variabili · Regex fragili', setShowVarRegex);
+        break;
+      case 'var-css':
+        addToggle('quality:var:css', 'Variabili · CSS fragili', setShowVarCss);
+        break;
+      case 'var-js':
+        addToggle('quality:var:js', 'Variabili · JS non sicuro', setShowVarJs);
+        break;
+      case 'var-unused':
+        addToggle('quality:var:unused', 'Variabili · Non utilizzate', setShowVarUnused);
+        break;
+      case 'var-duplicate':
+        addToggle('quality:var:duplicate', 'Variabili · Duplicate', setShowVarDuplicate);
+        break;
+      default:
+        break;
+    }
+
+    return filters;
+  };
+
+  const clearAutoFilters = () => {
+    resetFilters();
+    setAutoFilters([]);
+    setSearchTerm('');
+  };
+
+  const handleRemoveAutoFilter = (filter: AutoFilter) => {
+    filter.clear();
+    setAutoFilters((prev) => prev.filter((f) => f.id !== filter.id));
+  };
+
   // Gestisci i parametri di navigazione dalla Dashboard
   useEffect(() => {
-    if (location.state) {
-      const { activeTab: navTab, autoFilter: navFilter } = location.state;
-      
-      if (navTab && ['tags', 'triggers', 'variables'].includes(navTab)) {
-        setActiveTab(navTab as TabType);
-      }
-      
-      if (navFilter) {
-        // Applica i filtri appropriati in base al tipo
-        switch (navFilter) {
-          case 'ua':
-            setShowUA(true);
-            break;
-          case 'paused':
-            setShowPaused(true);
-            break;
-          case 'unused':
-            setShowUnused(true);
-            break;
-          case 'naming':
-            setShowNaming(true);
-            break;
-          case 'no-trigger':
-            setShowNoTrigger(true);
-            break;
-          // Nuovi filtri qualità
-          case 'consent':
-            setShowConsent(true);
-            break;
-          case 'html-security-critical':
-            setShowHtmlSecurityCritical(true);
-            break;
-          case 'html-security-major':
-            setShowHtmlSecurityMajor(true);
-            break;
-          case 'html-security-minor':
-            setShowHtmlSecurityMinor(true);
-            break;
-          case 'trg-allpages':
-            setShowTrgAllPages(true);
-            break;
-          case 'trg-timing':
-            setShowTrgTiming(true);
-            break;
-          case 'trg-unused':
-            setShowTrgUnused(true);
-            break;
-          case 'trg-duplicate':
-            setShowTrgDuplicate(true);
-            break;
-          case 'var-dlv':
-            setShowVarDlv(true);
-            break;
-          case 'var-lookup':
-            setShowVarLookup(true);
-            break;
-          case 'var-regex':
-            setShowVarRegex(true);
-            break;
-          case 'var-css':
-            setShowVarCss(true);
-            break;
-          case 'var-js':
-            setShowVarJs(true);
-            break;
-          case 'var-unused':
-            setShowVarUnused(true);
-            break;
-          case 'var-duplicate':
-            setShowVarDuplicate(true);
-            break;
-        }
-      }
+    resetFilters();
+    setAutoFilters([]);
+    setSearchTerm('');
+
+    if (!location.state) {
+      return;
+    }
+
+    const { activeTab: navTab, autoFilter: navFilter } = location.state;
+
+    if (navTab && ['tags', 'triggers', 'variables'].includes(navTab)) {
+      setActiveTab(navTab as TabType);
+    }
+
+    if (navFilter) {
+      const applied = applyNavFilter(navFilter, navTab);
+      setAutoFilters(applied);
     }
   }, [location.state]);
 
@@ -2215,6 +2329,7 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
   };
 
   const filteredItems = getFilteredItems();
+  const excludedCount = Math.max(0, (currentItems?.length || 0) - filteredItems.length);
 
   // Calcola le differenze rispetto alla qualità iniziale
   const getQualityDifference = () => {
@@ -2258,6 +2373,34 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
             </div>
           </div>
         </div>
+
+        {autoFilters.length > 0 && (
+          <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg flex flex-col gap-3">
+            <div className="flex items-center justify-between gap-4">
+              <p className="text-sm font-semibold text-blue-800 dark:text-blue-200">
+                Filtri automatici attivati dalla Dashboard
+              </p>
+              <button
+                onClick={clearAutoFilters}
+                className="text-xs font-medium text-blue-700 dark:text-blue-300 hover:underline"
+              >
+                Reset filtri
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {autoFilters.map((filter) => (
+                <button
+                  key={filter.id}
+                  onClick={() => handleRemoveAutoFilter(filter)}
+                  className="group inline-flex items-center gap-2 px-3 py-1 text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-100 rounded-full hover:bg-blue-200 dark:hover:bg-blue-900/60 transition-colors"
+                >
+                  <span>{filter.label}</span>
+                  <X className="w-3 h-3 opacity-70 group-hover:opacity-100" />
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Timeline del progresso */}
         {initialQuality && qualityMetrics && (
@@ -2843,6 +2986,14 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
                 >
                   Reset Filtri
                 </button>
+                {autoFilters.length > 0 && (
+                  <button
+                    onClick={() => setAutoFilters([])}
+                    className="w-full mt-2 px-3 py-2 text-xs text-blue-600 dark:text-blue-300 hover:underline"
+                  >
+                    Rimuovi filtri automatici
+                  </button>
+                )}
               </div>
             </div>
 
@@ -2863,8 +3014,15 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
               </div>
 
               {/* Contatore risultati */}
-              <div className="text-sm text-gray-600 dark:text-gray-400">
-                {filteredItems.length} di {currentItems.length} {activeTab.slice(0, -1)} trovati
+              <div className="text-sm text-gray-600 dark:text-gray-400 flex items-center gap-2 flex-wrap">
+                <span>
+                  {filteredItems.length} di {currentItems.length} {activeTab.slice(0, -1)} trovati
+                </span>
+                {excludedCount > 0 && (
+                  <span className="text-xs font-medium text-blue-600 dark:text-blue-300 bg-blue-100/60 dark:bg-blue-900/40 px-2 py-1 rounded-full">
+                    {excludedCount} nascosti dai filtri
+                  </span>
+                )}
               </div>
 
               {/* Banner per naming issues */}
