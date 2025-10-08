@@ -1,18 +1,19 @@
-// src/App.tsx
-
 import React, { useEffect } from "react";
 import { Routes, Route, Navigate, useLocation, useNavigate } from "react-router-dom";
 import Sidebar from "./components/Sidebar";
+import HomePage from "./pages/HomePage";
 import DashboardPage from "./pages/DashboardPage";
-import TagsPage from "./pages/TagsPage";
-import TriggersPage from "./pages/TriggersPage";
-import VariablesPage from "./pages/VariablesPage";
+import ContainerManagerPage from "./pages/ContainerManagerPage";
 import PlanPage from "./pages/PlanPage";
 import TestingPage from "./pages/TestingPage";
 import MigrationPage from "./pages/MigrationPage";
 import { useContainer } from "./context/ContainerContext";
 import { Toaster, toast } from "react-hot-toast";
-import ChecklistPage from "./pages/ChecklistPage";
+import SSDTestPage from "./pages/SSDTestPage";
+import ConsentTestBPage from "./ai-sentinel/ConsentTestBPage";
+import { ErrorBoundary } from "./components/ErrorBoundary";
+import { DashboardErrorBoundary, ContainerManagerErrorBoundary } from "./components/ErrorBoundaries";
+import GA4Insights from "./pages/GA4Insights"; // ✅ Import della pagina GA4
 
 export default function App() {
   const { container } = useContainer();
@@ -22,39 +23,68 @@ export default function App() {
   useEffect(() => {
     const saved = localStorage.getItem("gtmContainer");
     if (saved) {
-      toast.success("✅ Container ripristinato dall’ultima sessione.");
+      toast.success("✅ Container ripristinato dall'ultima sessione.");
     }
   }, []);
 
   useEffect(() => {
-    if (!container && location.pathname !== "/dashboard") {
-      navigate("/dashboard");
+    const protectedRoutes = ['/container-manager', '/plan', '/testing', '/migration'];
+    if (!container && protectedRoutes.includes(location.pathname)) {
+      navigate("/home");
     }
-  }, [container, location.pathname, navigate]);
+  }, [container, navigate, location.pathname]);
 
   return (
-    <div className="min-h-screen font-sans relative pl-64 overflow-hidden bg-gradient-to-br from-purple-50 via-pink-50 to-white dark:from-gray-900 dark:via-gray-950 dark:to-black">
-      {/* Sfondo artistico identico a PlanPage */}
-      <div className="absolute -top-48 -left-48 w-[600px] h-[600px] bg-purple-400 opacity-30 blur-3xl rounded-full z-0" />
-      <div className="absolute -bottom-48 -right-48 w-[600px] h-[600px] bg-pink-400 opacity-30 blur-3xl rounded-full z-0" />
+    <ErrorBoundary>
+      <div className={`min-h-screen font-sans relative overflow-hidden bg-gradient-to-br from-purple-50 via-pink-50 to-white dark:from-gray-900 dark:via-gray-950 dark:to-black transition-all duration-300 ${container ? 'pl-64' : ''}`}>
+        {/* Sfondo artistico */}
+        <div className="absolute -top-48 -left-48 w-[600px] h-[600px] bg-purple-400 opacity-30 blur-3xl rounded-full z-0" />
+        <div className="absolute -bottom-48 -right-48 w-[600px] h-[600px] bg-pink-400 opacity-30 blur-3xl rounded-full z-0" />
 
-      <Toaster position="top-right" />
-      <Sidebar />
+        <Toaster position="top-right" />
 
-      <main className="space-y-6 transition-colors relative z-10">
-        <Routes>
-          <Route path="/" element={<Navigate to="/dashboard" />} />
-          <Route path="/dashboard" element={<DashboardPage />} />
-          <Route path="/tags" element={<TagsPage />} />
-          <Route path="/triggers" element={<TriggersPage />} />
-          <Route path="/variables" element={<VariablesPage />} />
-          <Route path="/plan" element={<PlanPage />} />
-          <Route path="/testing" element={<TestingPage />} />
-          <Route path="/migration" element={<MigrationPage />} />
-          <Route path="/checklist" element={<ChecklistPage />} />
-          <Route path="*" element={<Navigate to="/dashboard" />} />
-        </Routes>
-      </main>
-    </div>
+        {/* Sidebar solo se c'è container */}
+        {container && <Sidebar />}
+
+        <main className="space-y-6 transition-colors relative z-10">
+          <Routes>
+            {/* Route iniziale */}
+            <Route path="/" element={<Navigate to="/home" />} />
+
+            {/* Pagina iniziale */}
+            <Route path="/home" element={<HomePage />} />
+
+            {/* Dashboard */}
+            <Route path="/dashboard" element={
+              <DashboardErrorBoundary>
+                <DashboardPage />
+              </DashboardErrorBoundary>
+            } />
+
+            {/* Route pubbliche */}
+            <Route path="/ssd-test" element={<SSDTestPage />} />
+            <Route path="/ai-sentinel" element={<ConsentTestBPage />} />
+            <Route path="/ga4-insights" element={<GA4Insights />} /> {/* ✅ Route GA4 aggiunta */}
+
+            {/* Route protette */}
+            {container && (
+              <>
+                <Route path="/container-manager" element={
+                  <ContainerManagerErrorBoundary>
+                    <ContainerManagerPage />
+                  </ContainerManagerErrorBoundary>
+                } />
+                <Route path="/plan" element={<PlanPage />} />
+                <Route path="/testing" element={<TestingPage />} />
+                <Route path="/migration" element={<MigrationPage />} />
+              </>
+            )}
+
+            {/* Catch-all */}
+            <Route path="*" element={<Navigate to="/home" />} />
+          </Routes>
+        </main>
+      </div>
+    </ErrorBoundary>
   );
 }

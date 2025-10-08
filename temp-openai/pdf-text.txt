@@ -1,0 +1,22 @@
+
+
+SPEC-CE-01 - Header Menu Click
+EVENTO CHIAVE
+header_menu_click
+SCREENSHOT
+CONDIZIONI
+Dopo aver accettato i cookie, un utente clicca uno dei link/bottoni che si trovano nei menù header di tutte le pagine del sito. 
+SCRIPT
+<script>
+window.dataLayer = window.dataLayer || [];        //Pulisce il precedente oggetto
+window.dataLayer.push({
+    event: 'header_menu_click',
+    link_text: '[NOME DEL BOTTONE SELEZIONATO]',
+    link_url: '[URL DI DESTINAZIONE]',
+    index: '[LIVELLO]'
+});
+</script>
+DOVE
+link_text sarà riempito con il testo del bottone/link
+link_url sarà riempito con la URL di destinazione del bottone/link
+index sarà riempito con il numero corrispondente al livello del menù, partendo da 0. La gerarchia dei livelli è a cascata, dall'alto verso il basso

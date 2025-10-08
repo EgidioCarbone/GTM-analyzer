@@ -1,0 +1,9 @@
+TEST PDF CONTENT
+This is a test PDF for the SSD system.
+It contains test scenarios for:
+1. Click on 'Scrivi in chat' button
+2. Click on 'Ti chiamiamo gratis' button
+3. Verify coverage area
+4. Check pricing information
+
+This PDF should generate proper CSS selectors for testing.

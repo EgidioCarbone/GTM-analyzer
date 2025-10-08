@@ -1,5 +1,5 @@
 // src/components/ui/Badge.tsx
-import { cn } from "@/lib/utils";
+import { cn } from "../../lib/utils";
 import { HTMLAttributes } from "react";
 
 interface BadgeProps extends HTMLAttributes<HTMLSpanElement> {
