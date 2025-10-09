@@ -92,6 +92,20 @@ async function runReport(propertyId: string, startDate: string, endDate: string)
     limit: 15,
   });
 
+  const [journeys] = await ga4.runReport({
+    property: `properties/${propertyId}`,
+    dateRanges: [{ startDate, endDate }],
+    dimensions: [
+      { name: "sessionDefaultChannelGroup" },
+      { name: "landingPage" },
+      { name: "eventName" },
+    ],
+    metrics: [{ name: "conversions" }],
+    orderBys: [{ metric: { metricName: "conversions" }, desc: true }],
+    metricAggregations: ["TOTAL"],
+    limit: 30,
+  });
+
   const kpis = Object.fromEntries(
     kpi.rows?.[0]?.metricValues?.map((m, i) => [kpi.metricHeaders?.[i]?.name, toNum(m.value)]) ?? []
   );
@@ -124,12 +138,20 @@ async function runReport(propertyId: string, startDate: string, endDate: string)
     revenue: toNum(r.metricValues?.[2]?.value),
   }));
 
+  const journeyData = (journeys.rows ?? []).map((r) => ({
+    channel: r.dimensionValues?.[0]?.value,
+    landingPage: r.dimensionValues?.[1]?.value,
+    eventName: r.dimensionValues?.[2]?.value,
+    conversions: toNum(r.metricValues?.[0]?.value),
+  }));
+
   return {
     kpis,
     timeseries: timeseriesData,
     channels: byChannel,
     pages: topPages,
     events: topEvents,
+    journeys: journeyData,
   };
 }
 

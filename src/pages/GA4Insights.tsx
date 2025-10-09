@@ -14,7 +14,7 @@ import {
   Area,
   Cell,
 } from "recharts";
-import { Users, MousePointerClick, TrendingUp, ShoppingCart, Crown, Sparkles, Target, Zap } from "lucide-react";
+import { Users, MousePointerClick, TrendingUp, ShoppingCart, Crown, Sparkles, Target, Zap, Route, ArrowRight } from "lucide-react";
 
 type Resp = {
   range: { startDate: string; endDate: string };
@@ -23,6 +23,7 @@ type Resp = {
   channels: { channel: string; sessions: number; users: number; conversions: number }[];
   pages: { path: string; pageViews: number; users: number; conversions: number }[];
   events: { eventName: string; eventCount: number; conversions: number; revenue: number }[];
+  journeys: { channel: string; landingPage: string; eventName: string; conversions: number }[];
   ai: { narrative: string };
 };
 
@@ -50,6 +51,31 @@ export default function GA4Insights() {
       .filter((event) => (event.conversions ?? 0) > 0 || (event.eventCount ?? 0) > 0 || (event.revenue ?? 0) > 0)
       .slice(0, 15);
   }, [data]);
+  const journeys = React.useMemo(() => (data?.journeys ?? []).filter((j) => (j.conversions ?? 0) > 0), [data]);
+  const journeyByChannel = React.useMemo(() => {
+    const grouped = journeys.reduce<Record<string, { channel: string; total: number; flows: typeof journeys }>>(
+      (acc, j) => {
+        const key = j.channel || "Altro";
+        if (!acc[key]) {
+          acc[key] = { channel: key, total: 0, flows: [] };
+        }
+        acc[key].total += j.conversions ?? 0;
+        acc[key].flows.push(j);
+        return acc;
+      },
+      {}
+    );
+    return Object.values(grouped)
+      .map(({ channel, total, flows }) => ({
+        channel,
+        total,
+        flows: flows
+          .sort((a, b) => (b.conversions ?? 0) - (a.conversions ?? 0))
+          .slice(0, 3),
+      }))
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 6);
+  }, [journeys]);
   const conversionRate = React.useMemo(() => {
     const sessions = Number(kpis.sessions ?? 0);
     const conversions = Number(kpis.conversions ?? 0);
@@ -510,6 +536,61 @@ export default function GA4Insights() {
                 )}
               </div>
             </div>
+          </div>
+
+          {/* IA */}
+          <div className="rounded-3xl border border-white/60 bg-white/85 p-8 shadow-xl ring-1 ring-purple-100/40 backdrop-blur">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xl font-semibold text-gray-900 flex items-center gap-2">
+                <Route className="h-5 w-5 text-purple-500" />
+                Percorsi di conversione
+              </h3>
+              <span className="text-xs font-semibold uppercase text-gray-400">
+                Top {journeyByChannel.length} canali
+              </span>
+            </div>
+            {journeyByChannel.length === 0 ? (
+              <div className="text-sm text-gray-500">Nessun percorso di conversione rilevato nel periodo.</div>
+            ) : (
+              <div className="grid md:grid-cols-2 gap-6">
+                {journeyByChannel.map(({ channel, total, flows }) => (
+                  <div
+                    key={channel}
+                    className="rounded-3xl border border-purple-100/60 bg-gradient-to-br from-purple-50/90 via-white to-blue-50/70 p-5 shadow-sm space-y-4"
+                  >
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-semibold text-gray-800">{channel}</p>
+                      <span className="rounded-full bg-purple-200/60 px-3 py-1 text-xs font-semibold text-purple-700">
+                        {total.toLocaleString("it-IT")} conv.
+                      </span>
+                    </div>
+                    <div className="space-y-3">
+                      {flows.map((flow, idx) => (
+                        <div
+                          key={`${channel}-${flow.landingPage}-${flow.eventName}-${idx}`}
+                          className="rounded-2xl bg-white/80 border border-white/60 px-3 py-3 text-xs text-gray-700 shadow-sm"
+                        >
+                          <div className="flex items-center gap-2 text-gray-600 font-semibold">
+                            <span className="inline-flex h-7 w-7 items-center justify-center rounded-2xl bg-purple-100 text-purple-600 font-medium">
+                              {idx + 1}
+                            </span>
+                            <span className="truncate">{flow.landingPage || "(landing sconosciuta)"}</span>
+                          </div>
+                          <div className="mt-2 flex items-center gap-2 text-[11px] uppercase tracking-wide text-gray-400">
+                            <span>Evento</span>
+                            <ArrowRight className="h-3 w-3 text-purple-400" />
+                            <span className="text-purple-600 font-medium normal-case">{flow.eventName}</span>
+                          </div>
+                          <div className="mt-2 text-[11px] text-gray-500">
+                            {Number(flow.conversions ?? 0).toLocaleString("it-IT")} conversioni attribuite
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* IA */}
