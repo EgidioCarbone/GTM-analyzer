@@ -863,14 +863,51 @@ export class ConsentTestRunner {
 
   private async performConsentAction(page: Page, scenario: 'reject' | 'accept', bannerSelector: string): Promise<boolean> {
     try {
-      // Esegui tutto nel contesto della pagina
+      // 1. Snapshot PRIMA del click - usa dataLayer nativo (più affidabile)
+      const beforeClick = await page.evaluate(() => {
+        const dataLayer = (window as any).dataLayer || [];
+        return {
+          timestamp: Date.now(),
+          dataLayerLength: dataLayer.length
+        };
+      });
+
+      console.log(`📊 BEFORE click ${scenario}: ${beforeClick.dataLayerLength} eventi dataLayer`);
+
+      // 2. Esegui il click
       const clickResult = await page.evaluate(({ scenario, bannerSelector }) => {
+        // Keywords ordinate per SPECIFICITÀ (più specifiche prima!)
         const keywords = scenario === 'reject' 
-          ? ['rifiuta', 'decline', 'reject', 'necessari', 'deny', 'rifiuto', 'nega', 'solo essenziali']
-          : ['accetta', 'accept', 'consenti', 'consent', 'tutti', 'conferma', 'allow', 'agree'];
+          ? [
+              'rifiuta tutti',
+              'rifiuta tutto', 
+              'decline all',
+              'reject all',
+              'solo necessari',
+              'only necessary',
+              'rifiuta',
+              'decline', 
+              'reject',
+              'deny',
+              'rifiuto',
+              'nega'
+            ]
+          : [
+              'accetta tutti',
+              'accetta tutto',
+              'accept all',
+              'allow all',
+              'accetta',
+              'accept',
+              'consenti',
+              'consent',
+              'conferma',
+              'allow',
+              'agree'
+            ];
 
         const scope = document.querySelector(bannerSelector);
-        if (!scope) return false;
+        if (!scope) return { success: false, reason: 'Banner selector not found', buttonText: null };
         
         // Cerca tutti i pulsanti/interazioni nel banner
         const elements = Array.from(scope.querySelectorAll('button, a, [role="button"], input, .btn, [onclick]'));
@@ -880,23 +917,94 @@ export class ConsentTestRunner {
           const ariaLabel = (btn.getAttribute('aria-label') || '').toLowerCase().trim();
           const combinedText = `${text} ${ariaLabel}`;
           
+          // Salta elementi con numeri grandi (probabilmente badge/counter come "necessari 323")
+          if (/\d{2,}/.test(text)) continue;
+          
           for (const keyword of keywords) {
             if (combinedText.includes(keyword.toLowerCase())) {
-              console.log(`🎯 Clicking element: "${text}" (keyword: ${keyword})`);
               (btn as HTMLElement).click();
-              return true;
+              return { success: true, reason: 'clicked', buttonText: text, keyword: keyword };
             }
           }
         }
         
-        return false;
+        return { success: false, reason: 'No matching button found', buttonText: null };
       }, { scenario, bannerSelector });
 
-      // PASSO 3: Attesa 5s e verifica LLM per entrambi gli scenari
-      if (clickResult && (scenario === 'reject' || scenario === 'accept')) {
-        console.log(`🤖 PASSO 3: Click ${scenario} completato, attesa 5 secondi...`);
-        await page.waitForTimeout(5000);
+      console.log(`🎯 Click result:`, JSON.stringify(clickResult));
+
+      if (!clickResult || !clickResult.success) {
+        console.log(`❌ Click ${scenario} fallito: ${clickResult?.reason || 'unknown'}`);
+        return false;
+      }
+      
+      console.log(`✅ Cliccato su bottone: "${clickResult.buttonText}" (keyword: ${clickResult.keyword})`);
+
+      // 3. ✨ ASPETTA che il dataLayer riceva eventi di consent (EVENT-DRIVEN)
+      if (scenario === 'reject' || scenario === 'accept') {
+        console.log(`🤖 Aspettando consent update dopo click ${scenario}...`);
+        console.log(`🤖 Aspetto nuovi eventi oltre i ${beforeClick.dataLayerLength} già presenti...`);
         
+        const consentDetected = await page.waitForFunction(
+          (beforeLength) => {
+            const dataLayer = (window as any).dataLayer || [];
+            
+            console.log(`[waitForFunction] dataLayer.length = ${dataLayer.length}, beforeLength = ${beforeLength}`);
+            
+            // 1. Check se ci sono nuovi eventi
+            if (dataLayer.length <= beforeLength) {
+              console.log(`[waitForFunction] Nessun nuovo evento ancora`);
+              return false;
+            }
+            
+            // 2. Check se c'è un consent update negli ultimi eventi
+            const recentEvents = dataLayer.slice(beforeLength);
+            console.log(`[waitForFunction] Nuovi eventi trovati: ${recentEvents.length}`);
+            console.log(`[waitForFunction] Nuovi eventi:`, JSON.stringify(recentEvents));
+            
+            const hasConsent = recentEvents.some((event: any) => {
+              // Pattern 1: Array ['consent', 'update', {...}]
+              if (Array.isArray(event) && event[0] === 'consent') {
+                console.log(`[waitForFunction] ✅ Trovato Pattern 1 (Array)`);
+                return true;
+              }
+              // Pattern 2: Object {0: 'consent', 1: 'update', ...}
+              if (event && event[0] === 'consent') {
+                console.log(`[waitForFunction] ✅ Trovato Pattern 2 (Object con chiave 0)`);
+                return true;
+              }
+              // Pattern 3: Event name cookie_consent_update
+              if (event?.event === 'cookie_consent_update') {
+                console.log(`[waitForFunction] ✅ Trovato Pattern 3 (event name)`);
+                return true;
+              }
+              return false;
+            });
+            
+            console.log(`[waitForFunction] hasConsent = ${hasConsent}`);
+            return hasConsent;
+          },
+          beforeClick.dataLayerLength,
+          { 
+            timeout: 15000,  // Max 15s
+            polling: 200     // Check ogni 200ms
+          }
+        ).then(() => true).catch(() => false);
+
+        if (!consentDetected) {
+          console.log(`⚠️ Nessun consent update rilevato entro 15s`);
+          console.log(`⚠️ DataLayer finale per debug:`);
+          const finalDataLayer = await page.evaluate(() => (window as any).dataLayer || []);
+          console.log(JSON.stringify(finalDataLayer, null, 2));
+        } else {
+          console.log(`✅ Consent update rilevato!`);
+        }
+
+        // 4. Stabilizzazione BREVE (solo 3s per eventi aggiuntivi)
+        console.log(`🤖 PASSO 3: Stabilizzazione 3 secondi...`);
+        await page.waitForTimeout(3000);
+
+        // 5. ADESSO leggi il dataLayer
         console.log('🤖 PASSO 3: Acquisisco dataLayer...');
         const dataLayer = await page.evaluate(() => {
           return (window as any).dataLayer || [];
@@ -904,18 +1012,18 @@ export class ConsentTestRunner {
         
         console.log('🤖 PASSO 3: DataLayer acquisito, lunghezza:', dataLayer.length);
         
-        // Chiedo all'LLM se il test è passato
+        // 6. Verifica con LLM
         if (this.llmService) {
           console.log('🤖 PASSO 3: Chiedendo all\'LLM se il test è passato...');
           console.log('🤖 PASSO 3: DataLayer da analizzare:', JSON.stringify(dataLayer, null, 2));
           
           if (scenario === 'reject') {
             const testResult = await this.verifyRejectTestWithLLM(dataLayer);
-            this.llmTestResult = testResult; // Salva il risultato
+            this.llmTestResult = testResult;
             console.log('🤖 PASSO 3: Risultato test LLM (reject):', testResult);
           } else if (scenario === 'accept') {
             const testResult = await this.verifyAcceptTestWithLLM(dataLayer);
-            this.llmTestResult = testResult; // Salva il risultato
+            this.llmTestResult = testResult;
             console.log('🤖 PASSO 3: Risultato test LLM (accept):', testResult);
           }
         }
@@ -931,77 +1039,107 @@ export class ConsentTestRunner {
 
   private async performFallbackConsentAction(page: Page, scenario: 'reject' | 'accept'): Promise<boolean> {
     try {
+      // 1. Snapshot PRIMA del click - usa dataLayer nativo (più affidabile)
+      const beforeClick = await page.evaluate(() => {
+        const dataLayer = (window as any).dataLayer || [];
+        return {
+          timestamp: Date.now(),
+          dataLayerLength: dataLayer.length
+        };
+      });
+
+      console.log(`📊 BEFORE fallback click ${scenario}: ${beforeClick.dataLayerLength} eventi dataLayer`);
+
       const selectors = scenario === 'accept' ? 
         this.getAllAcceptSelectors() : 
         this.getAllRejectSelectors();
 
+      let clickSuccess = false;
+
+      // 2. Prova selettori specifici
       for (const selector of selectors) {
         try {
           const element = await page.$(selector);
           if (element && await element.isVisible()) {
             console.log(`🎯 Clicking ${scenario} with selector: ${selector}`);
             await element.click();
-            
-            // PASSO 3: Attesa 5s e verifica LLM per entrambi gli scenari
-            if (scenario === 'reject' || scenario === 'accept') {
-              console.log(`🤖 PASSO 3: Click ${scenario} completato, attesa 5 secondi...`);
-              await page.waitForTimeout(5000);
-              
-              console.log('🤖 PASSO 3: Acquisisco dataLayer...');
-              const dataLayer = await page.evaluate(() => {
-                return (window as any).dataLayer || [];
-              });
-              
-              console.log('🤖 PASSO 3: DataLayer acquisito, lunghezza:', dataLayer.length);
-              
-              // Chiedo all'LLM se il test è passato
-              if (this.llmService) {
-                console.log('🤖 PASSO 3: Chiedendo all\'LLM se il test è passato...');
-                console.log('🤖 PASSO 3: DataLayer da analizzare:', JSON.stringify(dataLayer, null, 2));
-                
-                if (scenario === 'reject') {
-                  const testResult = await this.verifyRejectTestWithLLM(dataLayer);
-                  this.llmTestResult = testResult; // Salva il risultato
-                  console.log('🤖 PASSO 3: Risultato test LLM (reject):', testResult);
-                } else if (scenario === 'accept') {
-                  const testResult = await this.verifyAcceptTestWithLLM(dataLayer);
-                  this.llmTestResult = testResult; // Salva il risultato
-                  console.log('🤖 PASSO 3: Risultato test LLM (accept):', testResult);
-                }
-              }
-            }
-            
-            return true;
-        }
-      } catch (error) {
+            clickSuccess = true;
+            break;
+          }
+        } catch (error) {
           console.log(`❌ Failed click ${scenario} selector ${selector}:`, (error as Error).message);
         }
       }
       
-      // Ultimo fallback: match text su tutti i button della pagina
-      const result = await page.evaluate((scenario) => {
-        const keywords = scenario === 'reject' 
-          ? ['rifiuta', 'decline', 'reject', 'necessari', 'deny']
-          : ['accetta', 'accept', 'consenti', 'consent', 'conferma'];
+      // 3. Ultimo fallback: match text su tutti i button della pagina
+      if (!clickSuccess) {
+        clickSuccess = await page.evaluate((scenario) => {
+          const keywords = scenario === 'reject' 
+            ? ['rifiuta', 'decline', 'reject', 'necessari', 'deny']
+            : ['accetta', 'accept', 'consenti', 'consent', 'conferma'];
 
-        const allButtons = Array.from(document.querySelectorAll('button, a, [role="button"], input, [onclick]'));
-        
-        for (const btn of allButtons) {
-          const text = (btn.textContent || '').toLowerCase().trim();
-          if (keywords.some(k => text.includes(k.toLowerCase().trim()))) {
-            console.log(`🎯 Clicking fallback ${scenario}: "${text}"`);
-            (btn as HTMLElement).click();
-            return true;
+          const allButtons = Array.from(document.querySelectorAll('button, a, [role="button"], input, [onclick]'));
+          
+          for (const btn of allButtons) {
+            const text = (btn.textContent || '').toLowerCase().trim();
+            if (keywords.some(k => text.includes(k.toLowerCase().trim()))) {
+              console.log(`🎯 Clicking fallback ${scenario}: "${text}"`);
+              (btn as HTMLElement).click();
+              return true;
+            }
           }
-        }
-        return false;
-      }, scenario);
+          return false;
+        }, scenario);
+      }
 
-      // PASSO 3: Attesa 5s e verifica LLM per entrambi gli scenari (fallback finale)
-      if (result && (scenario === 'reject' || scenario === 'accept')) {
-        console.log(`🤖 PASSO 3: Click ${scenario} completato (fallback finale), attesa 5 secondi...`);
-        await page.waitForTimeout(5000);
+      if (!clickSuccess) {
+        console.log(`❌ Fallback click ${scenario} fallito`);
+        return false;
+      }
+
+      // 4. ✨ ASPETTA che il dataLayer riceva eventi di consent (EVENT-DRIVEN)
+      if (scenario === 'reject' || scenario === 'accept') {
+        console.log(`🤖 Aspettando consent update dopo fallback click ${scenario}...`);
         
+        const consentDetected = await page.waitForFunction(
+          (beforeLength) => {
+            const dataLayer = (window as any).dataLayer || [];
+            
+            // 1. Check se ci sono nuovi eventi
+            if (dataLayer.length <= beforeLength) return false;
+            
+            // 2. Check se c'è un consent update negli ultimi eventi
+            const recentEvents = dataLayer.slice(beforeLength);
+            const hasConsent = recentEvents.some((event: any) => {
+              // Pattern 1: Array ['consent', 'update', {...}]
+              if (Array.isArray(event) && event[0] === 'consent') return true;
+              // Pattern 2: Object {0: 'consent', 1: 'update', ...}
+              if (event && event[0] === 'consent') return true;
+              // Pattern 3: Event name cookie_consent_update
+              if (event?.event === 'cookie_consent_update') return true;
+              return false;
+            });
+            
+            return hasConsent;
+          },
+          beforeClick.dataLayerLength,
+          { 
+            timeout: 15000,  // Max 15s
+            polling: 200     // Check ogni 200ms
+          }
+        ).then(() => true).catch(() => false);
+
+        if (!consentDetected) {
+          console.log(`⚠️ Nessun consent update rilevato entro 15s (fallback)`);
+        } else {
+          console.log(`✅ Consent update rilevato! (fallback)`);
+        }
+
+        // 5. Stabilizzazione BREVE
+        console.log(`🤖 PASSO 3: Stabilizzazione 3 secondi...`);
+        await page.waitForTimeout(3000);
+
+        // 6. Leggi il dataLayer
         console.log('🤖 PASSO 3: Acquisisco dataLayer...');
         const dataLayer = await page.evaluate(() => {
           return (window as any).dataLayer || [];
@@ -1009,24 +1147,24 @@ export class ConsentTestRunner {
         
         console.log('🤖 PASSO 3: DataLayer acquisito, lunghezza:', dataLayer.length);
         
-        // Chiedo all'LLM se il test è passato
+        // 7. Verifica con LLM
         if (this.llmService) {
           console.log('🤖 PASSO 3: Chiedendo all\'LLM se il test è passato...');
           console.log('🤖 PASSO 3: DataLayer da analizzare:', JSON.stringify(dataLayer, null, 2));
           
           if (scenario === 'reject') {
             const testResult = await this.verifyRejectTestWithLLM(dataLayer);
-            this.llmTestResult = testResult; // Salva il risultato
+            this.llmTestResult = testResult;
             console.log('🤖 PASSO 3: Risultato test LLM (reject):', testResult);
           } else if (scenario === 'accept') {
             const testResult = await this.verifyAcceptTestWithLLM(dataLayer);
-            this.llmTestResult = testResult; // Salva il risultato
+            this.llmTestResult = testResult;
             console.log('🤖 PASSO 3: Risultato test LLM (accept):', testResult);
           }
         }
       }
 
-      return result;
+      return clickSuccess;
     } catch (error) {
       console.log(`❌ Fallback ${scenario} failed:`, (error as Error).message);
       return false;
@@ -1143,6 +1281,16 @@ IMPORTANTE:
       for (let i = dataLayer.length - 1; i >= 0; i--) {
         const event = dataLayer[i];
         console.log(`🔍 Checking event ${i}:`, event);
+        
+        // ✅ FIX: Cerca oggetti con indici numerici (formato GTM)
+        if (typeof event === 'object' && event !== null && !Array.isArray(event)) {
+          // Pattern GTM: { "0": "consent", "1": "update", "2": {...} }
+          if (event["0"] === 'consent' && event["1"] === 'update' && typeof event["2"] === 'object') {
+            latestConsent = { ...event["2"] };
+            console.log('🔍 Found consent update in GTM numeric indices format:', latestConsent);
+            break;
+          }
+        }
         
         // Cerca array con ['consent', 'update', {...}]
         if (Array.isArray(event) && event.length >= 3) {
