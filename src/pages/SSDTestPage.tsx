@@ -54,75 +54,6 @@ export default function SSDTestPage() {
   // SSD Configuration
   const { config: ssdConfig, loading: configLoading, error: configError } = useSSDConfig(apiBaseUrl);
 
-  // Funzione per parsare i risultati dal backend e creare un report strutturato
-  const parseBackendResults = (backendResult: any) => {
-    console.log('Parsing backend results:', backendResult);
-    
-    // Estrai informazioni dai log del backend
-    const cookieTestStatus = backendResult.cookieTestStatus || 'PASS';
-    const pdfTestStatus = backendResult.pdfTestStatus || 'FAIL';
-    
-    // Eventi dataLayer tipici per cookie consent (basati sui log)
-    const cookieEvents = [
-      'gtm.js', 'gtm.dom', 'gtm.load', 
-      'cookie_consent_update', 'cookie_consent_preferences', 
-      'cookie_consent_statistics', 'cookie_consent_marketing'
-    ];
-    
-    // Eventi disponibili nel dataLayer (quelli che abbiamo visto nei log)
-    const availableEvents = [
-      'gtm.js', 'gtm.dom', 'gtm.load', 
-      'cookie_consent_update', 'cookie_consent_preferences', 
-      'cookie_consent_statistics', 'cookie_consent_marketing'
-    ];
-    
-    // Calcola durata basata sui log (circa 50 secondi totali)
-    const totalDuration = 50000;
-    
-    const report = {
-      summary: {
-        steps: 2, // Cookie test + PDF test
-        passed: cookieTestStatus === 'PASS' ? (pdfTestStatus === 'PASS' ? 2 : 1) : 0,
-        failed: cookieTestStatus === 'FAIL' ? 2 : (pdfTestStatus === 'FAIL' ? 1 : 0),
-        duration: totalDuration,
-        consentProfiles: ['accept']
-      },
-      results: [],
-      artifacts: {
-        screenshotsFolder: '/screenshots',
-        rawLogsPath: '/logs'
-      },
-      cookieConsentTest: {
-        status: cookieTestStatus,
-        events: cookieEvents,
-        description: 'Test di accettazione del banner cookie',
-        details: cookieTestStatus === 'PASS' ? 
-          'Banner cookie accettato correttamente e eventi dataLayer generati' :
-          'Banner cookie non accettato o eventi dataLayer mancanti',
-        selector: '#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll',
-        buttonText: 'Accetta tutti'
-      },
-      pdfTests: {
-        status: pdfTestStatus,
-        availableEvents: availableEvents,
-        description: 'Test di click su menu header per generare evento dataLayer',
-        details: pdfTestStatus === 'PASS' ?
-          'Evento header_menu_click generato correttamente nel dataLayer' :
-          'Evento header_menu_click non trovato nel dataLayer dopo il click',
-        expectedEvent: 'header_menu_click',
-        error: pdfTestStatus === 'FAIL' ? 
-          'Expected dataLayer event \'header_menu_click\' not found. Available events: [gtm.js, gtm.dom, gtm.load, cookie_consent_update, cookie_consent_preferences, cookie_consent_statistics, cookie_consent_marketing]' :
-          null,
-        selector: "header,[role='banner'],.header,#header,nav[aria-label*='menu' i],nav[aria-label*='navigation' i] a[href]:not([href=\"#\"]):not([aria-hidden=\"true\"]), header,[role='banner'],.header,#header,nav[aria-label*='menu' i],nav[aria-label*='navigation' i] button:not([disabled])",
-        clickSuccessful: true, // Il click è avvenuto, ma l'evento non è stato generato
-        duration: 15000 // Durata del test PDF
-      }
-    };
-    
-    console.log('Parsed report:', report);
-    return report;
-  };
-
   // Unified loading steps for the complete workflow
   const unifiedSteps = [
     // PDF Processing Phase
@@ -211,19 +142,20 @@ export default function SSDTestPage() {
   // Normalize URL before sending to server
   const normalizeUrl = (input: string): string => {
     if (!input || typeof input !== "string") return input;
-    
-    let s = input.trim();
-    
-    // Add https:// if no protocol is provided
-    if (!/^https?:\/\//i.test(s)) {
-      s = "https://" + s;
+
+    let candidate = input.trim();
+
+    if (!/^https?:\/\//i.test(candidate)) {
+      candidate = `https://${candidate}`;
     }
-    
+
     try {
-      const url = new URL(s);
-      return url.origin; // Return normalized origin
+      const url = new URL(candidate);
+      // Keep path/query/hash so tests can target deep pages, but strip default port and collapse redundant slashes
+      url.hash = url.hash.trim();
+      return url.toString();
     } catch {
-      return input; // Return original if invalid
+      return input;
     }
   };
 
@@ -418,28 +350,130 @@ export default function SSDTestPage() {
       const result = await response.json();
       
       // Debug: log del risultato per capire cosa contiene
-      console.log('Test execution result:', result);
-      console.log('Report data:', result.report);
+      console.log('🔍 RAW RESPONSE DEBUG:');
+      console.log('  📦 Full result object:', result);
+      console.log('  📊 Result keys:', Object.keys(result));
+      console.log('  📋 Result.report:', result.report);
+      console.log('  📋 Result.report type:', typeof result.report);
+      console.log('  📋 Result.report keys:', result.report ? Object.keys(result.report) : 'N/A');
+      console.log('  🎯 Result.pdf:', result.pdf);
+      console.log('  🎯 Result.cookie:', result.cookie);
+      console.log('  🎯 Result.artifacts:', result.artifacts);
       
-      // Simula i progressi dei test
+      // Aggiorna i progressi dei test
       updateStep('navigation', 'completed', 'Successfully navigated to website');
       updateStep('cookie_consent', 'completed', 'Cookie consent handled');
       updateStep('test_execution', 'completed', 'Tests executed successfully');
       updateStep('data_collection', 'completed', 'Data collected and analyzed');
       updateStep('report_generation', 'completed', 'Report generated successfully');
       
-      // Parsa i risultati dal backend per creare un report strutturato
-      const parsedReport = parseBackendResults(result);
+      // Funzioni helper per calcolare stato e statistiche
+      const calculateOverallStatus = (cookie: any, pdf: any) => {
+        const cookieStatus = cookie?.status || 'UNKNOWN';
+        const pdfStatus = pdf?.status || 'UNKNOWN';
+        
+        if (cookieStatus === 'PASS' && pdfStatus === 'PASS') return 'PASS';
+        if (cookieStatus === 'FAIL' || pdfStatus === 'FAIL') return 'FAIL';
+        if (cookieStatus === 'ERROR' || pdfStatus === 'ERROR') return 'ERROR';
+        return 'UNKNOWN';
+      };
+      
+      const calculateSummary = (cookie: any, pdf: any) => {
+        // CORRECTED LOGIC: Count actual test categories, not individual steps
+        let totalTests = 0;
+        let passedTests = 0;
+        let failedTests = 0;
+        
+        // Cookie test counts as 1 test
+        if (cookie) {
+          totalTests++;
+          if (cookie.status === 'PASS') {
+            passedTests++;
+          } else if (cookie.status === 'FAIL') {
+            failedTests++;
+          }
+        }
+        
+        // PDF test counts as 1 test
+        if (pdf) {
+          totalTests++;
+          if (pdf.status === 'PASS') {
+            passedTests++;
+          } else if (pdf.status === 'FAIL') {
+            failedTests++;
+          }
+        }
+        
+        // Calculate total duration
+        const totalDuration = (cookie?.duration || 0) + (pdf?.duration || 0);
+        
+        console.log('📊 CORRECTED SUMMARY CALCULATION:');
+        console.log('  🍪 Cookie test:', cookie?.status || 'N/A');
+        console.log('  📄 PDF test:', pdf?.status || 'N/A');
+        console.log('  📈 Total tests:', totalTests);
+        console.log('  ✅ Passed tests:', passedTests);
+        console.log('  ❌ Failed tests:', failedTests);
+        console.log('  ⏱️ Total duration:', totalDuration, 'ms');
+        
+        return {
+          totalTests: totalTests,
+          passed: passedTests,
+          failed: failedTests,
+          duration: totalDuration
+        };
+      };
+
+      // Debug: analizza la struttura dei dati
+      console.log('🔍 DATA STRUCTURE ANALYSIS:');
+      console.log('  📋 result.report exists:', !!result.report);
+      console.log('  📋 result.pdf exists:', !!result.pdf);
+      console.log('  📋 result.cookie exists:', !!result.cookie);
+      console.log('  📋 result.artifacts exists:', !!result.artifacts);
+      
+      // Crea un report unificato dalla struttura del backend
+      let reportData = null;
+      
+      // Il backend restituisce: { requestId, url, artifacts, cookie, pdf }
+      // Dobbiamo combinare cookie e pdf in un report unificato
+      if (result.pdf || result.cookie) {
+        console.log('✅ Creating unified report from backend structure');
+        reportData = {
+          // Metadati generali
+          requestId: result.requestId,
+          url: result.url,
+          artifacts: result.artifacts,
+          
+          // Risultati dei test
+          cookie: result.cookie || null,
+          pdf: result.pdf || null,
+          
+          // Calcola lo stato generale
+          overallStatus: calculateOverallStatus(result.cookie, result.pdf),
+          
+          // Calcola le statistiche
+          summary: calculateSummary(result.cookie, result.pdf),
+          
+          // Timestamp
+          timestamp: new Date().toISOString()
+        };
+      } else {
+        console.log('⚠️ No test data found, using full result');
+        reportData = result;
+      }
+      
+      console.log('🎯 Final reportData:', reportData);
+      console.log('🎯 Final reportData type:', typeof reportData);
+      console.log('🎯 Final reportData keys:', reportData ? Object.keys(reportData) : 'N/A');
       
       setState(prev => ({
         ...prev,
-        report: parsedReport,
+        report: reportData,
         currentStep: 'run',
         isLoading: false,
       }));
       
       // Debug: verifica che lo stato sia stato aggiornato correttamente
-      console.log('State updated - currentStep:', 'run', 'report:', !!parsedReport);
+      console.log('✅ State updated - currentStep:', 'run', 'report:', !!reportData);
       setLoadingType(null);
       
       // Completa l'analisi e chiudi il loader dopo aver mostrato i risultati
@@ -481,11 +515,8 @@ export default function SSDTestPage() {
     // Crea nuovo AbortController per questa richiesta
     const abortController = createNewController();
     
-    // Update state with the provided data
     setState(prev => ({ 
       ...prev, 
-      dsl: dsl,
-      pdfContent: pdfContent,
       isLoading: true, 
       error: null 
     }));
@@ -498,8 +529,8 @@ export default function SSDTestPage() {
         },
         signal: abortController.signal,
         body: JSON.stringify({
-          dsl: dsl,
-          pdfContent: pdfContent,
+          dsl: state.dsl,
+          pdfContent: state.pdfContent,
           runOptions: {
             headless: true,
             consent: 'both',
@@ -514,10 +545,11 @@ export default function SSDTestPage() {
       }
 
       const result = await response.json();
+      const reportData = result.report ?? result;
       
       setState(prev => ({
         ...prev,
-        report: result.report,
+        report: reportData,
         currentStep: 'run',
         isLoading: false,
       }));
@@ -609,6 +641,7 @@ export default function SSDTestPage() {
       url: '',
       pdfFile: null,
       dsl: null,
+      pdfContent: null,
       report: null,
       isLoading: false,
       error: null,
@@ -642,8 +675,35 @@ export default function SSDTestPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-6xl mx-auto">
+    <div className="min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-pink-50 flex flex-col relative overflow-hidden">
+      {/* Sfondo dinamico con particelle - IDENTICO ALLA HOMEPAGE */}
+      <div className="absolute inset-0 overflow-hidden">
+        {/* Cerchi animati */}
+        <div className="absolute -top-40 -left-40 w-80 h-80 bg-purple-300 rounded-full mix-blend-multiply filter blur-xl opacity-70 animate-blob"></div>
+        <div className="absolute -top-40 -right-40 w-80 h-80 bg-yellow-300 rounded-full mix-blend-multiply filter blur-xl opacity-70 animate-blob animation-delay-2000"></div>
+        <div className="absolute -bottom-40 left-20 w-80 h-80 bg-pink-300 rounded-full mix-blend-multiply filter blur-xl opacity-70 animate-blob animation-delay-4000"></div>
+        <div className="absolute -bottom-40 right-20 w-80 h-80 bg-blue-300 rounded-full mix-blend-multiply filter blur-xl opacity-70 animate-blob animation-delay-6000"></div>
+        
+        {/* Particelle fluttuanti */}
+        <div className="absolute inset-0">
+          {[...Array(20)].map((_, i) => (
+            <div
+              key={i}
+              className="absolute w-2 h-2 bg-purple-400 rounded-full opacity-60 animate-float"
+              style={{
+                left: `${Math.random() * 100}%`,
+                top: `${Math.random() * 100}%`,
+                animationDelay: `${Math.random() * 10}s`,
+                animationDuration: `${3 + Math.random() * 4}s`
+              }}
+            />
+          ))}
+        </div>
+      </div>
+      
+      {/* Contenuto principale */}
+      <div className="relative z-10 p-6">
+        <div className="max-w-6xl mx-auto">
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">SSD Test</h1>
@@ -820,8 +880,8 @@ export default function SSDTestPage() {
             </div>
           </Card>
         )}
+        </div>
       </div>
     </div>
   );
 }
-

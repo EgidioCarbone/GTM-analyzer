@@ -90,18 +90,53 @@ export interface SSDRunResponse {
 }
 
 export interface TestReport {
-  summary: {
+  // NEW STRUCTURE: Direct cookie and pdf results
+  cookie?: {
+    status: 'PASS' | 'FAIL' | 'ERROR';
+    consentStatus?: string;
+    dataLayerEvents?: any[];
+    steps?: any[];
+    error?: string | null;
+    duration?: number;
+    cookieBtnSelector?: string;
+    cookieBtnOuterHTML?: string;
+  };
+  pdf?: {
+    status: 'PASS' | 'FAIL' | 'ERROR';
+    spec?: any;
+    result?: {
+      summary?: {
+        steps: number;
+        passed: number;
+        failed: number;
+        duration: number;
+      };
+    };
+    steps?: any[];
+    duration?: number;
+  };
+  artifacts?: {
+    htmlFile?: string;
+    pdfTextFile?: string;
+    screenshotsFolder?: string;
+    rawLogsPath?: string;
+  };
+  
+  // METADATA
+  requestId?: string;
+  url?: string;
+  overallStatus?: 'PASS' | 'FAIL' | 'ERROR';
+  summary?: {
     steps: number;
     passed: number;
     failed: number;
     duration: number;                 // milliseconds
     consentProfiles: string[];
   };
-  results: TestResult[];
-  artifacts: {
-    screenshotsFolder: string;
-    rawLogsPath: string;
-  };
+  timestamp?: string;
+  
+  // LEGACY STRUCTURE (for backward compatibility)
+  results?: TestResult[];
   cookieConsentTest?: any;           // Results of cookie consent test
   pdfTests?: any;                    // Results of PDF tests
   pdfTestSpec?: any;                 // PDF test specification

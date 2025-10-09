@@ -1,10 +1,9 @@
 // server-ssd.js
 // Complete SSD Test server with real PDF processing and Puppeteer execution
 // ---------------------------------------------------------------------------
-// @ts-nocheck
+
 import 'dotenv/config';
 import express from 'express';
-import type { Request, Response, NextFunction} from "express";
 import fetch from 'node-fetch';
 import cors from 'cors';
 import multer from 'multer';
@@ -15,9 +14,6 @@ import { dirname, join } from 'path';
 import path from 'path';
 import fs from 'fs/promises';
 import fsSync from 'fs';
-import ga4InsightsRouter from "./src/services/ga4-insights.server";
-import type { FileFilterCallback } from "multer";
-
 
 // Import our SSD services
 import { extractPDFText, extractPDFTextFromBuffer, validatePDFFile, PDFExtractionError } from './src/services/pdfTextExtraction.js';
@@ -302,7 +298,6 @@ app.use(cors({
 // Body parsing middleware
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
-app.use(ga4InsightsRouter);
 
 // Static files for artifacts with CORS headers
 app.use('/artifacts', (req, res, next) => {
@@ -318,34 +313,22 @@ app.use('/artifacts', (req, res, next) => {
 }, express.static('artifacts'));
 
 
-const ALLOWED_SSD_KEYS = new Set([
-  "url",
-  "dsl",
-  "runOptions",
-  "pdfContent",
-  "pdfBufferPath",
-]);
-
 // Input sanitization middleware
-app.use((req: Request, res: Response, next: NextFunction) => {
+app.use((req, res, next) => {
   // Sanitize request body for SSD endpoints
-  if (req.path.startsWith("/api/ssd/")) {
-    const body = req.body as Record<string, unknown> | undefined;
-
-    if (body && typeof body === "object" && !Array.isArray(body)) {
-      const sanitizedBody: Record<string, unknown> = {};
-
-      for (const [key, value] of Object.entries(body)) {
-        if (ALLOWED_SSD_KEYS.has(key)) {
+  if (req.path.startsWith('/api/ssd/')) {
+    if (req.body && typeof req.body === 'object') {
+      // Remove any potentially dangerous keys
+      const sanitizedBody = {};
+      for (const [key, value] of Object.entries(req.body)) {
+        // Only allow expected keys for SSD endpoints
+        if (['url', 'dsl', 'runOptions', 'pdfContent', 'pdfBufferPath'].includes(key)) {
           sanitizedBody[key] = value;
         }
       }
-
-      // sostituisci il body con quello sanificato
       req.body = sanitizedBody;
     }
   }
-
   next();
 });
 
@@ -358,7 +341,7 @@ const upload = multer({
   limits: {
     fileSize: MAX_UPLOAD_BYTES,
   },
-  fileFilter: (req: Request, file: Express.Multer.File, cb: FileFilterCallback) => {
+  fileFilter: (req, file, cb) => {
     // Accept common PDF mimetypes - do not reject at fileFilter solely by mimetype
     const isPdfMimeType = /pdf|octet-stream|x-pdf/i.test(file.mimetype || '');
     
@@ -994,54 +977,48 @@ function normalizePdfSpec(input: any): any {
   return input;
 }
 
-// --- Simplified resolver that definitely works ---
+// --- UNIVERSAL resolver that clicks ONLY links, never containers ---
 async function resolveSelectorForHeaderLink(page: import('puppeteer').Page) {
-  console.log('[resolver] Starting header link resolution...');
+  console.log('[resolver] Starting UNIVERSAL header link resolution...');
   
   try {
     // Use sleep instead of page.waitForTimeout (not available in all versions)
     await sleep(300);
     
-    const headerSelector = "header,[role='banner'],.header,#header,nav[aria-label*='menu' i],nav[aria-label*='navigation' i]";
+    // UNIVERSAL APPROACH: Only target actual clickable elements, never containers
+    // Priority order: links in header > any links > buttons > other clickable
     
-    // Try to wait for header, but don't fail if it doesn't exist
-    try { 
-      await page.waitForSelector(headerSelector, { timeout: 5000 }); 
-    } catch {}
+    // 1. First try: Links specifically within header/nav areas
+    const headerLinkSelector = "header a[href]:not([href='#']):not([aria-hidden='true']), [role='banner'] a[href]:not([href='#']):not([aria-hidden='true']), .header a[href]:not([href='#']):not([aria-hidden='true']), #header a[href]:not([href='#']):not([aria-hidden='true']), nav[aria-label*='menu' i] a[href]:not([href='#']):not([aria-hidden='true']), nav[aria-label*='navigation' i] a[href]:not([href='#']):not([aria-hidden='true'])";
     
-    // Check if header exists
-    const hasHeader = await page.$(headerSelector);
-    
-    if (hasHeader) {
-      // Find the header element first, then look for clickable elements inside it
-      const headerElement = await page.$(headerSelector);
-      if (headerElement) {
-        // Look for links and buttons inside the header
-        const linksInHeader = await headerElement.$$('a[href]:not([href="#"]):not([aria-hidden="true"])');
-        const buttonsInHeader = await headerElement.$$('button:not([disabled])');
-        
-        if (linksInHeader.length > 0 || buttonsInHeader.length > 0) {
-          console.log(`[resolver] ✅ Found ${linksInHeader.length} links and ${buttonsInHeader.length} buttons in header`);
-          // Return a selector that targets links and buttons inside the header
-          return `${headerSelector} a[href]:not([href="#"]):not([aria-hidden="true"]), ${headerSelector} button:not([disabled])`;
-        }
-      }
+    const headerLinks = await page.$$(headerLinkSelector);
+    if (headerLinks.length > 0) {
+      console.log(`[resolver] ✅ Found ${headerLinks.length} links in header areas`);
+      return headerLinkSelector;
     }
     
-    // Fallback to robust clickable elements - be more specific to avoid containers
-    const fallbackSel = "a[href]:not([aria-hidden='true']):not([tabindex='-1']):not([href='#'])";
-    const fallbackNode = await page.$(fallbackSel);
-    if (fallbackNode) {
-      console.log(`[resolver] ✅ Found fallback link: ${fallbackSel}`);
-      return fallbackSel;
+    // 2. Second try: Any visible links on the page (universal fallback)
+    const anyLinkSelector = "a[href]:not([href='#']):not([aria-hidden='true']):not([tabindex='-1'])";
+    const anyLinks = await page.$$(anyLinkSelector);
+    if (anyLinks.length > 0) {
+      console.log(`[resolver] ✅ Found ${anyLinks.length} links on page (universal fallback)`);
+      return anyLinkSelector;
     }
     
-    // Last resort - any clickable element but prefer links
-    const anyClickable = "a[href]:not([href='#']), button:not([disabled]), [role='button']:not([disabled])";
-    const anyNode = await page.$(anyClickable);
-    if (anyNode) {
-      console.log(`[resolver] ✅ Found any clickable: ${anyClickable}`);
-      return anyClickable;
+    // 3. Third try: Buttons in header areas
+    const headerButtonSelector = "header button:not([disabled]), [role='banner'] button:not([disabled]), .header button:not([disabled]), #header button:not([disabled]), nav[aria-label*='menu' i] button:not([disabled]), nav[aria-label*='navigation' i] button:not([disabled])";
+    const headerButtons = await page.$$(headerButtonSelector);
+    if (headerButtons.length > 0) {
+      console.log(`[resolver] ✅ Found ${headerButtons.length} buttons in header areas`);
+      return headerButtonSelector;
+    }
+    
+    // 4. Last resort: Any clickable elements (but still avoid containers)
+    const anyClickableSelector = "button:not([disabled]), [role='button']:not([disabled]), [onclick]:not([disabled])";
+    const anyClickable = await page.$$(anyClickableSelector);
+    if (anyClickable.length > 0) {
+      console.log(`[resolver] ✅ Found ${anyClickable.length} clickable elements (last resort)`);
+      return anyClickableSelector;
     }
     
     console.log('[resolver] ❌ No clickable elements found');
@@ -1054,24 +1031,15 @@ async function resolveSelectorForHeaderLink(page: import('puppeteer').Page) {
 }
 
 /**
- * Esegue i test PDF nella stessa sessione browser
+ * Esegue i test PDF usando il SSDPuppeteerRunner UNIVERSALE
  */
 async function executePdfTests(testSpec: any, options: any, browserInstance: any, existingPage?: any) {
-  const result = {
-    status: 'FAIL',
-    steps: [],
-    error: null,
-    duration: 0
-  };
-
   const startTime = Date.now();
 
   try {
-    console.log('===== EXECUTING PDF TESTS =====');
+    console.log('===== EXECUTING PDF TESTS WITH UNIVERSAL RUNNER =====');
     console.log('Browser instance available:', !!browserInstance);
-    console.log('Browser instance type:', typeof browserInstance);
     console.log('Test specification type:', typeof testSpec);
-    console.log('Test specification keys:', Object.keys(testSpec || {}));
     console.log('Number of tests:', testSpec?.tests?.length || 0);
     
     // Guard-rails: Check if spec is valid and has tests
@@ -1087,22 +1055,6 @@ async function executePdfTests(testSpec: any, options: any, browserInstance: any
       };
     }
     
-    if (testSpec?.tests && testSpec.tests.length > 0) {
-      testSpec.tests.forEach((test, index) => {
-        console.log(`📋 Test ${index + 1}: ${test.section}`);
-        console.log(`📋 Steps in test ${index + 1}: ${test.steps?.length || 0}`);
-        // Protect access to test.steps with optional chaining
-        test.steps?.forEach((step, stepIndex) => {
-          console.log(`  📝 Step ${stepIndex + 1}: ${step.description}`);
-          console.log(`  🎯 Action: ${step.action}`);
-          console.log(`  🎯 Target: ${step.target?.value || 'N/A'}`);
-        });
-      });
-    }
-    
-    console.log('Full test specification:', JSON.stringify(testSpec, null, 2));
-    console.log('================================');
-    
     // Normalize PDF spec to runner format
     let normalized;
     try {
@@ -1110,54 +1062,140 @@ async function executePdfTests(testSpec: any, options: any, browserInstance: any
       console.log('🔧 Normalized PDF spec (runner shape):', JSON.stringify(normalized, null, 2));
     } catch (error: any) {
       console.error('❌ Error normalizing PDF spec:', (error as Error).message);
-        (result as any).error = (error as Error).message;
-      result.status = 'FAIL';
-      return result;
-    }
-    
-    // Use existing page if provided, otherwise create new page
-    let page;
-    if (existingPage) {
-      page = existingPage;
-      console.log('✓ Using existing page from cookie consent test - NO navigation to preserve consent state');
-      // IMPORTANT: Do NOT navigate - keep the same page with consent state
-    } else {
-      page = await browserInstance.newPage();
-      console.log('✓ New page created in existing browser session');
-    }
-    
-    // Execute each test step
-    console.log(`🚀 Starting execution of ${normalized.tests[0].steps?.length || 0} test steps`);
-    
-    // Protect access to steps with optional chaining and fallback to empty array
-    const steps = normalized.tests[0]?.steps || [];
-    
-    for (let i = 0; i < steps.length; i++) {
-      const step = steps[i];
-      
-      // Check if step has required action and target properties
-      if (!step?.action || !step?.target) {
-        console.warn(`[PDF] Step ${i + 1} missing required action or target, skipping`);
-        const stepResult = {
-          step: i + 1,
-          description: step?.description || 'Unknown step',
-          action: step?.action || 'unknown',
+      return {
           status: 'FAIL',
-          error: 'Step missing required action or target properties'
-        };
-        (result.steps as any[]).push(stepResult);
-        continue;
-      }
+        steps: [],
+        error: (error as Error).message,
+        duration: Date.now() - startTime
+      };
+    }
+    
+    // Create a TestSpec for the SSDPuppeteerRunner
+    const testSpecForRunner = {
+      site: options.site || testSpec.site || 'https://fibra.aruba.it',
+      allowed_hosts: options.allowedHosts || testSpec.allowed_hosts || ['fibra.aruba.it'],
+      consent: ['accept'],
+      tests: normalized.tests
+    };
+    
+    console.log('🌐 TestSpec site:', testSpecForRunner.site);
+    console.log('🌐 TestSpec allowed_hosts:', testSpecForRunner.allowed_hosts);
+    
+    console.log('🚀 Using SSDPuppeteerRunner with universal hook...');
+    
+    // Import and use the SSDPuppeteerRunner
+    const { SSDPuppeteerRunner } = await import('./src/services/ssdPuppeteerRunner.js');
+    
+    // Create runner instance
+    const runner = new SSDPuppeteerRunner({
+      screenshotDir: options.screenshotDir || 'screenshots',
+      timeout: options.timeout || 30000,
+      navTimeoutMs: options.navTimeoutMs || 60000,
+      requestTimeoutMs: options.requestTimeoutMs || 10000,
+      spaRouteTimeoutMs: options.spaRouteTimeoutMs || 5000,
+      fuzzy: false
+    });
+    
+    // Enable debug logging for dataLayer
+    process.env.SSD_DEBUG_LOGS = '1';
+    
+    // Use existing page if provided
+    if (existingPage) {
+      console.log('✓ Using existing page from cookie consent test - preserving consent state');
+      // Set the page in the runner
+      (runner as any).page = existingPage;
+      (runner as any).browser = browserInstance;
       
+      // CRITICAL: Re-apply the universal hook to the existing page
+      console.log('🔄 Re-applying universal hook to existing page...');
+      
+      // Expose the capture function to the existing page
+      await existingPage.exposeFunction('__ssdCaptureDataLayerEvent', (event: any) => {
+        console.log('[ssd][capture] Event captured:', event.payload?.event || 'unknown');
+        // Store events for later analysis
+        if (!(existingPage as any).__ssdCapturedEvents) {
+          (existingPage as any).__ssdCapturedEvents = [];
+        }
+        (existingPage as any).__ssdCapturedEvents.push(event);
+      });
+      
+      // Inject hook directly into existing page using pure JavaScript string
+      const hookScript = `
+        console.log('[ssd][hook] Injecting UNIVERSAL hook into existing page');
+        
+        // EXACT COPY of the working manual code - NO CHANGES
+        const logEvent = (label, payload) => {
+          try {
+            // Forward to backend capture function
+            if (window.__ssdCaptureDataLayerEvent) {
+              window.__ssdCaptureDataLayerEvent({
+                timestamp: Date.now(),
+                payload,
+              });
+            }
+            console.log('[DL HOOK] ' + label, JSON.stringify(payload, null, 2));
+          } catch (error) {
+            console.warn('Failed to log dataLayer event', error);
+          }
+        };
+
+        const patch = (arr, label) => {
+          if (!Array.isArray(arr) || arr.__patched) return arr;
+          
+          const originalPush = arr.push;
+          Object.defineProperty(arr, 'push', {
+            configurable: true,
+            writable: true,
+            value: function patchedPush(...items) {
+              items.forEach(ev => logEvent(label, ev));
+              return originalPush.apply(this, items);
+            },
+          });
+          arr.__patched = true;
+          arr.forEach(ev => logEvent(label + ' (existing)', ev));
+          return arr;
+        };
+
+        // Patch main dataLayer
+        window.dataLayer = patch(window.dataLayer || [], 'window.dataLayer');
+
+        // Patch GTM containers
+        if (window.google_tag_manager) {
+          Object.values(window.google_tag_manager).forEach(container => {
+            if (container && container.dataLayer) {
+              container.dataLayer = patch(container.dataLayer, 'gtm.dataLayer');
+            }
+          });
+        }
+
+        console.log('Hook attivo: ora premi il link header e guarda i log sopra.');
+        logEvent('__ssd_hook_installed__', { event: '__ssd_hook_installed__' });
+      `;
+      
+      await existingPage.evaluate(hookScript);
+      
+      console.log('✅ Universal hook injected into existing page');
+      
+      // IMPORTANT: Skip navigation since we're using existing page
+      console.log('🚫 Skipping navigation - using existing page with consent state');
+    } else {
+      // Initialize browser and page
+      await runner.initializeBrowser(options);
+    }
+    
+    // Execute tests directly on existing page
+    if (existingPage) {
+      console.log('🎯 Executing tests directly on existing page...');
+      
+      const steps = normalized.tests[0]?.steps || [];
+      const stepResults = [];
+      
+      for (let i = 0; i < steps.length; i++) {
+        const step = steps[i];
       console.log(`===== PDF TEST STEP ${i + 1} =====`);
       console.log(`📝 Description: ${step.description || 'No description'}`);
       console.log(`🎯 Action: ${step.action}`);
-      console.log(`🎯 Target:`, step.target);
-      console.log(`🎯 Target kind: ${step.target?.kind}`);
-      console.log(`🎯 Target value: ${step.target?.value}`);
-      console.log(`📋 Expectations:`, step.expect);
-      console.log(`⏱️  Starting step execution at: ${new Date().toISOString()}`);
-      console.log('===============================');
+        console.log(`🎯 Target: ${step.target?.value}`);
       
       const stepResult = {
         step: i + 1,
@@ -1168,278 +1206,268 @@ async function executePdfTests(testSpec: any, options: any, browserInstance: any
       };
 
       try {
-        // Check if we need to resolve selector for header link
-        if (step.target?.kind === 'selector' && (!step.target?.value || step.target?.value === 'to-be-determined')) {
-          console.log('🔍 Resolving selector in runtime for step 1');
-          const resolved = await resolveSelectorForHeaderLink(page);
-          
-          if (!resolved) {
-            console.error('❌ Header link selector could not be resolved');
-            stepResult.status = 'FAIL';
-            (stepResult as any).error = 'Header link selector could not be resolved';
-            (result.steps as any[]).push(stepResult);
-            continue; // Skip to next step without throwing exception
+          if (step.action === 'click') {
+            // Resolve selector if needed
+            let selector = step.target?.value;
+            if (!selector || selector === 'to-be-determined') {
+              console.log('🔍 Resolving selector in runtime...');
+              const resolved = await resolveSelectorForHeaderLink(existingPage);
+              if (resolved) {
+                selector = resolved;
+                console.log(`✅ Resolved selector: ${selector}`);
           } else {
-            console.log(`✅ Resolved header link => selector: ${resolved}`);
-            step.target.value = resolved;
+                throw new Error('Could not resolve selector');
+              }
+            }
             
-            // Keep wildcards as-is since we only have the selector string
-          }
-        }
-
-        if (step.action === 'navigate') {
-          console.log(`🌐 Action: Navigate`);
-          console.log(`🌐 Target URL: ${step.target.value}`);
-          console.log(`🌐 Wait condition: networkidle2`);
-          await page.goto(step.target.value, { waitUntil: 'networkidle2' });
-          stepResult.status = 'PASS';
-          console.log(`✅ Navigation successful to: ${step.target.value}`);
-          
-        } else if (step.action === 'click') {
-          console.log(`🖱️  Action: Click`);
-          console.log(`🖱️  Selector: ${step.target.value}`);
-          console.log(`🖱️  Waiting for element to be visible (timeout: 10s)...`);
-          const element = await page.waitForSelector(step.target.value, { visible: true, timeout: 10000 });
-          console.log(`🖱️  Element found, clicking...`);
-          // Log detailed information about what was clicked BEFORE clicking
-          const clickedElementInfo = await page.evaluate((el) => {
+            // DIRECT APPROACH: Find and click without waiting for visibility
+            console.log(`🖱️ Using direct approach: ${selector}`);
+            
+            // First, let's see what links we actually have
+            const allLinks = await existingPage.$$('header a[href]:not([href="#"])');
+            console.log(`🔍 Found ${allLinks.length} total links in header`);
+            
+            // Get details of each link for debugging
+            for (let i = 0; i < Math.min(allLinks.length, 5); i++) {
+              const linkInfo = await existingPage.evaluate((el) => {
             return {
               tagName: el.tagName,
-              text: el.textContent?.trim().substring(0, 100) || 'no-text',
+                  text: el.textContent?.trim().substring(0, 50) || 'no-text',
               href: el.href || 'no-href',
               id: el.id || 'no-id',
-              className: el.className || 'no-class'
-            };
-          }, element);
-          
-          // Check if this might be a navigation click (has href)
-          const isNavigationClick = clickedElementInfo.href && clickedElementInfo.href !== 'no-href';
-          console.log(`🔗 Is navigation click: ${isNavigationClick}`);
-          
-          if (isNavigationClick) {
-            // For navigation clicks, capture dataLayer BEFORE navigation
-            console.log('🕵️ Setting up dataLayer capture before navigation...');
-            
-            // Create a promise that will capture the dataLayer before navigation
-            let capturedEvent: any = null;
-            let capturedDataLayer: any = null;
-            
-            // Set up the interception BEFORE clicking
-            await page.evaluate(() => {
-              // Store original dataLayer
-              window._originalDataLayer = window.dataLayer || [];
-              
-              // Override dataLayer.push to capture events
-              const originalPush = window.dataLayer?.push;
-              if (originalPush) {
-                window.dataLayer!.push = function(...args) {
-                  const result = originalPush.apply(this, args);
-                  
-                  // Check for our target event
-                  args.forEach(arg => {
-                    if (arg && arg.event === 'header_menu_click') {
-                      console.log('🎯 header_menu_click captured before navigation!', arg);
-                      window._capturedEvent = arg;
-                      window._capturedDataLayer = [...(window.dataLayer || [])];
-                    }
-                  });
-                  
-                  return result;
+                  className: el.className || 'no-class',
+                  visible: el.offsetParent !== null,
+                  display: window.getComputedStyle(el).display,
+                  visibility: window.getComputedStyle(el).visibility,
+                  opacity: window.getComputedStyle(el).opacity
                 };
-              }
+              }, allLinks[i]);
+              console.log(`  Link ${i + 1}:`, linkInfo);
+            }
+            
+            // Try to find a clickable link (prefer visible ones, but fallback to any)
+            let element = null;
+            let linkIndex = 0;
+            
+            // First try: find a visible link
+            for (let i = 0; i < allLinks.length; i++) {
+              const isVisible = await existingPage.evaluate((el) => {
+                return el.offsetParent !== null && 
+                       window.getComputedStyle(el).display !== 'none' &&
+                       window.getComputedStyle(el).visibility !== 'hidden' &&
+                       parseFloat(window.getComputedStyle(el).opacity) > 0;
+              }, allLinks[i]);
               
-              // Also set up a beforeunload listener to capture dataLayer
+              if (isVisible) {
+                element = allLinks[i];
+                linkIndex = i;
+                console.log(`✅ Found visible link at index ${i}`);
+                break;
+              }
+            }
+            
+            // Fallback: use first link if no visible ones found
+            if (!element && allLinks.length > 0) {
+              element = allLinks[0];
+              linkIndex = 0;
+              console.log(`⚠️ No visible links found, using first link at index 0`);
+            }
+            
+            if (!element) {
+              throw new Error('No clickable links found in header');
+            }
+            
+            // DEBUG: Log which specific element we're clicking
+            const clickedElementInfo = await existingPage.evaluate((el) => {
+              return {
+                tagName: el.tagName,
+                text: el.textContent?.trim().substring(0, 100) || 'no-text',
+                href: el.href || 'no-href',
+                id: el.id || 'no-id',
+                className: el.className || 'no-class',
+                outerHTML: el.outerHTML.substring(0, 200) + '...',
+                visible: el.offsetParent !== null,
+                display: window.getComputedStyle(el).display,
+                visibility: window.getComputedStyle(el).visibility,
+                opacity: window.getComputedStyle(el).opacity
+              };
+            }, element);
+            
+            console.log(`🎯 CLICKING LINK ${linkIndex + 1}:`);
+            console.log('  📝 Tag:', clickedElementInfo.tagName);
+            console.log('  📝 Text:', clickedElementInfo.text);
+            console.log('  📝 Href:', clickedElementInfo.href);
+            console.log('  📝 ID:', clickedElementInfo.id);
+            console.log('  📝 Class:', clickedElementInfo.className);
+            console.log('  📝 Visible:', clickedElementInfo.visible);
+            console.log('  📝 Display:', clickedElementInfo.display);
+            console.log('  📝 Visibility:', clickedElementInfo.visibility);
+            console.log('  📝 Opacity:', clickedElementInfo.opacity);
+            console.log('  📝 HTML:', clickedElementInfo.outerHTML);
+            
+            // CRITICAL: Set up navigation monitoring BEFORE clicking
+            console.log('🔄 Setting up navigation monitoring...');
+            let navigationCompleted = false;
+            let capturedEventsDuringNavigation = [];
+            
+            // Monitor for navigation
+            const navigationPromise = existingPage.waitForNavigation({ 
+              waitUntil: 'networkidle2', 
+              timeout: 10000 
+            }).then(() => {
+              navigationCompleted = true;
+              console.log('🌐 Navigation completed');
+            }).catch(() => {
+              console.log('⚠️ Navigation timeout or no navigation occurred');
+            });
+            
+            // Set up beforeunload listener to capture events during navigation
+            await existingPage.evaluate(() => {
               window.addEventListener('beforeunload', () => {
                 console.log('🔄 Page unloading, capturing final dataLayer...');
-                window._finalDataLayer = [...(window.dataLayer || [])];
+                if (window.dataLayer) {
+                  window._finalDataLayer = [...window.dataLayer];
+                  console.log('📊 Final dataLayer captured:', window._finalDataLayer.length, 'events');
+                }
               });
             });
             
-            // Store initial dataLayer
-            const initialDataLayer = await page.evaluate(() => [...(window.dataLayer || [])]);
-            console.log(`📊 Initial dataLayer: ${initialDataLayer.length} events`);
-            
-            // Set up navigation promise
-            const navigationPromise = page.waitForNavigation({ timeout: 8000 }).catch(() => null);
-            
-            // NOW click the element
+            // Click the element with force if needed
+            try {
             await element.click();
-            console.log(`✅ Click successful on: ${step.target.value}`);
+              console.log(`✅ Click successful`);
+            } catch (error) {
+              console.log(`⚠️ Normal click failed, trying force click:`, error.message);
+              await element.click({ force: true });
+              console.log(`✅ Force click successful`);
+            }
             
             // Wait for navigation or timeout
             try {
               await navigationPromise;
-              console.log('🌐 Navigation completed');
-            } catch (error: any) {
-              console.log('⚠️ Navigation timeout or error:', (error as Error).message);
+            } catch (error) {
+              console.log('⚠️ Navigation monitoring completed');
             }
             
-            // Try to get captured data from the page
-            try {
-              const capturedData = await page.evaluate(() => {
-                return {
-                  event: window._capturedEvent || null,
-                  dataLayer: window._capturedDataLayer || null,
-                  finalDataLayer: window._finalDataLayer || null
-                };
-              });
+            // Check for events captured during navigation
+            const finalDataLayer = await existingPage.evaluate(() => {
+              return window._finalDataLayer || window.dataLayer || [];
+            });
+            
+            console.log(`📊 Final dataLayer after click: ${finalDataLayer.length} events`);
+            
+            // Wait additional time for any delayed events
+            console.log('⏱️ Waiting for additional events...');
+            await new Promise(resolve => setTimeout(resolve, 5000));
+            
+            // Check current dataLayer again after waiting
+            const currentDataLayer = await existingPage.evaluate(() => window.dataLayer || []);
+            console.log(`📊 Current dataLayer after waiting: ${currentDataLayer.length} events`);
+            const currentEvents = currentDataLayer.map(e => e?.event).filter(Boolean);
+            console.log(`📊 Current events:`, currentEvents);
+            
+            // Check if header_menu_click is in current dataLayer
+            const hasHeaderEvent = currentDataLayer.some(event => event?.event === 'header_menu_click');
+            if (hasHeaderEvent) {
+              console.log('🎉 FOUND header_menu_click in current dataLayer!');
+              const headerEvent = currentDataLayer.find(event => event?.event === 'header_menu_click');
+              console.log('📋 Header event details:', JSON.stringify(headerEvent, null, 2));
               
-              if (capturedData.event) {
-                console.log('🎉 SUCCESS: header_menu_click captured before navigation!', JSON.stringify(capturedData.event, null, 2));
-                capturedEvent = capturedData.event;
-              } else if (capturedData.dataLayer) {
-                const headerEvent = capturedData.dataLayer.find(e => e.event === 'header_menu_click');
-                if (headerEvent) {
-                  console.log('✅ header_menu_click found in captured dataLayer!', JSON.stringify(headerEvent, null, 2));
-                  capturedEvent = headerEvent;
-                }
-              } else {
-                console.log('❌ No header_menu_click event captured before navigation');
-              }
-              
-              // Also check current dataLayer after navigation
-              const currentDataLayer = await page.evaluate(() => window.dataLayer || []);
-              const currentHeaderEvent = currentDataLayer.find(e => e.event === 'header_menu_click');
-              
-              if (currentHeaderEvent && !capturedEvent) {
-                console.log('✅ header_menu_click found in current dataLayer after navigation!', JSON.stringify(currentHeaderEvent, null, 2));
-                capturedEvent = currentHeaderEvent;
-              }
-              
-            } catch (error: any) {
-              console.log('⚠️ Error accessing captured data:', (error as Error).message);
+              // SAVE EVENT DETAILS TO STEP RESULT
+              stepResult.eventDetails = {
+                event: headerEvent?.event,
+                link_text: headerEvent?.link_text,
+                link_url: headerEvent?.link_url,
+                index: headerEvent?.index,
+                clickedElement: clickedElementInfo
+              };
+            } else {
+              console.log('❌ header_menu_click NOT found in current dataLayer');
             }
-          } else {
-            // For non-navigation clicks, just click and wait
-            await element.click();
-            console.log(`✅ Click successful on: ${step.target.value}`);
-            console.log('⏱️ Click non di navigazione, aspettando 15 secondi per eventi dataLayer...');
-            await new Promise(resolve => setTimeout(resolve, 15000));
-          }
-          
-          stepResult.status = 'PASS';
-          
-        } else if (step.action === 'wait') {
-          const waitTime = parseInt(step.target.value) || 3000;
-          console.log(`→ Waiting for ${waitTime}ms`);
-          await new Promise(resolve => setTimeout(resolve, waitTime));
-          stepResult.status = 'PASS';
-          console.log(`✓ Wait completed`);
-          
-        } else if (step.action === 'scroll') {
-          console.log(`→ Scrolling to bottom`);
-          await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-          stepResult.status = 'PASS';
-          console.log(`✓ Scroll completed`);
-          
-        } else if (step.action === 'type') {
-          console.log(`→ Typing in element: ${step.target.value}`);
-          const element = await page.waitForSelector(step.target.value, { visible: true, timeout: 10000 });
-          await element.type(step.target.text || '');
-          stepResult.status = 'PASS';
-          console.log(`✓ Type completed`);
-        }
-
-        // Check expectations with protection
-        if (step.expect && Array.isArray(step.expect) && step.expect.length > 0) {
-          console.log(`→ Checking ${step.expect.length} expectations...`);
+            
+            // Check expectations using current dataLayer (after waiting)
+            if (step.expect && step.expect.length > 0) {
           for (const expectation of step.expect) {
-            // Protect access to expectation properties
-            if (!expectation || typeof expectation !== 'object') {
-              console.warn(`[PDF] Invalid expectation object, skipping`);
-              continue;
-            }
-            
-            console.log(`  → Expectation: ${expectation.type || 'unknown'} - ${JSON.stringify(expectation)}`);
-            
-            if (expectation.type === 'dataLayer') {
-              if (!expectation.event) {
-                console.warn(`[PDF] DataLayer expectation missing event property, skipping`);
-                continue;
-              }
-              const dataLayer = await page.evaluate(() => window.dataLayer || []);
-              console.log(`  → Current dataLayer events:`, dataLayer.map(e => e?.event).filter(Boolean));
-              const hasEvent = dataLayer.some(event => event?.event === expectation.event);
-              if (!hasEvent) {
-                stepResult.status = 'FAIL';
-                const availableEvents = dataLayer.map(e => e?.event).filter(Boolean);
-                (stepResult as any).error = `Expected dataLayer event '${expectation.event}' not found. Available events: [${availableEvents.join(', ')}]`;
-                console.log(`  ✗ Expected dataLayer event '${expectation.event}' not found. Available events: [${availableEvents.join(', ')}]`);
-                break;
+                if (expectation.type === 'dataLayer' && expectation.event) {
+                  // Use the current dataLayer after waiting for delayed events
+                  const hasEvent = currentDataLayer.some(event => event?.event === expectation.event);
+                  
+                  if (hasEvent) {
+                    console.log(`✅ Found expected event: ${expectation.event}`);
+                    stepResult.status = 'PASS';
               } else {
-                console.log(`  ✓ Found expected dataLayer event '${expectation.event}'`);
+                    const availableEvents = currentDataLayer.map(e => e?.event).filter(Boolean);
+                    stepResult.error = `Expected event '${expectation.event}' not found. Available: [${availableEvents.join(', ')}]`;
+                    console.log(`❌ ${stepResult.error}`);
+                    console.log(`📊 Current dataLayer events:`, availableEvents);
+                  }
+                }
               }
-            } else if (expectation.type === 'element') {
-              if (!expectation.selector) {
-                console.warn(`[PDF] Element expectation missing selector property, skipping`);
-                continue;
-              }
-              const element = await page.$(expectation.selector);
-              if (!element) {
-                stepResult.status = 'FAIL';
-                (stepResult as any).error = `Expected element '${expectation.selector}' not found`;
-                console.log(`  ✗ Expected element '${expectation.selector}' not found`);
-                break;
               } else {
-                console.log(`  ✓ Found expected element '${expectation.selector}'`);
-              }
-            } else if (expectation.type === 'text') {
-              if (!expectation.text_contains) {
-                console.warn(`[PDF] Text expectation missing text_contains property, skipping`);
-                continue;
-              }
-              const text = await page.textContent('body');
-              if (!text || !text.includes(expectation.text_contains)) {
-                stepResult.status = 'FAIL';
-                (stepResult as any).error = `Expected text '${expectation.text_contains}' not found`;
-                console.log(`  ✗ Expected text '${expectation.text_contains}' not found`);
-                break;
-              } else {
-                console.log(`  ✓ Found expected text '${expectation.text_contains}'`);
-              }
+              stepResult.status = 'PASS';
             }
           }
+        } catch (error: any) {
+          stepResult.error = error.message;
+          console.error(`❌ Step ${i + 1} failed:`, error.message);
         }
-
-      } catch (error: any) {
-        (stepResult as any).error = (error as Error).message;
-        console.error(`❌ Step ${i + 1} failed:`, (error as Error).message);
-        console.error(`❌ Error details:`, {
-          message: (error as Error).message,
-          stack: error.stack,
-          name: error.name
-        });
+        
+        stepResults.push(stepResult);
+        console.log(`===== STEP ${i + 1} RESULT: ${stepResult.status} =====`);
       }
-
-      console.log(`===== PDF TEST STEP ${i + 1} RESULT =====`);
-      console.log(`Status: ${stepResult.status}`);
-      console.log(`Description: ${stepResult.description}`);
-      console.log(`Action: ${stepResult.action}`);
-      console.log(`Error: ${stepResult.error || 'None'}`);
-      console.log(`Duration: ${Date.now() - startTime}ms`);
-      console.log('========================================');
-
-      (result.steps as any[]).push(stepResult);
+      
+      const failedSteps = stepResults.filter(s => s.status === 'FAIL');
+      const overallStatus = failedSteps.length === 0 ? 'PASS' : 'FAIL';
+      
+      console.log('✅ PDF tests completed with direct execution');
+      console.log('📊 Results:', {
+        steps: stepResults.length,
+        passed: stepResults.length - failedSteps.length,
+        failed: failedSteps.length,
+        duration: Date.now() - startTime
+      });
+      
+      return {
+        status: overallStatus,
+        steps: stepResults,
+        error: failedSteps.length > 0 ? `${failedSteps.length} steps failed` : null,
+        duration: Date.now() - startTime
+      };
+    } else {
+      // Fallback to runner for new pages
+      const runResult = await runner.runTests(testSpecForRunner, options);
+      
+      console.log('✅ PDF tests completed with universal runner');
+      console.log('📊 Results:', {
+        steps: runResult.summary.steps,
+        passed: runResult.summary.passed,
+        failed: runResult.summary.failed,
+        duration: runResult.summary.duration
+      });
+      
+      return {
+        status: runResult.summary.failed === 0 ? 'PASS' : 'FAIL',
+        steps: runResult.results.map((result, index) => ({
+          step: index + 1,
+          description: result.description || 'No description',
+          action: 'click',
+          status: result.status,
+          error: result.reasons?.join(', ') || null
+        })),
+        error: runResult.summary.failed > 0 ? `${runResult.summary.failed} steps failed` : null,
+        duration: Date.now() - startTime
+      };
     }
-
-    // Determine overall result
-    const failedSteps = result.steps.filter((step: any) => step.status === 'FAIL');
-    result.status = failedSteps.length === 0 ? 'PASS' : 'FAIL';
-    result.duration = Date.now() - startTime;
-
-    console.log('===== PDF TESTS FINAL RESULT =====');
-    console.log(`Status: ${result.status}`);
-    console.log(`Steps: ${result.steps.length}, Failed: ${failedSteps.length}`);
-    console.log(`Duration: ${result.duration}ms`);
-    console.log('==================================');
-
+    
   } catch (error: any) {
-        (result as any).error = (error as Error).message;
-    result.duration = Date.now() - startTime;
-    console.error('Error executing PDF tests:', error);
+    console.error('❌ Error in PDF tests execution:', error);
+    return {
+      status: 'FAIL',
+      steps: [],
+      error: error instanceof Error ? error.message : 'Unknown error',
+      duration: Date.now() - startTime
+    };
   }
-
-  return result;
 }
 
 /**
@@ -2571,6 +2599,17 @@ app.post('/api/ssd/run', async (req, res) => {
     console.log(`PDF Text File: ${pdfTextFile}`);
     console.log('========================================');
 
+    // Debug: mostra la struttura della risposta finale
+    console.log('🔍 FINAL RESPONSE STRUCTURE:');
+    console.log('  📦 finalResponse keys:', Object.keys(finalResponse));
+    console.log('  📋 finalResponse.report exists:', !!finalResponse.report);
+    console.log('  📋 finalResponse.pdf exists:', !!finalResponse.pdf);
+    console.log('  📋 finalResponse.cookie exists:', !!finalResponse.cookie);
+    console.log('  📋 finalResponse.artifacts exists:', !!finalResponse.artifacts);
+    console.log('  📊 finalResponse.report keys:', finalResponse.report ? Object.keys(finalResponse.report) : 'N/A');
+    console.log('  📊 finalResponse.pdf keys:', finalResponse.pdf ? Object.keys(finalResponse.pdf) : 'N/A');
+    console.log('  📊 finalResponse.cookie keys:', finalResponse.cookie ? Object.keys(finalResponse.cookie) : 'N/A');
+
     res.json(finalResponse);
 
   } catch (error: any) {
@@ -2703,6 +2742,63 @@ app.get('/api/ssd/fetch-html', async (req, res) => {
     
     const httpError = toHttpError(error instanceof Error ? error : new Error('Unknown error'));
     return res.status(httpError.httpStatus).json({ error: { code: httpError.code, message: httpError.message, details: httpError.details } });
+  }
+});
+
+// GET /api/ssd/artifact - Serve artifacts (HTML files, PDF text, screenshots)
+app.get('/api/ssd/artifact', async (req, res) => {
+  try {
+    const { file, folder } = req.query;
+    
+    if (!file && !folder) {
+      return res.status(400).json({ error: 'Missing file or folder parameter' });
+    }
+    
+    let filePath = '';
+    
+    if (file) {
+      filePath = decodeURIComponent(file as string);
+    } else if (folder) {
+      // For folders, list contents or serve index
+      const folderPath = decodeURIComponent(folder as string);
+      const files = await fs.readdir(folderPath);
+      return res.json({ 
+        folder: folderPath, 
+        files: files.filter(f => f.endsWith('.png') || f.endsWith('.jpg') || f.endsWith('.jpeg'))
+      });
+    }
+    
+    // Check if file exists
+    try {
+      await fs.access(filePath);
+    } catch {
+      return res.status(404).json({ error: 'File not found' });
+    }
+    
+    // Get file stats
+    const stats = await fs.stat(filePath);
+    
+    // Set appropriate headers
+    if (filePath.endsWith('.html')) {
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    } else if (filePath.endsWith('.txt')) {
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    } else if (filePath.endsWith('.png')) {
+      res.setHeader('Content-Type', 'image/png');
+    } else if (filePath.endsWith('.jpg') || filePath.endsWith('.jpeg')) {
+      res.setHeader('Content-Type', 'image/jpeg');
+    }
+    
+    res.setHeader('Content-Length', stats.size);
+    res.setHeader('Cache-Control', 'no-cache');
+    
+    // Stream the file
+    const fileStream = fsSync.createReadStream(filePath);
+    fileStream.pipe(res);
+    
+  } catch (error: any) {
+    console.error('Error serving artifact:', error);
+    res.status(500).json({ error: 'Failed to serve artifact' });
   }
 });
 
@@ -2864,7 +2960,7 @@ app.options('/api/screenshot/*', (req, res) => {
 });
 
 // Serve screenshot images
-app.get('/api/screenshot/*', (req: Request, res) => {
+app.get('/api/screenshot/*', (req, res) => {
   const imagePath = req.params[0];
   console.log('📸 Screenshot request:', imagePath);
   
