@@ -15,6 +15,8 @@ import {
   Cell,
 } from "recharts";
 import { Users, MousePointerClick, TrendingUp, ShoppingCart, Crown, Sparkles, Target, Zap, Route, ArrowRight } from "lucide-react";
+import ReactMarkdown, { type Components } from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 type Resp = {
   range: { startDate: string; endDate: string };
@@ -82,6 +84,57 @@ export default function GA4Insights() {
     if (!sessions) return 0;
     return Number(((conversions / sessions) * 100).toFixed(1));
   }, [kpis]);
+
+  const markdownComponents = React.useMemo<Components>(
+    () => ({
+      h3: ({ children }: { children: React.ReactNode }) => (
+        <h3 className="mt-6 text-base font-semibold text-gray-900 first:mt-0 flex items-center gap-2">
+          <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-purple-100 text-purple-600 text-xs font-medium">
+            #
+          </span>
+          {children}
+        </h3>
+      ),
+      h4: ({ children }: { children: React.ReactNode }) => (
+        <h4 className="mt-4 text-sm font-semibold text-purple-600">{children}</h4>
+      ),
+      ul: ({ children }: { children: React.ReactNode }) => (
+        <ul className="mt-2 space-y-2 text-sm text-gray-700">{children}</ul>
+      ),
+      ol: ({ children }: { children: React.ReactNode }) => (
+        <ol className="mt-2 space-y-2 text-sm text-gray-700 list-decimal list-outside ml-5">{children}</ol>
+      ),
+      li: ({ children }: { children: React.ReactNode }) => (
+        <li className="leading-relaxed">{children}</li>
+      ),
+      table: ({ children }: { children: React.ReactNode }) => (
+        <div className="mt-5 overflow-hidden rounded-3xl border border-purple-100 bg-white shadow-sm">
+          <table className="min-w-full divide-y divide-purple-100 text-sm text-left text-gray-700">{children}</table>
+        </div>
+      ),
+      thead: ({ children }: { children: React.ReactNode }) => (
+        <thead className="bg-gradient-to-r from-purple-50 via-blue-50 to-pink-50 text-xs font-semibold uppercase tracking-wide text-gray-500">
+          {children}
+        </thead>
+      ),
+      tbody: ({ children }: { children: React.ReactNode }) => (
+        <tbody className="divide-y divide-purple-50">{children}</tbody>
+      ),
+      th: ({ children }: { children: React.ReactNode }) => (
+        <th className="px-4 py-3">{children}</th>
+      ),
+      td: ({ children }: { children: React.ReactNode }) => (
+        <td className="px-4 py-3 text-gray-600">{children}</td>
+      ),
+      p: ({ children }: { children: React.ReactNode }) => (
+        <p className="mt-3 text-sm text-gray-700 leading-relaxed">{children}</p>
+      ),
+      strong: ({ children }: { children: React.ReactNode }) => (
+        <strong className="text-gray-900 font-semibold">{children}</strong>
+      ),
+    }),
+    []
+  );
 
   async function load(params?: { auto?: boolean }) {
     if (!valid) {
@@ -606,8 +659,10 @@ export default function GA4Insights() {
                 </p>
               </div>
             </div>
-            <div className="rounded-3xl border border-purple-100 bg-gradient-to-br from-purple-50/90 via-white to-blue-50/70 p-6 text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">
-              {data.ai.narrative}
+            <div className="rounded-3xl border border-purple-100 bg-gradient-to-br from-purple-50/90 via-white to-blue-50/70 p-6 text-sm text-gray-800 leading-relaxed">
+              <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                {data.ai.narrative}
+              </ReactMarkdown>
             </div>
           </div>
         </div>
