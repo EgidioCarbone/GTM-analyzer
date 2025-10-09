@@ -143,10 +143,10 @@ const ToolCard: React.FC<ToolCardProps> = ({ tool, onClick }) => {
       `}
     >
       {/* Header con icona e colore */}
-      <div className={`${colors.header} p-6`}>
+      <div className={`${colors.header} p-4`}>
         <div className="flex items-center justify-between">
-          <div className={`w-12 h-12 rounded-lg ${colors.icon} flex items-center justify-center`}>
-            <Icon className="w-6 h-6 text-white" />
+          <div className={`w-10 h-10 rounded-lg ${colors.icon} flex items-center justify-center`}>
+            <Icon className="w-5 h-5 text-white" />
           </div>
           <div className="flex items-center space-x-2">
             {tool.requiresJson ? (
@@ -166,19 +166,19 @@ const ToolCard: React.FC<ToolCardProps> = ({ tool, onClick }) => {
       </div>
 
       {/* Contenuto */}
-      <div className="p-6 flex flex-col flex-grow">
-        <h3 className="text-xl font-semibold text-gray-900 mb-2">
+      <div className="p-4 flex flex-col flex-grow">
+        <h3 className="text-lg font-semibold text-gray-900 mb-2">
           {tool.title}
         </h3>
-        <p className="text-gray-600 mb-4 leading-relaxed flex-grow">
+        <p className="text-gray-600 mb-3 leading-relaxed flex-grow text-sm">
           {tool.description}
         </p>
 
         {/* Features */}
-        <div className="space-y-2">
+        <div className="space-y-1">
           {tool.features.map((feature: string, index: number) => (
-            <div key={index} className="flex items-center text-sm text-gray-500">
-              <div className={`w-1.5 h-1.5 rounded-full ${colors.dot} mr-3`} />
+            <div key={index} className="flex items-center text-xs text-gray-500">
+              <div className={`w-1 h-1 rounded-full ${colors.dot} mr-2`} />
               {feature}
             </div>
           ))}
@@ -358,8 +358,8 @@ export default function HomePage() {
             </motion.p>
           </div>
 
-          {/* Tools Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 items-stretch">
+          {/* Tools Grid - Layout Responsivo Ottimizzato */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-8 items-stretch max-w-8xl mx-auto px-4">
             {tools.map((tool: Tool, index: number) => (
               <motion.div
                 key={tool.id}
