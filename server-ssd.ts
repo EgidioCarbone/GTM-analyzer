@@ -27,6 +27,7 @@ import { llmPdfSpec } from './src/services/llmPdfSpec.js';
 import puppeteer from 'puppeteer';
 import { runConsentTest, ConsentTestInputSchema, type ConsentRunnerDependencies } from './src/ai-sentinel/pw-runner.js';
 import { ConsentLLMService } from './src/ai-sentinel/llm/consent-llm-service.js';
+import ga4InsightsRouter from './src/services/ga4-insights.server.ts';
 
 // Global type declarations
 declare global {
@@ -298,6 +299,9 @@ app.use(cors({
 // Body parsing middleware
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+// GA4 insights API
+app.use(ga4InsightsRouter);
 
 // Static files for artifacts with CORS headers
 app.use('/artifacts', (req, res, next) => {

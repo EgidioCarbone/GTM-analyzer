@@ -6,7 +6,7 @@ export default defineConfig({
   server: {
     proxy: {
       "/api": {
-        target: "http://localhost:4000",   // <-- PORTA BACKEND
+        target: process.env.VITE_BACKEND_TARGET || "http://localhost:4010",   // <-- PORTA BACKEND
         changeOrigin: true,
         // facoltativo ma utile per debug:
         // configure: (proxy) => {
