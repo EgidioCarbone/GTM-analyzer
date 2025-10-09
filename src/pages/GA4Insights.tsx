@@ -14,7 +14,7 @@ import {
   Area,
   Cell,
 } from "recharts";
-import { Users, MousePointerClick, TrendingUp, ShoppingCart, Crown, Sparkles } from "lucide-react";
+import { Users, MousePointerClick, TrendingUp, ShoppingCart, Crown, Sparkles, Target, Zap } from "lucide-react";
 
 type Resp = {
   range: { startDate: string; endDate: string };
@@ -22,6 +22,7 @@ type Resp = {
   timeseries: { date: string; activeUsers: number; sessions: number; pageViews: number }[];
   channels: { channel: string; sessions: number; users: number; conversions: number }[];
   pages: { path: string; pageViews: number; users: number; conversions: number }[];
+  events: { eventName: string; eventCount: number; conversions: number; revenue: number }[];
   ai: { narrative: string };
 };
 
@@ -44,6 +45,11 @@ export default function GA4Insights() {
   const channels = React.useMemo(() => data?.channels ?? [], [data]);
   const pages = React.useMemo(() => data?.pages ?? [], [data]);
   const timeseries = React.useMemo(() => data?.timeseries ?? [], [data]);
+  const events = React.useMemo(() => {
+    return (data?.events ?? [])
+      .filter((event) => (event.conversions ?? 0) > 0 || (event.eventCount ?? 0) > 0 || (event.revenue ?? 0) > 0)
+      .slice(0, 15);
+  }, [data]);
   const conversionRate = React.useMemo(() => {
     const sessions = Number(kpis.sessions ?? 0);
     const conversions = Number(kpis.conversions ?? 0);
@@ -324,48 +330,73 @@ export default function GA4Insights() {
                 Insight lampo
               </h3>
               <div className="space-y-4 text-sm text-gray-700">
-                <div className="rounded-2xl border border-rose-100 bg-rose-50/70 px-4 py-3">
-                  <p className="text-xs uppercase font-semibold text-rose-500 tracking-wide mb-1">
-                    Tasso conversione
-                  </p>
-                  <p className="text-lg font-semibold text-rose-600">
-                    {conversionRate}%
-                  </p>
-                  <p className="text-xs text-rose-600/70">
-                    Conversioni per sessione nel periodo selezionato.
-                  </p>
+                <div className="rounded-2xl border border-rose-100 bg-rose-50/70 px-4 py-3 flex gap-3">
+                  <div className="rounded-2xl bg-rose-200/70 p-2 text-rose-600">
+                    <Target className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase font-semibold text-rose-500 tracking-wide mb-1">
+                      Tasso conversione
+                    </p>
+                    <p className="text-lg font-semibold text-rose-600">
+                      {conversionRate}%
+                    </p>
+                    <p className="text-xs text-rose-600/70">
+                      Conversioni per sessione nel periodo selezionato.
+                    </p>
+                  </div>
                 </div>
-                <div className="rounded-2xl border border-emerald-100 bg-emerald-50/70 px-4 py-3">
-                  <p className="text-xs uppercase font-semibold text-emerald-500 tracking-wide mb-1">
-                    Pagine più coinvolgenti
-                  </p>
-                  <p className="font-semibold text-emerald-600">
-                    {pages.slice(0, 2).map((p) => p.path || "—").join(" • ")}
-                  </p>
-                  <p className="text-xs text-emerald-600/70">
-                    Tra le prime {Math.min(2, pages.length)} per visualizzazioni.
-                  </p>
+                <div className="rounded-2xl border border-emerald-100 bg-emerald-50/70 px-4 py-3 flex gap-3">
+                  <div className="rounded-2xl bg-emerald-200/70 p-2 text-emerald-600">
+                    <TrendingUp className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase font-semibold text-emerald-500 tracking-wide mb-1">
+                      Pagine più coinvolgenti
+                    </p>
+                    <p className="font-semibold text-emerald-600">
+                      {pages.slice(0, 2).map((p) => p.path || "—").join(" • ")}
+                    </p>
+                    <p className="text-xs text-emerald-600/70">
+                      Tra le prime {Math.min(2, pages.length)} per visualizzazioni.
+                    </p>
+                  </div>
                 </div>
-                <div className="rounded-2xl border border-sky-100 bg-sky-50/70 px-4 py-3">
-                  <p className="text-xs uppercase font-semibold text-sky-500 tracking-wide mb-1">
-                    Canale dominante
-                  </p>
-                  <p className="font-semibold text-sky-600">
-                    {channels[0]?.channel ?? "—"} ({Number(channels[0]?.sessions ?? 0).toLocaleString("it-IT")} sessioni)
-                  </p>
-                  <p className="text-xs text-sky-600/70">
-                    Confronta il contributo con le campagne attive.
-                  </p>
+                <div className="rounded-2xl border border-sky-100 bg-sky-50/70 px-4 py-3 flex gap-3">
+                  <div className="rounded-2xl bg-sky-200/70 p-2 text-sky-600">
+                    <Zap className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase font-semibold text-sky-500 tracking-wide mb-1">
+                      Evento + performante
+                    </p>
+                    {events.length > 0 ? (
+                      <>
+                        <p className="font-semibold text-sky-600">
+                          {events[0]?.eventName ?? "—"}
+                        </p>
+                        <p className="text-xs text-sky-600/70">
+                          {Number(events[0]?.conversions ?? 0).toLocaleString("it-IT")} conversioni •{" "}
+                          {Number(events[0]?.eventCount ?? 0).toLocaleString("it-IT")} trigger
+                        </p>
+                      </>
+                    ) : (
+                      <p className="text-xs text-sky-600/70">Nessun evento con conversioni nel periodo.</p>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Channels & Pages */}
-          <div className="grid gap-6 lg:grid-cols-2">
+          {/* Channels, Pages & Events */}
+          <div className="grid gap-6 xl:grid-cols-3">
             <div className="rounded-3xl border border-white/60 bg-white/80 p-6 shadow-lg ring-1 ring-purple-100/40 backdrop-blur">
               <div className="mb-4 flex items-center justify-between">
-                <h3 className="text-lg font-semibold text-gray-900">Top canali per sessioni</h3>
+                <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                  <TrendingUp className="h-5 w-5 text-indigo-500" />
+                  Top canali per sessioni
+                </h3>
                 <span className="text-xs font-semibold uppercase text-gray-400">Top 10</span>
               </div>
               <div className="h-80">
@@ -393,7 +424,10 @@ export default function GA4Insights() {
             </div>
             <div className="rounded-3xl border border-white/60 bg-white/80 p-6 shadow-lg ring-1 ring-purple-100/40 backdrop-blur">
               <div className="mb-4 flex items-center justify-between">
-                <h3 className="text-lg font-semibold text-gray-900">Top pagine per pageviews</h3>
+                <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                  <Sparkles className="h-5 w-5 text-amber-500" />
+                  Top pagine per pageviews
+                </h3>
                 <span className="text-xs font-semibold uppercase text-gray-400">Top 10</span>
               </div>
               <div className="h-80">
@@ -417,6 +451,63 @@ export default function GA4Insights() {
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
+              </div>
+            </div>
+            <div className="rounded-3xl border border-white/60 bg-white/80 p-6 shadow-lg ring-1 ring-purple-100/40 backdrop-blur xl:col-span-1">
+              <div className="mb-4 flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                  <Zap className="h-5 w-5 text-sky-500" />
+                  Eventi di conversione
+                </h3>
+                <span className="text-xs font-semibold uppercase text-gray-400">
+                  Top {Math.min(8, events.length)}
+                </span>
+              </div>
+              <div className="h-80">
+                {events.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={events.slice(0, 8)} layout="vertical" barCategoryGap="20%">
+                      <CartesianGrid stroke="#e0f2fe" horizontal={false} />
+                      <XAxis type="number" tick={{ fontSize: 12 }} />
+                      <YAxis dataKey="eventName" type="category" tick={{ fontSize: 11 }} width={140} />
+                      <Tooltip
+                        cursor={{ fill: "#f0f9ff" }}
+                        contentStyle={{
+                          borderRadius: 14,
+                          borderColor: "#bae6fd",
+                          boxShadow: "0 12px 24px rgba(14, 165, 233, 0.18)",
+                        }}
+                        formatter={(value: any, name: string, entry: any) => {
+                          if (name === "conversions") {
+                            return [`${Number(value).toLocaleString("it-IT")} conversioni`, "Conversioni"];
+                          }
+                          if (name === "eventCount") {
+                            return [`${Number(value).toLocaleString("it-IT")} trigger`, "Event count"];
+                          }
+                          if (name === "revenue") {
+                            return [`€ ${Number(value).toLocaleString("it-IT", { minimumFractionDigits: 2 })}`, "Revenue"];
+                          }
+                          return value;
+                        }}
+                      />
+                      <Legend
+                        verticalAlign="top"
+                        align="right"
+                        wrapperStyle={{ fontSize: 11, marginBottom: 8 }}
+                        formatter={(value) => (value === "conversions" ? "Conversioni" : value === "eventCount" ? "Trigger" : "Revenue")}
+                      />
+                      <Bar dataKey="conversions" radius={[12, 12, 12, 12]} fill="#38bdf8" />
+                      <Bar dataKey="eventCount" radius={[12, 12, 12, 12]} fill="#0ea5e9" />
+                      {events.some((e) => e.revenue > 0) && (
+                        <Bar dataKey="revenue" radius={[12, 12, 12, 12]} fill="#22d3ee" />
+                      )}
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-full flex items-center justify-center text-sm text-gray-500">
+                    Nessun evento con conversioni registrato.
+                  </div>
+                )}
               </div>
             </div>
           </div>

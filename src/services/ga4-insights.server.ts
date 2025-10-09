@@ -83,6 +83,15 @@ async function runReport(propertyId: string, startDate: string, endDate: string)
     limit: 10,
   });
 
+  const [events] = await ga4.runReport({
+    property: `properties/${propertyId}`,
+    dateRanges: [{ startDate, endDate }],
+    dimensions: [{ name: "eventName" }],
+    metrics: [{ name: "eventCount" }, { name: "conversions" }, { name: "totalRevenue" }],
+    orderBys: [{ metric: { metricName: "conversions" }, desc: true }],
+    limit: 15,
+  });
+
   const kpis = Object.fromEntries(
     kpi.rows?.[0]?.metricValues?.map((m, i) => [kpi.metricHeaders?.[i]?.name, toNum(m.value)]) ?? []
   );
@@ -108,11 +117,19 @@ async function runReport(propertyId: string, startDate: string, endDate: string)
     conversions: toNum(r.metricValues?.[2]?.value),
   }));
 
+  const topEvents = (events.rows ?? []).map((r) => ({
+    eventName: r.dimensionValues?.[0]?.value,
+    eventCount: toNum(r.metricValues?.[0]?.value),
+    conversions: toNum(r.metricValues?.[1]?.value),
+    revenue: toNum(r.metricValues?.[2]?.value),
+  }));
+
   return {
     kpis,
     timeseries: timeseriesData,
     channels: byChannel,
     pages: topPages,
+    events: topEvents,
   };
 }
 
