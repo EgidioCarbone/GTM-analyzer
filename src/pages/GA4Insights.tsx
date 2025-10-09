@@ -104,8 +104,32 @@ export default function GA4Insights() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#f1ecff] via-[#ffeef8] to-white px-6 py-10">
-      <div className="mx-auto max-w-6xl space-y-8 relative">
+    <div className="relative min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-pink-50 overflow-hidden">
+      {/* Sfondo dinamico con particelle */}
+      <div className="absolute inset-0 overflow-hidden">
+        <div className="absolute -top-40 -left-40 w-80 h-80 bg-purple-300 rounded-full mix-blend-multiply filter blur-xl opacity-70 animate-blob"></div>
+        <div className="absolute -top-40 -right-40 w-80 h-80 bg-yellow-300 rounded-full mix-blend-multiply filter blur-xl opacity-70 animate-blob animation-delay-2000"></div>
+        <div className="absolute -bottom-40 left-20 w-80 h-80 bg-pink-300 rounded-full mix-blend-multiply filter blur-xl opacity-70 animate-blob animation-delay-4000"></div>
+        <div className="absolute -bottom-40 right-20 w-80 h-80 bg-blue-300 rounded-full mix-blend-multiply filter blur-xl opacity-70 animate-blob animation-delay-6000"></div>
+
+        <div className="absolute inset-0">
+          {[...Array(20)].map((_, i) => (
+            <div
+              key={i}
+              className="absolute w-2 h-2 bg-purple-400 rounded-full opacity-60 animate-float"
+              style={{
+                left: `${Math.random() * 100}%`,
+                top: `${Math.random() * 100}%`,
+                animationDelay: `${Math.random() * 10}s`,
+                animationDuration: `${3 + Math.random() * 4}s`,
+              }}
+            />
+          ))}
+        </div>
+      </div>
+
+      <div className="relative px-6 py-10">
+        <div className="mx-auto max-w-6xl space-y-8 relative">
       {/* Overlay loader */}
       {loading && (
         <div className="absolute inset-0 bg-white/60 backdrop-blur-sm z-50 flex flex-col items-center justify-center rounded-3xl shadow-lg">
@@ -418,5 +442,6 @@ export default function GA4Insights() {
       )}
       </div>
     </div>
+  </div>
   );
 }
