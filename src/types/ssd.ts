@@ -85,6 +85,15 @@ export interface SSDRunRequest {
   };
 }
 
+export interface AntiBotChallenge {
+  detected: boolean;
+  reason?: string;
+  provider?: string;
+  title?: string;
+  url?: string;
+  message?: string;
+}
+
 export interface SSDRunResponse {
   report: TestReport;
 }
@@ -92,7 +101,7 @@ export interface SSDRunResponse {
 export interface TestReport {
   // NEW STRUCTURE: Direct cookie and pdf results
   cookie?: {
-    status: 'PASS' | 'FAIL' | 'ERROR';
+    status: 'PASS' | 'FAIL' | 'ERROR' | 'BLOCKED';
     consentStatus?: string;
     dataLayerEvents?: any[];
     steps?: any[];
@@ -100,6 +109,7 @@ export interface TestReport {
     duration?: number;
     cookieBtnSelector?: string;
     cookieBtnOuterHTML?: string;
+    challenge?: AntiBotChallenge | null;
   };
   pdf?: {
     status: 'PASS' | 'FAIL' | 'ERROR';
@@ -125,15 +135,18 @@ export interface TestReport {
   // METADATA
   requestId?: string;
   url?: string;
-  overallStatus?: 'PASS' | 'FAIL' | 'ERROR';
+  overallStatus?: 'PASS' | 'FAIL' | 'ERROR' | 'BLOCKED';
   summary?: {
     steps: number;
+    totalTests?: number;
     passed: number;
     failed: number;
+    blocked?: number;
     duration: number;                 // milliseconds
     consentProfiles: string[];
   };
   timestamp?: string;
+  challenge?: AntiBotChallenge | null;
   
   // LEGACY STRUCTURE (for backward compatibility)
   results?: TestResult[];

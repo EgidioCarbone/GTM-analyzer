@@ -140,8 +140,7 @@ async function waitCookieBanner(page: Page, softMs = 5000, hardMs = 15000, llmSe
   // 🤖 FALLBACK LLM: Se i selettori standard falliscono, usa ChatGPT
   if (llmService) {
     console.log('🤖 Tentativo fallback LLM per rilevamento banner...');
-    const url = page.url();
-    const llmResult = await detectBannerWithLLM(url, llmService);
+    const llmResult = await detectBannerWithLLM(page, llmService);
     
     if (llmResult && llmResult.bannerSelector) {
       console.log('🤖 LLM ha trovato banner, provo selettore:', llmResult.bannerSelector);
@@ -167,7 +166,7 @@ async function waitCookieBanner(page: Page, softMs = 5000, hardMs = 15000, llmSe
 // 🤖 LLM Fallback per Rilevamento Banner Universale
 // ========================================
 
-async function detectBannerWithLLM(url: string, llmService?: ConsentLLMService): Promise<{
+async function detectBannerWithLLM(page: Page, llmService?: ConsentLLMService): Promise<{
   bannerSelector: string | null;
   rejectSelector: string | null;
   acceptSelector: string | null;
@@ -178,39 +177,29 @@ async function detectBannerWithLLM(url: string, llmService?: ConsentLLMService):
   }
 
   try {
-    console.log('🤖 Tentativo rilevamento banner via LLM per:', url);
-    
-    const prompt = `Sei un assistente tecnico per QA automatizzato. Ti fornirò un URL.
+    console.log('🤖 Tentativo rilevamento banner via LLM per:', page.url());
+    const html = await page.content();
+    const languageHints = await page.evaluate(() => {
+      const hints = new Set<string>();
+      if (navigator.language) hints.add(navigator.language);
+      if (navigator.languages) navigator.languages.forEach(lang => hints.add(lang));
 
-COMPITO:
-1) Visita ${url} e identifica l'eventuale banner cookie/consent visibile al primo caricamento della pagina.
-2) Trova nel DOM i selettori CSS per:
-   - il contenitore del banner cookie,
-   - il bottone "rifiuta/decline",
-   - il bottone "accetta/accept".
+      const htmlEl = document.documentElement;
+      if (htmlEl && htmlEl.lang) hints.add(htmlEl.lang);
 
-REGOLE IMPORTANTI:
-- NON indovinare. Restituisci solo selettori effettivamente presenti nel DOM.
-- Se un selettore non è verificabile (es. comparsa condizionata, caricamento JS non disponibile, geofencing), imposta quel campo a null.
-- Se i pulsanti sono dentro un <iframe>, individua i selettori dei pulsanti all'interno del frame; non usare XPath.
-- Preferisci ID o attributi stabili (data-*, aria-*) ed evita :nth-child se non strettamente necessario.
-- Non aggiungere testo, spiegazioni o campi extra.
+      document.querySelectorAll('[lang]').forEach(el => {
+        const lang = el.getAttribute('lang');
+        if (lang) hints.add(lang);
+      });
 
-OUTPUT:
-Restituisci ESCLUSIVAMENTE un JSON a oggetto, in una sola riga, con queste tre chiavi:
-{
-  "banner_selector": "CSS o null",
-  "reject_selector": "CSS o null",
-  "accept_selector": "CSS o null"
-}
+      return Array.from(hints).slice(0, 5);
+    }).catch(() => []);
 
-ESEMPIO DI OUTPUT VALIDO:
-{"banner_selector":"#onetrust-banner-sdk","reject_selector":"#onetrust-reject-all-handler","accept_selector":"#onetrust-accept-btn-handler"}`;
-
-    console.log('🤖 RICHIESTA LLM (banner detection):');
-    console.log('🤖 Prompt:', prompt);
-    
-    const response = await llmService.resolveBannerSelectors(prompt);
+    const response = await llmService.suggestSelectorsFromHtml({
+      pageUrl: page.url(),
+      html,
+      languageHints,
+    });
     
     console.log('🤖 RISPOSTA LLM (banner detection):');
     console.log('🤖 Response:', JSON.stringify(response, null, 2));
@@ -476,11 +465,17 @@ export class ConsentTestRunner {
   private config: ConsentTestConfig;
   private llmService?: ConsentLLMService;
   private llmTestResult?: boolean; // Risultato dell'ultimo test LLM eseguito
+  private lastLLMBannerSelectors?: {
+    bannerSelector: string | null;
+    acceptSelector: string | null;
+    rejectSelector: string | null;
+  };
 
   constructor(config: ConsentTestConfig = defaultConfig, llmService?: ConsentLLMService) {
     this.config = config;
     this.llmService = llmService;
     this.llmTestResult = undefined;
+    this.lastLLMBannerSelectors = undefined;
   }
 
   async runTest(input: ConsentTestInput, customScenarios?: Array<ScenarioMode>): Promise<ConsentTestResult> {
@@ -583,6 +578,7 @@ export class ConsentTestRunner {
       
       // Reset LLM test result prima di ogni scenario
       this.llmTestResult = undefined;
+      this.lastLLMBannerSelectors = undefined;
 
       // Crea un nuovo context completamente isolato per ogni scenario
       context = await browser.newContext({
@@ -659,7 +655,8 @@ export class ConsentTestRunner {
       // 🔍 PASSO 1: Chiedo sempre all'LLM i selettori del banner
       console.log('🤖 PASSO 1: Chiedendo selettori banner all\'LLM...');
       console.log('🤖 PASSO 1: URL da analizzare:', page.url());
-      const llmSelectors = await detectBannerWithLLM(page.url(), this.llmService);
+      const llmSelectors = await detectBannerWithLLM(page, this.llmService);
+      this.lastLLMBannerSelectors = llmSelectors || undefined;
       
       // 🔍 PASSO 2: Stampo i selettori al BE
       if (llmSelectors) {
@@ -797,7 +794,8 @@ export class ConsentTestRunner {
       console.log(`🔍 Cerco banner per scenario ${scenario}...`);
       
       // Lista selettori banner CMP supportati
-      const bannerSelectors = [
+      const bannerSelectorCandidates = [
+        this.lastLLMBannerSelectors?.bannerSelector || undefined,
         '#onetrust-consent-sdk',
         '#CybotCookiebotDialog', 
         '.iubenda-cs-banner',
@@ -805,7 +803,9 @@ export class ConsentTestRunner {
         '.uc-banner',
         '[id*="cookie"]',
         '[class*="cookie"]'
-      ];
+      ].filter((value): value is string => typeof value === 'string' && value.length > 0);
+
+      const bannerSelectors = Array.from(new Set(bannerSelectorCandidates));
 
       // Attendi cenna fino a 15 secondi per l'apparizione del banner
       for (let attempt = 0; attempt < 15; attempt++) {
@@ -875,7 +875,19 @@ export class ConsentTestRunner {
       console.log(`📊 BEFORE click ${scenario}: ${beforeClick.dataLayerLength} eventi dataLayer`);
 
       // 2. Esegui il click
-      const clickResult = await page.evaluate(({ scenario, bannerSelector }) => {
+      const candidateSelectors = this.lastLLMBannerSelectors
+        ? (
+            scenario === 'accept'
+              ? [this.lastLLMBannerSelectors.acceptSelector, this.lastLLMBannerSelectors.bannerSelector]
+              : [this.lastLLMBannerSelectors.rejectSelector, this.lastLLMBannerSelectors.bannerSelector]
+          ).filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+        : [];
+
+      const clickResult = await page.evaluate(({ scenario, bannerSelector, candidateSelectors }) => {
+        const resolvedCandidates = Array.isArray(candidateSelectors)
+          ? candidateSelectors.filter((value: unknown): value is string => typeof value === 'string' && value.trim().length > 0)
+          : [];
+
         // Keywords ordinate per SPECIFICITÀ (più specifiche prima!)
         const keywords = scenario === 'reject' 
           ? [
@@ -907,6 +919,39 @@ export class ConsentTestRunner {
             ];
 
         const scope = document.querySelector(bannerSelector);
+
+        // 1. Tentativo diretto con i selettori suggeriti dall'LLM
+        for (const selector of resolvedCandidates) {
+          let elements: Element[] = [];
+
+          try {
+            elements = Array.from(document.querySelectorAll(selector));
+          } catch (error) {
+            console.warn('[LLM selector] Invalid selector:', selector, error);
+          }
+
+          if (scope) {
+            try {
+              elements = elements.concat(Array.from(scope.querySelectorAll(selector)));
+            } catch (error) {
+              console.warn('[LLM selector] Invalid scoped selector:', selector, error);
+            }
+          }
+
+          for (const element of elements) {
+            const el = element as HTMLElement;
+            if (!el) continue;
+            const rect = el.getBoundingClientRect();
+            const style = window.getComputedStyle(el);
+            const isVisible = rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
+            if (!isVisible) continue;
+
+            el.click();
+            const text = (el.textContent || el.getAttribute('aria-label') || '').trim();
+            return { success: true, reason: 'candidate_selector', buttonText: text, keyword: selector };
+          }
+        }
+
         if (!scope) return { success: false, reason: 'Banner selector not found', buttonText: null };
         
         // Cerca tutti i pulsanti/interazioni nel banner
@@ -919,17 +964,17 @@ export class ConsentTestRunner {
           
           // Salta elementi con numeri grandi (probabilmente badge/counter come "necessari 323")
           if (/\d{2,}/.test(text)) continue;
-          
-          for (const keyword of keywords) {
-            if (combinedText.includes(keyword.toLowerCase())) {
-              (btn as HTMLElement).click();
-              return { success: true, reason: 'clicked', buttonText: text, keyword: keyword };
-            }
-          }
+              
+              for (const keyword of keywords) {
+                if (combinedText.includes(keyword.toLowerCase())) {
+                  (btn as HTMLElement).click();
+                  return { success: true, reason: 'clicked', buttonText: text, keyword: keyword };
+                }
+              }
         }
         
         return { success: false, reason: 'No matching button found', buttonText: null };
-      }, { scenario, bannerSelector });
+      }, { scenario, bannerSelector, candidateSelectors });
 
       console.log(`🎯 Click result:`, JSON.stringify(clickResult));
 

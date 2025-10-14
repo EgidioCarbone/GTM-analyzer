@@ -1,5 +1,5 @@
 import React from 'react';
-import { CheckCircle, XCircle, RefreshCw, Download } from 'lucide-react';
+import { CheckCircle, XCircle, RefreshCw, Download, AlertTriangle } from 'lucide-react';
 import { Card } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/Badge';
@@ -14,27 +14,67 @@ export default function ResultsStep({
 }: ResultsStepProps) {
   if (!state.report) return null;
 
+  const challenge = state.report.challenge || state.report.cookie?.challenge || null;
+  const summary = state.report.summary || null;
+  const totalSteps = summary?.steps ?? summary?.totalTests ?? 0;
+  const passedSteps = summary?.passed ?? 0;
+  const failedSteps = summary?.failed ?? 0;
+  const blockedSteps = summary?.blocked ?? 0;
+  const durationMs = summary?.duration ?? summary?.durationMs ?? 0;
+  const durationSeconds =
+    typeof durationMs === 'number' ? Math.round(durationMs / 1000) : null;
+
   return (
     <div className="space-y-6">
+      {challenge?.detected && (
+        <Card className="border border-amber-300 bg-amber-50 p-6 text-amber-900">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-1 h-5 w-5 text-amber-600" />
+            <div>
+              <h2 className="text-lg font-semibold">
+                Accesso bloccato dal sistema anti-bot{challenge.provider ? ` (${challenge.provider})` : ''}
+              </h2>
+              <p className="mt-1 text-sm">
+                {challenge.message ||
+                  'Cloudflare ha richiesto una verifica umana, impedendo l’esecuzione automatica dei test.'}
+              </p>
+              {challenge.url && (
+                <p className="mt-2 text-xs text-amber-700 break-all">
+                  Pagina rilevata: {challenge.url}
+                </p>
+              )}
+              <p className="mt-3 text-sm">
+                Sblocca manualmente il dominio o richiedi al team tecnico un accesso autorizzato
+                prima di rilanciare il test.
+              </p>
+            </div>
+          </div>
+        </Card>
+      )}
+
       {/* Summary */}
       <Card className="p-6">
         <h2 className="text-xl font-semibold mb-4">Test Results Summary</h2>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           <div className="text-center">
-            <div className="text-2xl font-bold text-gray-900">{state.report.summary.steps}</div>
+            <div className="text-2xl font-bold text-gray-900">{totalSteps}</div>
             <div className="text-sm text-gray-600">Total Steps</div>
           </div>
           <div className="text-center">
-            <div className="text-2xl font-bold text-green-600">{state.report.summary.passed}</div>
+            <div className="text-2xl font-bold text-green-600">{passedSteps}</div>
             <div className="text-sm text-gray-600">Passed</div>
           </div>
           <div className="text-center">
-            <div className="text-2xl font-bold text-red-600">{state.report.summary.failed}</div>
+            <div className="text-2xl font-bold text-red-600">{failedSteps}</div>
             <div className="text-sm text-gray-600">Failed</div>
           </div>
           <div className="text-center">
+            <div className="text-2xl font-bold text-amber-600">{blockedSteps}</div>
+            <div className="text-sm text-gray-600">Blocked</div>
+          </div>
+          <div className="text-center">
             <div className="text-2xl font-bold text-blue-600">
-              {Math.round(state.report.summary.duration / 1000)}s
+              {durationSeconds != null ? `${durationSeconds}s` : '–'}
             </div>
             <div className="text-sm text-gray-600">Duration</div>
           </div>
@@ -45,25 +85,29 @@ export default function ResultsStep({
       <Card className="p-6">
         <h2 className="text-xl font-semibold mb-4">Detailed Results</h2>
         <div className="space-y-4">
-          {state.report.results?.map((result, index) => (
-            <div
-              key={index}
-              className={`border rounded-lg p-4 ${
-                result.status === 'PASS'
-                  ? 'border-green-200 bg-green-50'
-                  : 'border-red-200 bg-red-50'
-              }`}
-            >
+          {state.report.results?.map((result, index) => {
+            const normalizedStatus = (result.status || '').toUpperCase();
+            const isPass = normalizedStatus === 'PASS';
+            const isBlocked = normalizedStatus === 'BLOCKED';
+            const cardClasses = isPass
+              ? 'border-green-200 bg-green-50'
+              : isBlocked
+                ? 'border-amber-200 bg-amber-50'
+                : 'border-red-200 bg-red-50';
+            const IconComponent = isPass ? CheckCircle : isBlocked ? AlertTriangle : XCircle;
+            const badgeVariant = isPass ? 'success' : isBlocked ? 'warning' : 'error';
+
+            return (
+              <div
+                key={index}
+                className={`border rounded-lg p-4 ${cardClasses}`}
+              >
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center">
-                  {result.status === 'PASS' ? (
-                    <CheckCircle className="w-5 h-5 text-green-600 mr-2" />
-                  ) : (
-                    <XCircle className="w-5 h-5 text-red-600 mr-2" />
-                  )}
+                  <IconComponent className={`w-5 h-5 mr-2 ${isPass ? 'text-green-600' : isBlocked ? 'text-amber-600' : 'text-red-600'}`} />
                   <span className="font-medium">{result.section}</span>
                   <Badge
-                    variant={result.status === 'PASS' ? 'success' : 'error'}
+                    variant={badgeVariant}
                     className="ml-2"
                   >
                     {result.status}
@@ -91,7 +135,7 @@ export default function ResultsStep({
 
               {/* Evidence */}
               <div className="mt-3 space-y-3">
-                {result.evidence.dataLayerEvents.length > 0 && (
+                {result.evidence?.dataLayerEvents?.length ? (
                   <div>
                     <p className="text-sm font-medium text-gray-700">DataLayer Events:</p>
                     <div className="bg-gray-100 rounded p-3 text-xs font-mono max-h-32 overflow-y-auto">
@@ -110,9 +154,9 @@ export default function ResultsStep({
                       ))}
                     </div>
                   </div>
-                )}
+                ) : null}
                 
-                {result.evidence.trackingHits.length > 0 && (
+                {result.evidence?.trackingHits?.length ? (
                   <div>
                     <p className="text-sm font-medium text-gray-700">Tracking Hits:</p>
                     <div className="bg-gray-100 rounded p-3 text-xs font-mono max-h-32 overflow-y-auto">
@@ -139,14 +183,14 @@ export default function ResultsStep({
                       ))}
                     </div>
                   </div>
-                )}
+                ) : null}
 
-                {result.evidence.screenshotPathOrB64 && (
+                {result.evidence?.screenshotPathOrB64 && (
                   <div>
                     <p className="text-sm font-medium text-gray-700">Screenshot:</p>
                     <div className="mt-2">
                       <img
-                        src={`data:image/png;base64,${result.evidence.screenshotPathOrB64}`}
+                        src={`data:image/png;base64,${result.evidence?.screenshotPathOrB64}`}
                         alt={`Screenshot for ${result.section} step ${result.stepIndex}`}
                         className="max-w-full h-auto rounded border shadow-sm cursor-pointer hover:shadow-md transition-shadow"
                         onClick={() => {
@@ -157,7 +201,7 @@ export default function ResultsStep({
                               <html>
                                 <head><title>Screenshot - ${result.section} Step ${result.stepIndex}</title></head>
                                 <body style="margin:0; padding:20px; background:#f5f5f5;">
-                                  <img src="data:image/png;base64,${result.evidence.screenshotPathOrB64}" 
+                                  <img src="data:image/png;base64,${result.evidence?.screenshotPathOrB64}" 
                                        style="max-width:100%; height:auto; border-radius:8px; box-shadow:0 4px 8px rgba(0,0,0,0.1);" />
                                 </body>
                               </html>
@@ -167,10 +211,11 @@ export default function ResultsStep({
                       />
                     </div>
                   </div>
-                )}
+                ) : null}
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       </Card>
 

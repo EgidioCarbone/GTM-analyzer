@@ -4,9 +4,11 @@
 
 import puppeteer, { Browser, Page } from 'puppeteer';
 import { TestSpec, TestResult, DataLayerEvent, TrackingHit } from '../types/ssd';
-import { SSDTargetResolver } from './ssdTargetResolver';
+import { SSDTargetResolver, ResolutionContext } from './ssdTargetResolver';
 import { SSDExpectationMatcher, ExpectationContext } from './ssdExpectationMatcher';
 import { SSDConsentHandler } from './ssdConsentHandler';
+import { SSDLlmTargetEnhancer } from './ssdLlmTargetEnhancer';
+import { SSD_DEFAULTS, getConfigValue, parseArray } from '../config/ssd-defaults';
 
 export interface RunOptions {
   headless?: boolean;
@@ -55,13 +57,15 @@ export class SSDPuppeteerRunner {
   private requestTimeout: number;
   private spaRouteTimeout: number;
   private fuzzy: boolean;
+  private targetEnhancer: SSDLlmTargetEnhancer | null | undefined;
+  private currentSiteUrl?: string;
 
   constructor(options: { screenshotDir?: string; timeout?: number; navTimeoutMs?: number; requestTimeoutMs?: number; spaRouteTimeoutMs?: number; fuzzy?: boolean } = {}) {
-    this.screenshotDir = options.screenshotDir || 'screenshots';
-    this.timeout = options.timeout || 30000;
-    this.navTimeout = options.navTimeoutMs || 30000;
-    this.requestTimeout = options.requestTimeoutMs || 10000;
-    this.spaRouteTimeout = options.spaRouteTimeoutMs || 5000;
+    this.screenshotDir = options.screenshotDir || getConfigValue('SCREENSHOTS_DIR', SSD_DEFAULTS.path.screenshots);
+    this.timeout = options.timeout || getConfigValue('RUNNER_STEP_TIMEOUT_MS', SSD_DEFAULTS.timeout.step, val => Number.parseInt(val, 10));
+    this.navTimeout = options.navTimeoutMs || getConfigValue('RUNNER_NAV_TIMEOUT_MS', SSD_DEFAULTS.timeout.navigation, val => Number.parseInt(val, 10));
+    this.requestTimeout = options.requestTimeoutMs || getConfigValue('RUNNER_REQUEST_TIMEOUT_MS', SSD_DEFAULTS.timeout.request, val => Number.parseInt(val, 10));
+    this.spaRouteTimeout = options.spaRouteTimeoutMs || getConfigValue('RUNNER_SPA_ROUTE_TIMEOUT_MS', SSD_DEFAULTS.timeout.spaRoute, val => Number.parseInt(val, 10));
     this.fuzzy = options.fuzzy || false;
   }
 
@@ -72,6 +76,7 @@ export class SSDPuppeteerRunner {
     const startTime = Date.now();
     let results: TestResult[] = [];
     let consentProfiles: string[] = [];
+    this.currentSiteUrl = testSpec.site;
 
     // Update timeouts from options
     if (options.navTimeoutMs) {
@@ -125,6 +130,7 @@ export class SSDPuppeteerRunner {
       };
 
     } finally {
+      this.currentSiteUrl = undefined;
       await this.cleanup();
     }
   }
@@ -180,6 +186,40 @@ export class SSDPuppeteerRunner {
         }
       });
     }
+  }
+
+  private ensureTargetEnhancer(): SSDLlmTargetEnhancer | undefined {
+    if (this.targetEnhancer !== undefined) {
+      return this.targetEnhancer || undefined;
+    }
+
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      console.log('[runner] 🤖 LLM target enhancer disabled: OPENAI_API_KEY missing');
+      this.targetEnhancer = null;
+      return undefined;
+    }
+
+    const model =
+      process.env.TARGET_LLM_MODEL ||
+      process.env.OPENAI_MODEL ||
+      'gpt-4o-mini';
+
+    this.targetEnhancer = new SSDLlmTargetEnhancer({
+      apiKey,
+      model,
+    });
+
+    console.log(`[runner] 🤖 LLM target enhancer initialized (model=${model})`);
+
+    return this.targetEnhancer;
+  }
+
+  private createResolutionContext(step: any): ResolutionContext {
+    return {
+      siteUrl: this.currentSiteUrl,
+      step,
+    };
   }
 
   /**
@@ -263,15 +303,8 @@ export class SSDPuppeteerRunner {
     if (!this.page) return;
 
     // Get tracking domains from options or use defaults
-    const trackingDomains = options.allowedTracking || [
-      'google-analytics.com',
-      'googletagmanager.com',
-      'g.doubleclick.net',
-      'facebook.com/tr',
-      'connect.facebook.net',
-      'analytics.google.com',
-      'www.google-analytics.com',
-    ];
+    const trackingDomains = options.allowedTracking || 
+      parseArray(getConfigValue('PUPPETEER_ALLOWED_TRACKING', SSD_DEFAULTS.network.tracking.join(',')));
 
     this.page.on('request', (request) => {
       const url = request.url();
@@ -398,7 +431,10 @@ export class SSDPuppeteerRunner {
     if (!this.page) throw new SSDRunnerError('Page not initialized');
 
     const results: TestResult[] = [];
-    const targetResolver = new SSDTargetResolver(this.page, this.timeout);
+    const targetResolver = new SSDTargetResolver(this.page, this.timeout, {
+      enhancer: this.ensureTargetEnhancer(),
+      siteUrl: this.currentSiteUrl,
+    });
     const expectationMatcher = new SSDExpectationMatcher(this.page, { fuzzy: this.fuzzy });
     const debugLogsEnabled = process.env.SSD_DEBUG_LOGS === '1';
     if (debugLogsEnabled) {
@@ -569,7 +605,7 @@ export class SSDPuppeteerRunner {
     if (!step.target) throw new SSDRunnerError('Click step requires target');
 
     console.log(`[Click Step] Resolving target: ${JSON.stringify(step.target)}`);
-    const resolution = await targetResolver.resolveTarget(step.target);
+    const resolution = await targetResolver.resolveTarget(step.target, this.createResolutionContext(step));
     
     if (!resolution.element) {
       const errorMsg = `Could not resolve target for click: ${resolution.error || 'Unknown error'}. Target: ${JSON.stringify(step.target)}`;
@@ -621,7 +657,7 @@ export class SSDPuppeteerRunner {
     if (!step.target) throw new SSDRunnerError('Input step requires target');
     if (!step.value) throw new SSDRunnerError('Input step requires value');
 
-    const resolution = await targetResolver.resolveTarget(step.target);
+    const resolution = await targetResolver.resolveTarget(step.target, this.createResolutionContext(step));
     if (!resolution.element) {
       throw new SSDRunnerError(`Could not resolve target for input: ${resolution.error}`);
     }
@@ -696,7 +732,7 @@ export class SSDPuppeteerRunner {
   private async executeMaybeSetQuantityStep(step: any, targetResolver: SSDTargetResolver): Promise<void> {
     if (!step.target) throw new SSDRunnerError('Maybe set quantity step requires target');
 
-    const resolution = await targetResolver.resolveTarget(step.target);
+    const resolution = await targetResolver.resolveTarget(step.target, this.createResolutionContext(step));
     if (!resolution.element) {
       throw new SSDRunnerError(`Could not resolve target for quantity: ${resolution.error}`);
     }
@@ -714,7 +750,7 @@ export class SSDPuppeteerRunner {
   private async executeChoosePaymentStep(step: any, targetResolver: SSDTargetResolver): Promise<void> {
     if (!step.target) throw new SSDRunnerError('Choose payment step requires target');
 
-    const resolution = await targetResolver.resolveTarget(step.target);
+    const resolution = await targetResolver.resolveTarget(step.target, this.createResolutionContext(step));
     if (!resolution.element) {
       throw new SSDRunnerError(`Could not resolve target for payment: ${resolution.error}`);
     }
@@ -903,15 +939,8 @@ export class SSDPuppeteerRunner {
     }
     
     // Allow tracking domains
-    const trackingDomains = options.allowedTracking || [
-      'google-analytics.com',
-      'googletagmanager.com',
-      'g.doubleclick.net',
-      'facebook.com/tr',
-      'connect.facebook.net',
-      'analytics.google.com',
-      'www.google-analytics.com',
-    ];
+    const trackingDomains = options.allowedTracking || 
+      parseArray(getConfigValue('PUPPETEER_ALLOWED_TRACKING', SSD_DEFAULTS.network.tracking.join(',')));
     
     if (trackingDomains.some(domain => hostname.includes(domain))) {
       return true;
@@ -992,4 +1021,3 @@ export class SSDPuppeteerRunner {
     this.trackingHits = [];
   }
 }
-

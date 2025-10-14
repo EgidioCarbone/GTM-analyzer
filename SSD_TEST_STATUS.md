@@ -22,6 +22,8 @@ The SSD Test feature has been successfully implemented and is now fully function
    - ✅ CORS configuration
    - ✅ Error handling and validation
    - ✅ Mock responses for testing (ready for OpenAI integration)
+   - ✅ LLM fallback per estrarre i selettori CMP direttamente dall'HTML live
+   - ✅ Rilevamento challenge anti-bot (Cloudflare) con messaggistica all'utente
 
 3. **Architecture**
    - ✅ Complete TypeScript type definitions

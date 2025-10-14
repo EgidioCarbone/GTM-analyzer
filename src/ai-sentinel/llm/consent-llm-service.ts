@@ -16,6 +16,7 @@ const DEFAULT_MODEL = 'gpt-4o-mini';
 const DEFAULT_CACHE_TTL = 1000 * 60 * 60 * 24 * 7; // 7 days
 const MAX_HTML_CHARS = 8000;
 const MAX_PREVIOUS_ERRORS = 3;
+const BANNER_SELECTOR_CACHE_TTL = 1000 * 60 * 60 * 24; // 24 ore
 
 function truncate(text: string, max = MAX_HTML_CHARS): string {
   if (text.length <= max) return text;
@@ -80,6 +81,11 @@ export class ConsentLLMService {
   private cache: LLMPlanCache;
   private cacheTtlMs: number;
   private temperature: number;
+  private bannerSelectorCache = new Map<string, { createdAt: number; value: {
+    bannerSelector: string | null;
+    acceptSelector: string | null;
+    rejectSelector: string | null;
+  }}>();
 
   constructor(options: ConsentLLMServiceOptions) {
     if (!options.apiKey) {
@@ -283,4 +289,80 @@ ${previousNotes ? `PREVIOUS ATTEMPTS:\n${previousNotes}` : ''}`;
       return null;
     }
   }
+
+  async suggestSelectorsFromHtml(options: {
+    pageUrl: string;
+    html: string;
+    languageHints?: string[];
+  }): Promise<{
+    bannerSelector: string | null;
+    acceptSelector: string | null;
+    rejectSelector: string | null;
+  } | null> {
+    const { pageUrl, html, languageHints = [] } = options;
+    if (!html || !html.trim()) {
+      return null;
+    }
+
+    const cleanedHtml = truncate(stripScriptsAndStyles(html));
+    const signature = computeBannerSignature(cleanedHtml);
+    const cacheKey = `${this.model}:${signature}`;
+    const cached = this.bannerSelectorCache.get(cacheKey);
+    if (cached && Date.now() - cached.createdAt < BANNER_SELECTOR_CACHE_TTL) {
+      return cached.value;
+    }
+
+    const systemPrompt = `You are an automation engineer specialised in cookie consent banners.
+You receive the rendered HTML of a page at first load and must identify the cookie/consent banner container and the primary accept/reject controls, if present.
+- Analyse ONLY the provided HTML.
+- Prefer stable selectors (id, data-*, aria) and avoid guesses.
+- If a selector is missing or ambiguous, return null for that field.
+- Answer strictly with the required JSON object (no extra text).`;
+
+    const hints = languageHints.length > 0 ? languageHints.join(', ') : 'auto-detect';
+
+    const userPrompt = `PAGE URL: ${pageUrl}
+LANGUAGE HINTS: ${hints}
+HTML SNIPPET (trimmed):\n${cleanedHtml}
+
+Return JSON with keys "banner_selector", "accept_selector", "reject_selector". Use null when unsure.`;
+
+    try {
+      const response = await this.openai.chat.completions.create({
+        model: this.model,
+        temperature: 0.1,
+        response_format: { type: 'json_object' },
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        max_tokens: 500,
+      });
+
+      const content = response.choices[0]?.message?.content?.trim();
+      if (!content) {
+        return null;
+      }
+
+      const parsed = JSON.parse(content);
+      const value = {
+        bannerSelector: parsed.banner_selector ?? null,
+        acceptSelector: parsed.accept_selector ?? null,
+        rejectSelector: parsed.reject_selector ?? null,
+      };
+
+      this.bannerSelectorCache.set(cacheKey, { createdAt: Date.now(), value });
+      return value;
+    } catch (error) {
+      console.error('❌ Errore LLM suggerimento selettori da HTML:', error);
+      return null;
+    }
+  }
+}
+
+function stripScriptsAndStyles(html: string): string {
+  return html
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<!--[\s\S]*?-->/g, '');
 }

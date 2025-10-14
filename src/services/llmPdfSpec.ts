@@ -4,6 +4,7 @@
 
 import OpenAI from 'openai';
 import { TestSpec } from '../types/ssd';
+import { SSD_DEFAULTS, getConfigValue } from '../config/ssd-defaults';
 
 export interface LLMPdfSpecOptions {
   url: string;
@@ -19,10 +20,19 @@ export interface LLMPdfSpecResult {
 export class LLMPdfSpecService {
   private openai: OpenAI;
   private model: string;
+  private temperature: number;
+  private maxTokens: number;
 
-  constructor(apiKey: string, model: string = 'gpt-4o-mini') {
+  constructor(
+    apiKey: string, 
+    model?: string,
+    temperature?: number,
+    maxTokens?: number
+  ) {
     this.openai = new OpenAI({ apiKey });
-    this.model = model;
+    this.model = model || getConfigValue('OPENAI_MODEL', SSD_DEFAULTS.llm.models.default);
+    this.temperature = temperature ?? SSD_DEFAULTS.llm.temperature.specGeneration;
+    this.maxTokens = maxTokens ?? SSD_DEFAULTS.llm.maxTokens.specGeneration;
   }
 
   async generatePdfSpec(options: LLMPdfSpecOptions): Promise<LLMPdfSpecResult> {
@@ -61,8 +71,8 @@ export class LLMPdfSpecService {
           },
         ],
         response_format: { type: 'json_object' },
-        temperature: 0.1,
-        max_tokens: 4000,
+        temperature: this.temperature,
+        max_tokens: this.maxTokens,
       });
 
       const content = response.choices[0]?.message?.content;
@@ -157,8 +167,9 @@ TARGET WEBSITE: ${url}
 `;
 
     if (htmlContent) {
-      const truncatedHtml = htmlContent.length > 50000 ? 
-        htmlContent.substring(0, 50000) + '\n\n[HTML CONTENT TRUNCATED...]' : 
+      const maxHtmlLength = getConfigValue('HTML_MAX_LENGTH', SSD_DEFAULTS.content.maxHtmlLength, val => Number.parseInt(val, 10));
+      const truncatedHtml = htmlContent.length > maxHtmlLength ? 
+        htmlContent.substring(0, maxHtmlLength) + SSD_DEFAULTS.content.truncationMarker : 
         htmlContent;
       
       prompt += `HTML CONTENT OF THE WEBSITE:
@@ -208,19 +219,23 @@ Non usare proprietà chiamate "test_spec" o "expectations". Non generare codice 
   private generateWarnings(pdfText: string, spec: TestSpec): string[] {
     const warnings: string[] = [];
 
+    const minPdfLength = getConfigValue('PDF_MIN_TEXT_LENGTH', SSD_DEFAULTS.confidence.minPdfLength, val => Number.parseInt(val, 10));
+    const ambiguityThreshold = getConfigValue('AMBIGUITY_MIN_CONFIDENCE', SSD_DEFAULTS.confidence.ambiguity, val => Number.parseFloat(val));
+    const maxAmbiguityRatio = SSD_DEFAULTS.confidence.maxAmbiguityRatio;
+
     // Check for very short PDF content
-    if (pdfText.length < 500) {
-      warnings.push('PDF content is very short - may lack sufficient detail for comprehensive testing');
+    if (pdfText.length < minPdfLength) {
+      warnings.push(`PDF content is very short (${pdfText.length} chars) - may lack sufficient detail for comprehensive testing`);
     }
 
     // Check for high ambiguity ratio
     const totalSteps = spec.tests?.reduce((sum, test) => sum + (test.steps?.length || 0), 0) || 0;
     const ambiguousSteps = spec.tests?.reduce((count, test) => {
-      return count + (test.steps?.filter(step => (step.confidence || 1) < 0.6).length || 0);
+      return count + (test.steps?.filter(step => (step.confidence || 1) < ambiguityThreshold).length || 0);
     }, 0) || 0;
     
-    if (totalSteps > 0 && ambiguousSteps / totalSteps > 0.3) {
-      warnings.push('High number of ambiguous steps detected - manual review recommended');
+    if (totalSteps > 0 && ambiguousSteps / totalSteps > maxAmbiguityRatio) {
+      warnings.push(`High number of ambiguous steps detected (${Math.round(ambiguousSteps / totalSteps * 100)}%) - manual review recommended`);
     }
 
     // Check for missing expectations

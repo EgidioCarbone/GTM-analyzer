@@ -57,6 +57,7 @@ const statusToTone = (status?: string): StatusTone => {
   const normalized = status.toUpperCase();
   if (normalized === 'PASS') return 'success';
   if (normalized === 'FAIL' || normalized === 'ERROR') return 'error';
+  if (normalized === 'BLOCKED') return 'warning';
   return 'warning';
 };
 
@@ -409,6 +410,18 @@ export default function DetailedResultsStep({
 
     const body = (
       <div className="space-y-3">
+        {report.cookie.challenge?.detected && (
+          <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+            <AlertTriangle className="mt-0.5 h-4 w-4" />
+            <div>
+              <p className="font-medium">Challenge anti-bot rilevato</p>
+              <p>
+                {report.cookie.challenge.message ||
+                  'Cloudflare ha richiesto una verifica manuale impedendo l’esecuzione automatica del test.'}
+              </p>
+            </div>
+          </div>
+        )}
         {report.cookie.cookieBtnSelector && (
           <div className="flex flex-wrap items-center gap-2 text-sm text-gray-700">
             <span className="font-semibold text-gray-900">Bottone cliccato:</span>
@@ -435,6 +448,10 @@ export default function DetailedResultsStep({
         {renderDataLayerDetails(report.cookie.dataLayerEvents)}
       </div>
     );
+
+    if (report.cookie.challenge?.detected) {
+      badges.push('Anti-bot challenge');
+    }
 
     timelineItems.push({
       id: 'cookie',
@@ -524,7 +541,7 @@ export default function DetailedResultsStep({
           </div>
         </div>
 
-        <div className="mt-6 grid gap-3 md:grid-cols-4">
+        <div className="mt-6 grid gap-3 md:grid-cols-5">
           <div className="rounded-xl bg-white/10 p-4 text-sm">
             <div className="text-white/70">Test totali</div>
             <div className="text-2xl font-semibold">{summary.totalTests}</div>
@@ -538,6 +555,10 @@ export default function DetailedResultsStep({
             <div className="text-2xl font-semibold text-rose-200">{summary.failed}</div>
           </div>
           <div className="rounded-xl bg-white/10 p-4 text-sm">
+            <div className="text-white/70">Bloccati</div>
+            <div className="text-2xl font-semibold text-amber-200">{summary.blocked}</div>
+          </div>
+          <div className="rounded-xl bg-white/10 p-4 text-sm">
             <div className="text-white/70">Durata totale</div>
             <div className="flex items-center gap-2 text-2xl font-semibold">
               <Timer className="h-5 w-5 text-white/70" />
@@ -546,6 +567,25 @@ export default function DetailedResultsStep({
           </div>
         </div>
       </Card>
+
+      {(state.report.challenge?.detected || state.report.cookie?.challenge?.detected) && (
+        <Card className="border border-amber-300 bg-amber-50 p-5 text-amber-900">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-1 h-5 w-5 text-amber-600" />
+            <div>
+              <h3 className="text-lg font-semibold">Challenge anti-bot rilevato</h3>
+              <p className="text-sm mt-1">
+                {state.report.cookie?.challenge?.message || state.report.challenge?.message || 'Cloudflare ha richiesto una verifica manuale impedendo l’esecuzione dei test automatizzati.'}
+              </p>
+              {state.report.cookie?.challenge?.url && (
+                <p className="mt-2 text-xs text-amber-700 break-all">
+                  Pagina: {state.report.cookie.challenge.url}
+                </p>
+              )}
+            </div>
+          </div>
+        </Card>
+      )}
 
       <Card className="p-6">
         <div className="mb-5 flex items-center gap-2">

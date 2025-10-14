@@ -360,66 +360,79 @@ export default function SSDTestPage() {
       console.log('  🎯 Result.cookie:', result.cookie);
       console.log('  🎯 Result.artifacts:', result.artifacts);
       
-      // Aggiorna i progressi dei test
-      updateStep('navigation', 'completed', 'Successfully navigated to website');
-      updateStep('cookie_consent', 'completed', 'Cookie consent handled');
-      updateStep('test_execution', 'completed', 'Tests executed successfully');
-      updateStep('data_collection', 'completed', 'Data collected and analyzed');
-      updateStep('report_generation', 'completed', 'Report generated successfully');
+      const challengeInfo = result.challenge || result.cookie?.challenge || null;
+
+      // Aggiorna i progressi dei test in base al challenge
+      if (challengeInfo?.detected) {
+        const detail = challengeInfo.message || 'Bloccato dal sistema anti-bot';
+        updateStep('navigation', 'error', detail);
+        updateStep('cookie_consent', 'error', 'Cookie banner non gestito: challenge anti-bot attivo');
+        updateStep('test_execution', 'error', 'Esecuzione test interrotta dal challenge');
+        updateStep('data_collection', 'error', 'Nessun dato raccolto: challenge anti-bot');
+        updateStep('report_generation', 'completed', 'Report generato con avviso anti-bot');
+      } else {
+        updateStep('navigation', 'completed', 'Successfully navigated to website');
+        updateStep('cookie_consent', 'completed', 'Cookie consent handled');
+        updateStep('test_execution', 'completed', 'Tests executed successfully');
+        updateStep('data_collection', 'completed', 'Data collected and analyzed');
+        updateStep('report_generation', 'completed', 'Report generated successfully');
+      }
       
       // Funzioni helper per calcolare stato e statistiche
       const calculateOverallStatus = (cookie: any, pdf: any) => {
-        const cookieStatus = cookie?.status || 'UNKNOWN';
-        const pdfStatus = pdf?.status || 'UNKNOWN';
+        const cookieStatus = (cookie?.status || 'UNKNOWN').toUpperCase();
+        const pdfStatus = (pdf?.status || 'UNKNOWN').toUpperCase();
         
-        if (cookieStatus === 'PASS' && pdfStatus === 'PASS') return 'PASS';
-        if (cookieStatus === 'FAIL' || pdfStatus === 'FAIL') return 'FAIL';
+        if (cookieStatus === 'BLOCKED' || pdfStatus === 'BLOCKED') return 'BLOCKED';
         if (cookieStatus === 'ERROR' || pdfStatus === 'ERROR') return 'ERROR';
+        if (cookieStatus === 'FAIL' || pdfStatus === 'FAIL') return 'FAIL';
+        if (cookieStatus === 'PASS' && pdfStatus === 'PASS') return 'PASS';
         return 'UNKNOWN';
       };
       
       const calculateSummary = (cookie: any, pdf: any) => {
-        // CORRECTED LOGIC: Count actual test categories, not individual steps
         let totalTests = 0;
         let passedTests = 0;
         let failedTests = 0;
-        
-        // Cookie test counts as 1 test
+        let blockedTests = 0;
+
+        const consider = (status?: string | null) => {
+          if (!status) return;
+          const normalized = status.toUpperCase();
+          if (normalized === 'PASS') passedTests++;
+          else if (normalized === 'BLOCKED') blockedTests++;
+          else if (normalized === 'FAIL' || normalized === 'ERROR') failedTests++;
+        };
+
         if (cookie) {
           totalTests++;
-          if (cookie.status === 'PASS') {
-            passedTests++;
-          } else if (cookie.status === 'FAIL') {
-            failedTests++;
-          }
+          consider(cookie.status);
         }
-        
-        // PDF test counts as 1 test
+
         if (pdf) {
           totalTests++;
-          if (pdf.status === 'PASS') {
-            passedTests++;
-          } else if (pdf.status === 'FAIL') {
-            failedTests++;
-          }
+          consider(pdf.status);
         }
-        
-        // Calculate total duration
+
         const totalDuration = (cookie?.duration || 0) + (pdf?.duration || 0);
-        
-        console.log('📊 CORRECTED SUMMARY CALCULATION:');
+
+        console.log('📊 SUMMARY CALCULATION:');
         console.log('  🍪 Cookie test:', cookie?.status || 'N/A');
         console.log('  📄 PDF test:', pdf?.status || 'N/A');
         console.log('  📈 Total tests:', totalTests);
         console.log('  ✅ Passed tests:', passedTests);
         console.log('  ❌ Failed tests:', failedTests);
+        console.log('  🚫 Blocked tests:', blockedTests);
         console.log('  ⏱️ Total duration:', totalDuration, 'ms');
-        
+
         return {
-          totalTests: totalTests,
+          steps: totalTests,
+          totalTests,
           passed: passedTests,
           failed: failedTests,
-          duration: totalDuration
+          blocked: blockedTests,
+          duration: totalDuration,
+          consentProfiles: cookie?.consentStatus ? [cookie.consentStatus] : []
         };
       };
 
@@ -452,6 +465,9 @@ export default function SSDTestPage() {
           
           // Calcola le statistiche
           summary: calculateSummary(result.cookie, result.pdf),
+
+          // Challenge info
+          challenge: challengeInfo,
           
           // Timestamp
           timestamp: new Date().toISOString()
@@ -464,6 +480,17 @@ export default function SSDTestPage() {
       console.log('🎯 Final reportData:', reportData);
       console.log('🎯 Final reportData type:', typeof reportData);
       console.log('🎯 Final reportData keys:', reportData ? Object.keys(reportData) : 'N/A');
+
+      const overallStatus = reportData?.overallStatus;
+      if (challengeInfo?.detected) {
+        toast.error(challengeInfo.message || 'Accesso bloccato dal sistema anti-bot (Cloudflare).');
+      } else if (overallStatus === 'PASS') {
+        toast.success('Tests completed successfully!');
+      } else if (overallStatus === 'FAIL' || overallStatus === 'ERROR' || overallStatus === 'BLOCKED') {
+        toast.error('Tests completed with issues. Controlla i dettagli.');
+      } else {
+        toast('Tests completed with warnings.', { icon: '⚠️' });
+      }
       
       setState(prev => ({
         ...prev,
@@ -478,8 +505,6 @@ export default function SSDTestPage() {
       
       // Completa l'analisi e chiudi il loader dopo aver mostrato i risultati
       completeAnalysis();
-
-      toast.success('Tests completed successfully!');
     } catch (error) {
       // Gestisci errore di abort
       if (error instanceof Error && error.name === 'AbortError') {

@@ -7,7 +7,9 @@ import OpenAI from "openai";
 
 const router = express.Router();
 const ga4 = new BetaAnalyticsDataClient();
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const openai = process.env.OPENAI_API_KEY 
+  ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  : null;
 
 // Funzione utilità per fallback date
 function dateRangeOrDefault(start?: string, end?: string) {
@@ -160,6 +162,10 @@ router.post("/api/ga4/insights", async (req, res) => {
   try {
     const propertyId = process.env.GA4_PROPERTY_ID;
     if (!propertyId) return res.status(400).json({ error: "GA4_PROPERTY_ID mancante" });
+
+    if (!openai) {
+      return res.status(503).json({ error: "OpenAI API key non configurata" });
+    }
 
     const { startDate, endDate, prompt } = req.body ?? {};
     const { startDate: s, endDate: e } = dateRangeOrDefault(startDate, endDate);

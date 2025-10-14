@@ -6,6 +6,7 @@ export interface ReportSummaryView {
   totalTests: number;
   passed: number;
   failed: number;
+  blocked: number;
   durationMs: number | null;
   consentProfiles: string[];
   overallStatus: OverallStatus;
@@ -23,6 +24,7 @@ export function buildReportSummary(report: TestReport | null): ReportSummaryView
       totalTests: 0,
       passed: 0,
       failed: 0,
+      blocked: 0,
       durationMs: null,
       consentProfiles: [],
       overallStatus: 'PARTIAL',
@@ -38,27 +40,31 @@ export function buildReportSummary(report: TestReport | null): ReportSummaryView
     const totalTests = 2;
     let passed = 0;
     let failed = 0;
+    let blocked = 0;
     
     if (cookieStatus === 'PASS') passed++;
-    else if (cookieStatus === 'FAIL') failed++;
+    else if (cookieStatus === 'FAIL' || cookieStatus === 'ERROR') failed++;
+    else if (cookieStatus === 'BLOCKED') blocked++;
     
     if (pdfStatus === 'PASS') passed++;
-    else if (pdfStatus === 'FAIL') failed++;
+    else if (pdfStatus === 'FAIL' || pdfStatus === 'ERROR') failed++;
+    else if (pdfStatus === 'BLOCKED') blocked++;
     
     const durationMs = (report.cookie?.duration || 0) + (report.pdf?.duration || 0);
     const consentProfiles = report.cookie?.consentStatus ? [report.cookie.consentStatus] : [];
     
     let overallStatus: OverallStatus = 'PARTIAL';
-    if (failed === 0 && passed === totalTests) {
-      overallStatus = 'SUCCESS';
-    } else if (failed > 0) {
+    if (blocked > 0 || failed > 0) {
       overallStatus = 'FAILURE';
+    } else if (passed === totalTests) {
+      overallStatus = 'SUCCESS';
     }
     
     return {
       totalTests,
       passed,
       failed,
+      blocked,
       durationMs,
       consentProfiles,
       overallStatus,
@@ -98,6 +104,7 @@ export function buildReportSummary(report: TestReport | null): ReportSummaryView
     totalTests,
     passed,
     failed,
+    blocked: 0,
     durationMs,
     consentProfiles,
     overallStatus,

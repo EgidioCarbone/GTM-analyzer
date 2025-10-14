@@ -3,6 +3,7 @@
 // ============================================================================
 
 import { Page } from 'puppeteer';
+import { SSD_DEFAULTS, getConfigValue } from '../config/ssd-defaults';
 
 export interface ConsentProfile {
   name: 'accept' | 'reject';
@@ -33,95 +34,73 @@ export class SSDConsentHandler {
   private timeout: number;
 
   // Common CMP selectors for different consent management platforms
-  private readonly consentProfiles: ConsentProfile[] = [
-    {
-      name: 'accept',
-      description: 'Accept all cookies',
-      selectors: [
-        // OneTrust
-        '#onetrust-accept-btn-handler',
-        '.ot-pc-refuse-all-handler',
-        '[data-optanongroupid="C0001"]',
-        // Cookiebot
-        '#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll',
-        '#CybotCookiebotDialogBodyButtonAccept',
-        // CookieYes
-        '#cookie_action_close_header',
-        '.cky-btn-accept',
-        // TrustArc
-        '.truste_consent_accept',
-        '#truste_consent_button',
-        // Generic patterns
-        'button[data-testid*="accept"]',
-        'button[class*="accept"]',
-        'button[id*="accept"]',
-        'button[aria-label*="Accept"]',
-        'button:contains("Accept")',
-        'button:contains("Accept All")',
-        'button:contains("Allow All")',
-        'button:contains("I Accept")',
-        'button:contains("I Agree")',
-        'button:contains("OK")',
-        'button:contains("Continue")',
-        '.consent-accept',
-        '.cookie-accept',
-        '.accept-all',
-        '.allow-all',
-      ],
-      iframeSelectors: [
-        'iframe[src*="consent"]',
-        'iframe[src*="cookie"]',
-        'iframe[id*="consent"]',
-        'iframe[id*="cookie"]',
-      ],
-      waitForSelector: '.consent-banner, #consent-banner, .cookie-banner, #cookie-banner',
-      timeout: 5000,
-    },
-    {
-      name: 'reject',
-      description: 'Reject all cookies',
-      selectors: [
-        // OneTrust
-        '#onetrust-reject-all-handler',
-        '.ot-pc-refuse-all-handler',
-        '[data-optanongroupid="C0002"]',
-        // Cookiebot
-        '#CybotCookiebotDialogBodyLevelButtonLevelOptinDeclineAll',
-        '#CybotCookiebotDialogBodyButtonDecline',
-        // CookieYes
-        '#cookie_action_close_header_reject',
-        '.cky-btn-decline',
-        // TrustArc
-        '.truste_consent_reject',
-        // Generic patterns
-        'button[data-testid*="reject"]',
-        'button[class*="reject"]',
-        'button[id*="reject"]',
-        'button[aria-label*="Reject"]',
-        'button:contains("Reject")',
-        'button:contains("Reject All")',
-        'button:contains("Decline")',
-        'button:contains("Decline All")',
-        'button:contains("No Thanks")',
-        '.consent-reject',
-        '.cookie-reject',
-        '.reject-all',
-        '.decline-all',
-      ],
-      iframeSelectors: [
-        'iframe[src*="consent"]',
-        'iframe[src*="cookie"]',
-        'iframe[id*="consent"]',
-        'iframe[id*="cookie"]',
-      ],
-      waitForSelector: '.consent-banner, #consent-banner, .cookie-banner, #cookie-banner',
-      timeout: 5000,
-    },
-  ];
+  private readonly consentProfiles: ConsentProfile[];
 
-  constructor(page: Page, timeout: number = 10000) {
+  constructor(page: Page, timeout?: number) {
     this.page = page;
-    this.timeout = timeout;
+    this.timeout = timeout || getConfigValue('CONSENT_BANNER_TIMEOUT_MS', SSD_DEFAULTS.timeout.consent.bannerInteraction, val => Number.parseInt(val, 10));
+    
+    // Build consent profiles from centralized configuration
+    this.consentProfiles = this.buildConsentProfiles();
+  }
+  
+  /**
+   * Build consent profiles from centralized CMP selectors
+   */
+  private buildConsentProfiles(): ConsentProfile[] {
+    const cmpConfig = SSD_DEFAULTS.cmp;
+    const bannerTimeout = getConfigValue('CONSENT_BANNER_DETECTION_MS', SSD_DEFAULTS.timeout.consent.bannerDetection, val => Number.parseInt(val, 10));
+    
+    return [
+      {
+        name: 'accept',
+        description: 'Accept all cookies',
+        selectors: [
+          ...cmpConfig.onetrust.accept,
+          ...cmpConfig.cookiebot.accept,
+          ...cmpConfig.trustarc.accept,
+          ...cmpConfig.generic.accept,
+          // Additional CMP-specific patterns
+          '.cky-btn-accept',
+          '#cookie_action_close_header',
+          '.truste_consent_accept',
+          '#truste_consent_button',
+          '[data-optanongroupid="C0001"]',
+        ],
+        iframeSelectors: [
+          'iframe[src*="consent"]',
+          'iframe[src*="cookie"]',
+          'iframe[id*="consent"]',
+          'iframe[id*="cookie"]',
+        ],
+        waitForSelector: '.consent-banner, #consent-banner, .cookie-banner, #cookie-banner',
+        timeout: bannerTimeout,
+      },
+      {
+        name: 'reject',
+        description: 'Reject all cookies',
+        selectors: [
+          ...cmpConfig.onetrust.reject,
+          ...cmpConfig.cookiebot.reject,
+          ...cmpConfig.trustarc.reject,
+          ...cmpConfig.generic.reject,
+          // Additional CMP-specific patterns
+          '.cky-btn-decline',
+          '#cookie_action_close_header_reject',
+          '.truste_consent_reject',
+          '[data-optanongroupid="C0002"]',
+          '.ot-pc-refuse-all-handler',
+        ],
+        iframeSelectors: [
+          'iframe[src*="consent"]',
+          'iframe[src*="cookie"]',
+          'iframe[id*="consent"]',
+          'iframe[id*="cookie"]',
+        ],
+        waitForSelector: '.consent-banner, #consent-banner, .cookie-banner, #cookie-banner',
+        timeout: bannerTimeout,
+      },
+    ];
   }
 
   /**

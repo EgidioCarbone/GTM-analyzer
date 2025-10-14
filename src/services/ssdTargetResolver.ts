@@ -4,6 +4,8 @@
 
 import { Page, ElementHandle } from 'puppeteer';
 import { Target } from '../types/ssd';
+import { SSD_DEFAULTS, getConfigValue } from '../config/ssd-defaults';
+import { SSDLlmTargetEnhancer } from './ssdLlmTargetEnhancer';
 
 export interface TargetResolutionResult {
   element: ElementHandle<Element> | null;
@@ -11,6 +13,16 @@ export interface TargetResolutionResult {
   method: 'text' | 'aria' | 'href' | 'selector' | 'region_text' | 'region_aria';
   confidence: number;
   error?: string;
+}
+
+export interface ResolutionContext {
+  step?: any;
+  siteUrl?: string;
+}
+
+interface SSDTargetResolverOptions {
+  enhancer?: SSDLlmTargetEnhancer;
+  siteUrl?: string;
 }
 
 export class TargetResolutionError extends Error {
@@ -23,19 +35,46 @@ export class TargetResolutionError extends Error {
 export class SSDTargetResolver {
   private page: Page;
   private timeout: number;
+  private quickTimeout: number;
+  private mediumTimeout: number;
+  private enhancer?: SSDLlmTargetEnhancer;
+  private siteUrl?: string;
 
-  constructor(page: Page, timeout: number = 5000) {
+  constructor(page: Page, timeout?: number, options: SSDTargetResolverOptions = {}) {
     this.page = page;
-    this.timeout = timeout;
+    this.timeout = timeout || getConfigValue('SELECTOR_TIMEOUT_MS', SSD_DEFAULTS.timeout.selector.default, val => Number.parseInt(val, 10));
+    this.quickTimeout = getConfigValue('SELECTOR_QUICK_TIMEOUT_MS', SSD_DEFAULTS.timeout.selector.quick, val => Number.parseInt(val, 10));
+    this.mediumTimeout = getConfigValue('SELECTOR_MEDIUM_TIMEOUT_MS', SSD_DEFAULTS.timeout.selector.medium, val => Number.parseInt(val, 10));
+    this.enhancer = options.enhancer;
+    this.siteUrl = options.siteUrl;
   }
 
   /**
    * Resolve a target to a clickable element
    * Resolution order: region scope → text → aria → href → selector
    */
-  async resolveTarget(target: Target): Promise<TargetResolutionResult> {
+  async resolveTarget(target: Target, context?: ResolutionContext): Promise<TargetResolutionResult> {
     const results: TargetResolutionResult[] = [];
     const candidates: string[] = [];
+    const resolutionContext: ResolutionContext = {
+      siteUrl: context?.siteUrl || this.siteUrl,
+      step: context?.step,
+    };
+
+    // Optional LLM-driven enhancement for generic selectors
+    const enhancedSelectors = await this.getEnhancedSelectors(target, resolutionContext);
+    if (enhancedSelectors && enhancedSelectors.length > 0) {
+      console.log(`[resolver] ✅ Using LLM-proposed selectors (${enhancedSelectors.length}) for ${target.value}`);
+      for (const enhanced of enhancedSelectors) {
+        const enhancedResult = await this.tryResolveSelector(enhanced.selector, 'llm_selector');
+        if (enhancedResult.element) {
+          enhancedResult.method = 'selector';
+          enhancedResult.confidence = Math.max(enhancedResult.confidence, Math.min(0.9, 0.6 + enhanced.confidence / 2));
+          console.log(`[resolver] ✅ LLM selector selected: ${enhanced.selector} (confidence: ${enhanced.confidence})`);
+          return enhancedResult;
+        }
+      }
+    }
 
     // Handle special cases for ambiguous targets
     if (target.value === 'to-be-determined' || target.value === 'TBD' || target.value === 'TODO') {
@@ -103,6 +142,134 @@ export class SSDTargetResolver {
     return bestResult;
   }
 
+  private async tryResolveSelector(selector: string, method: TargetResolutionResult['method']): Promise<TargetResolutionResult> {
+    try {
+      const element = await this.page.waitForSelector(selector, { timeout: this.quickTimeout }).catch(() => null);
+      if (element) {
+        const isVisible = await this.isElementVisibleAndClickable(element);
+        if (isVisible) {
+          const score = await this.scoreNavigationCandidate(element);
+          const confidence = score.score > 0 ? Math.min(0.95, 0.6 + score.score / 10) : 0.6;
+          return {
+            element,
+            selector,
+            method,
+            confidence,
+          };
+        }
+        try { await element.dispose(); } catch { /* ignore */ }
+      }
+    } catch (error) {
+      console.log(`[resolver] Selector resolution failed for ${selector}:`, error instanceof Error ? error.message : error);
+    }
+
+    return {
+      element: null,
+      selector,
+      method,
+      confidence: 0,
+      error: `No elements found with selector: ${selector}`,
+    };
+  }
+
+  private async getEnhancedSelectors(target: Target, context: ResolutionContext): Promise<EnhancementSelector[] | null> {
+    if (!this.enhancer) {
+      if (process.env.SSD_TARGET_LLM_DEBUG === '1') {
+        console.log('[resolver] 🤖 Enhancer not configured (enhancer undefined)');
+      }
+      return null;
+    }
+    if (!this.shouldEnhanceTarget(target, context)) return null;
+
+    const htmlSnippet = await this.extractRelevantHtml(target.region);
+    if (!htmlSnippet) return null;
+
+    try {
+      console.log(`[resolver] 🤖 Requesting LLM enhancement for selector "${target.value}" (step="${context.step?.description || 'n/a'}")`);
+      const enhancement = await this.enhancer.suggestSelectors({
+        siteUrl: context.siteUrl,
+        originalSelector: target.value,
+        stepDescription: context.step?.description,
+        expectations: context.step?.expect,
+        region: target.region,
+        htmlSnippet,
+      });
+      if (!enhancement || enhancement.selectors.length === 0) {
+        console.log('[resolver] 🤖 LLM enhancement returned no selectors');
+        return null;
+      }
+      console.log(`[resolver] 🤖 LLM enhancement returned ${enhancement.selectors.length} selectors`);
+      return enhancement.selectors;
+    } catch (error) {
+      console.log('[resolver] LLM enhancement failed:', error instanceof Error ? error.message : error);
+      return null;
+    }
+  }
+
+  private shouldEnhanceTarget(target: Target, context: ResolutionContext): boolean {
+    if (target.kind !== 'selector') return false;
+    const selector = target.value.toLowerCase();
+    const description = (context.step?.description || '').toLowerCase();
+    const hasGenericPattern =
+      selector.includes(':is(') ||
+      selector.includes('[class*') ||
+      selector.includes('[id*') ||
+      selector.split(',').length > 3;
+
+    const mentionsMenu =
+      description.includes('menu') ||
+      description.includes('header') ||
+      description.includes('navigation');
+
+    const hasToBeDetermined = selector.includes('to-be-determined');
+    const should = hasGenericPattern || mentionsMenu || hasToBeDetermined;
+    console.log(`[resolver] 🤖 shouldEnhanceTarget=${should} selector=${target.value} description=${description}`);
+    return should;
+  }
+
+  private async extractRelevantHtml(region?: string): Promise<string | null> {
+    try {
+      const html = await this.page.evaluate((regionSelector) => {
+        const regions: Element[] = [];
+        if (regionSelector) {
+          document.querySelectorAll(regionSelector).forEach(el => regions.push(el));
+        }
+        if (regions.length === 0) {
+          const header = document.querySelector('header');
+          if (header) regions.push(header);
+        }
+        if (regions.length === 0) {
+          const nav = document.querySelector('nav, [role="navigation"], .nav, .main-nav, .menu');
+          if (nav) regions.push(nav);
+        }
+        if (regions.length === 0) {
+          return '';
+        }
+
+        const serializer = new XMLSerializer();
+        const fragments = regions.slice(0, 3).map(regionEl => {
+          const clone = regionEl.cloneNode(true) as Element;
+          clone.querySelectorAll('script, style').forEach(el => el.remove());
+          return serializer.serializeToString(clone);
+        });
+
+        return fragments.join('\n');
+      }, region ? this.getRegionSelector(region) : undefined);
+
+      const trimmed = html && html.trim().length > 0 ? html.trim() : '';
+      if (!trimmed) {
+        console.log('[resolver] 🤖 No relevant HTML snippet found for enhancement');
+        return null;
+      }
+
+      console.log(`[resolver] 🤖 Extracted HTML snippet for enhancement (length=${trimmed.length})`);
+      return trimmed;
+    } catch (error) {
+      console.log('[resolver] extractRelevantHtml failed:', error instanceof Error ? error.message : error);
+      return null;
+    }
+  }
+
   /**
    * Resolve ambiguous targets by trying common patterns
    */
@@ -123,7 +290,7 @@ export class SSDTargetResolver {
     for (const pattern of headerPatterns) {
       try {
         console.log(`[resolver] Trying pattern: ${pattern}`);
-        const element = await this.page.waitForSelector(pattern, { timeout: 2000 }).catch(() => null);
+        const element = await this.page.waitForSelector(pattern, { timeout: this.mediumTimeout }).catch(() => null);
         
         if (element) {
           const isVisible = await this.isElementVisibleAndClickable(element);
@@ -357,16 +524,72 @@ export class SSDTargetResolver {
    */
   private async resolveBySelector(target: Target): Promise<TargetResolutionResult> {
     try {
-      const element = await this.page.waitForSelector(target.value, { timeout: 1000 }).catch(() => null);
-      
+      let element = await this.page.waitForSelector(target.value, { timeout: 1000 }).catch(() => null);
+
       if (element) {
         const isVisible = await this.isElementVisibleAndClickable(element);
         if (isVisible) {
+          const score = await this.scoreNavigationCandidate(element);
+          if (score.score > 0) {
+            if (score.debug) {
+              console.log(`[resolver] Using primary selector match (${target.value}) score=${score.score.toFixed(2)} text="${score.debug.text}"`);
+            }
+            return {
+              element,
+              selector: target.value,
+              method: 'selector',
+              confidence: Math.min(0.95, 0.6 + score.score / 10),
+            };
+          }
+        }
+        // Primary candidate is not suitable – release and continue
+        try { await element.dispose(); } catch { /* noop */ }
+        element = null;
+      }
+
+      const candidates = await this.page.$$(target.value);
+      if (candidates.length > 0) {
+        const scored: Array<{ element: ElementHandle<Element>; score: number; debug?: Record<string, any> }> = [];
+
+        for (const candidate of candidates) {
+          try {
+            const isVisible = await this.isElementVisibleAndClickable(candidate);
+            if (!isVisible) {
+              await candidate.dispose();
+              continue;
+            }
+            const score = await this.scoreNavigationCandidate(candidate);
+            if (score.score > 0) {
+              scored.push({ element: candidate, score: score.score, debug: score.debug });
+            } else {
+              await candidate.dispose();
+            }
+          } catch (error) {
+            console.log('[resolver] Candidate scoring failed:', error instanceof Error ? error.message : error);
+            try { await candidate.dispose(); } catch { /* ignore */ }
+          }
+        }
+
+        if (scored.length > 0) {
+          scored.sort((a, b) => b.score - a.score);
+          const best = scored[0];
+
+          if (best.debug) {
+            console.log(
+              `[resolver] Selected best candidate for selector "${target.value}" -> score=${best.score.toFixed(2)} text="${best.debug.text}" href="${best.debug.href}" classes="${best.debug.classes}"`
+            );
+          }
+
+          // Dispose remaining handles to avoid leaks
+          for (let i = 1; i < scored.length; i++) {
+            try { await scored[i].element.dispose(); } catch { /* ignore */ }
+          }
+
           return {
-            element,
+            element: best.element,
             selector: target.value,
             method: 'selector',
-            confidence: 0.9,
+            confidence: Math.min(0.95, 0.6 + best.score / 10),
           };
         }
       }
@@ -387,6 +610,110 @@ export class SSDTargetResolver {
         confidence: 0,
         error: `Selector resolution failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
       };
+    }
+  }
+
+  /**
+   * Score navigation/link candidates to prefer real menu entries over decorative items
+   */
+  private async scoreNavigationCandidate(element: ElementHandle<Element>): Promise<{ score: number; debug?: Record<string, any> }> {
+    try {
+      const metadata = await element.evaluate(el => {
+        const rect = el.getBoundingClientRect();
+        const text = (el.textContent || '').trim();
+        const ariaLabel = (el.getAttribute('aria-label') || '').trim();
+        const title = (el.getAttribute('title') || '').trim();
+        const tagName = el.tagName?.toLowerCase() || '';
+        const className = (el as HTMLElement).className || '';
+        const id = (el as HTMLElement).id || '';
+        const role = el.getAttribute('role') || '';
+        let href = '';
+        if ((el as HTMLAnchorElement).href) {
+          href = (el as HTMLAnchorElement).href;
+        } else if (el instanceof HTMLAnchorElement) {
+          href = el.href || '';
+        } else {
+          const attrHref = el.getAttribute && el.getAttribute('href');
+          href = attrHref || '';
+        }
+        const rawHref = href;
+        const hasNavAncestor = !!el.closest('nav, [role=\"navigation\"], .nav, .menu, .navbar, .main-nav');
+        const hasHeaderAncestor = !!el.closest('header, [role=\"banner\"], .header, #header');
+        const isLogoLike = /logo|brand|marca|header__logo/i.test(className) || /logo|brand/i.test(id);
+        const isLanguageSwitch = /lang|language|wpml/i.test(className) || /lang|locale/i.test(id);
+        const isIconOnly = !text && !ariaLabel && rect.width < 40;
+
+        return {
+          text,
+          ariaLabel,
+          title,
+          tagName,
+          className,
+          id,
+          role,
+          href: rawHref,
+          hasNavAncestor,
+          hasHeaderAncestor,
+          isLogoLike,
+          isLanguageSwitch,
+          isIconOnly,
+          width: rect.width,
+          height: rect.height,
+        };
+      });
+
+      let score = 0;
+
+      if (metadata.tagName === 'a' || metadata.tagName === 'button') {
+        score += 3;
+      } else if (metadata.role?.includes('button') || metadata.role?.includes('link')) {
+        score += 2;
+      }
+
+      const textLength = metadata.text?.length ?? 0;
+      if (textLength >= 2) {
+        score += Math.min(4, textLength / 6);
+      } else if (metadata.ariaLabel) {
+        score += 2;
+      } else {
+        score -= 2;
+      }
+
+      if (metadata.hasNavAncestor) score += 2;
+      if (metadata.hasHeaderAncestor) score += 1;
+      if (metadata.isLogoLike) score -= 6;
+      if (metadata.isLanguageSwitch) score -= 5;
+      if (metadata.isIconOnly) score -= 3;
+
+      if (metadata.href) {
+        const lowerHref = metadata.href.toLowerCase();
+        if (lowerHref.startsWith('http')) score += 2;
+        if (lowerHref.includes('#')) score -= 1;
+        if (lowerHref.startsWith('tel:') || lowerHref.startsWith('mailto:') || lowerHref.startsWith('javascript:')) {
+          score -= 4;
+        }
+      } else {
+        score -= 1;
+      }
+
+      if (metadata.width < 10 || metadata.height < 10) {
+        score -= 2;
+      }
+
+      return {
+        score,
+        debug: {
+          text: metadata.text || metadata.ariaLabel || metadata.title || '(no-text)',
+          href: metadata.href || '(no-href)',
+          classes: metadata.className,
+          id: metadata.id,
+          tag: metadata.tagName,
+          score,
+        },
+      };
+    } catch (error) {
+      console.log('[resolver] scoreNavigationCandidate failure:', error instanceof Error ? error.message : error);
+      return { score: -1 };
     }
   }
 
@@ -592,4 +919,10 @@ export class SSDTargetResolver {
       return false;
     }
   }
+}
+
+interface EnhancementSelector {
+  selector: string;
+  confidence: number;
+  reason?: string;
 }

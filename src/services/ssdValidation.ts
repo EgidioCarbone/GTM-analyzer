@@ -3,16 +3,17 @@
 
 import { z } from 'zod';
 import { normalizeOrigin } from '../utils/url';
+import { SSD_DEFAULTS } from '../config/ssd-defaults';
 
 // Base schemas
 const TargetSchema = z.object({
-  region: z.enum(["header", "main", "footer", "any"]).optional(),
-  kind: z.enum(["text", "selector", "aria", "href"]),
+  region: z.enum(SSD_DEFAULTS.dsl.supportedRegions).optional(),
+  kind: z.enum(SSD_DEFAULTS.dsl.supportedTargetKinds),
   value: z.string().min(1),
 });
 
 const ExpectationSchema = z.object({
-  type: z.enum(["dataLayer", "ga4", "gtm", "network", "navigation", "no_repeat_on_reload"]),
+  type: z.enum(SSD_DEFAULTS.dsl.supportedExpectationTypes),
   event: z.string().optional(),
   params_subset: z.record(z.any()).optional(),
   near_previous_n: z.number().int().positive().optional(),
@@ -24,11 +25,7 @@ const ExpectationSchema = z.object({
 
 const StepSchema = z.object({
   description: z.string().optional(),
-  action: z.enum([
-    "click", "input", "wait_for_selector", "wait_for_text", 
-    "navigate", "maybe_set_quantity", "choose_payment", 
-    "complete_order", "custom"
-  ]),
+  action: z.enum(SSD_DEFAULTS.dsl.supportedActions),
   target: TargetSchema.optional(),
   value: z.string().optional(),
   expect: z.array(ExpectationSchema).optional(),
@@ -54,7 +51,7 @@ const SiteSchema = z.preprocess((v) => {
 const TestSpecSchema = z.object({
   site: SiteSchema,
   allowed_hosts: z.array(z.string()).optional(),
-  consent: z.array(z.enum(["reject", "accept"])).optional(),
+  consent: z.array(z.enum(["reject", "accept"])).optional(), // Using subset of supportedConsentProfiles
   tests: z.array(TestSchema).min(1, "At least one test is required"),
 });
 
@@ -68,7 +65,7 @@ const SSDRunRequestSchema = z.object({
   dsl: TestSpecSchema,
   runOptions: z.object({
     headless: z.boolean().optional(),
-    consent: z.enum(["accept", "reject", "both"]).optional(),
+    consent: z.enum(SSD_DEFAULTS.dsl.supportedConsentProfiles).optional(),
   }).optional(),
 });
 
