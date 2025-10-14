@@ -1726,6 +1726,12 @@ async function executePdfTests(testSpec: any, options: any, browserInstance: any
             
             console.log(`🎯 CLICKING ELEMENT:`, clickedElementInfo);
             
+            // Take screenshot before click
+            const beforeScreenshot = await existingPage.screenshot({ 
+              path: `${SSD_DEFAULTS.path.screenshots}/pdf_test_step_${i + 1}_before_${Date.now()}.png`,
+              fullPage: true 
+            });
+            
             // Get params_subset template from step expectation
             const allowedHosts = testSpec.allowed_hosts || [];
             const paramsSubsetTemplate = (step.expect || []).find((e: any) => e?.type === 'dataLayer')?.params_subset || {};
@@ -1738,6 +1744,12 @@ async function executePdfTests(testSpec: any, options: any, browserInstance: any
             // Robust click with fallbacks
             await clickElementRobust(existingPage, selector);
             console.log(`✅ Click completed`);
+            
+            // Take screenshot after click
+            const afterScreenshot = await existingPage.screenshot({ 
+              path: `${SSD_DEFAULTS.path.screenshots}/pdf_test_step_${i + 1}_after_${Date.now()}.png`,
+              fullPage: true 
+            });
             
             // Wait a bit for events to be processed
             await new Promise(resolve => setTimeout(resolve, 2000));
@@ -3057,7 +3069,8 @@ app.post('/api/ssd/run', async (req, res) => {
       url: validatedDSL.site,
       artifacts: {
         htmlFile: htmlPath,
-        pdfTextFile: pdfTextFile
+        pdfTextFile: pdfTextFile,
+        screenshotsFolder: SSD_DEFAULTS.path.screenshots
       },
       cookie: {
         status: cookieResult.status,
