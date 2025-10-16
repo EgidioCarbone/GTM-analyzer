@@ -13,7 +13,6 @@ import { PushLibrary } from '../components/live-debugger/PushLibrary';
 import { SessionSummary } from '../components/live-debugger/SessionSummary';
 import { EventStream } from '../components/live-debugger/EventStream';
 import { EnvPanel } from '../components/live-debugger/EnvPanel';
-import { GAHitsPanel } from '../components/live-debugger/GAHitsPanel';
 
 interface State {
   running: boolean;
@@ -430,10 +429,6 @@ export default function LiveDebuggerPage() {
                   events={filteredEvents}
                   onSelect={handleEventSelect}
                   onRepush={handleRepush}
-                />
-                <GAHitsPanel
-                  events={filteredEvents}
-                  onSelect={handleEventSelect}
                 />
               </div>
 

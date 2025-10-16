@@ -1,0 +1,21 @@
+{
+  "cases": [
+    {
+      "id": "0d7ee851-aff0-453e-b1ea-014301d8fee3",
+      "name": "ITALGAS",
+      "origin": "https://www.italgas.it/",
+      "mode": "datalayer",
+      "payload": {
+        "event": "page_view"
+      },
+      "trackCollect": true,
+      "match": "auto",
+      "timeoutMs": 5000,
+      "tags": [],
+      "createdAt": 1760622489786,
+      "version": 1,
+      "lastUsedAt": 1760622537532
+    }
+  ],
+  "version": 1
+}
