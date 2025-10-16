@@ -1,0 +1,15 @@
+HEADER / VERSIONE DESKTOP
+Al click su una voce di menu di primo livello, il seguente dataLayer deve attivarsi:
+<script>
+dataLayer.push({
+'event': 'navigation_click',
+'event_category' : 'menu_primo_livello',
+'event_action' : '[path destinazione]',
+'event_label' : '[button_name]’,
+'navigation_type' : 'desktop'
+});
+</script>
+[path destinazione] -> deve contenere il page path di destinazione se è un link diretto alla pagina, 
+altrimenti va valorizzato come “Non prevista”, se apre un menu di secondo livello.
+[button name] -> deve contenere il testo della voce di menù cliccata.
+1

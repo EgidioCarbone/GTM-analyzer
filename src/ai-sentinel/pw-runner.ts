@@ -911,11 +911,11 @@ export class ConsentTestRunner {
               'allow all',
               'accetta',
               'accept',
-              'consenti',
-              'consent',
-              'conferma',
+              'consenti tutti',
               'allow',
               'agree'
+              // ⚠️ RIMOSSO "consenti" e "consent" singoli (troppo generici)
+              // ⚠️ RIMOSSO "conferma" (può matchare altri bottoni)
             ];
 
         const scope = document.querySelector(bannerSelector);
@@ -964,6 +964,12 @@ export class ConsentTestRunner {
           
           // Salta elementi con numeri grandi (probabilmente badge/counter come "necessari 323")
           if (/\d{2,}/.test(text)) continue;
+          
+          // ✅ FIX: Salta elementi con testo troppo lungo (probabilmente non sono bottoni semplici)
+          if (text.length > 50) continue;
+          
+          // ✅ FIX: Salta link di espansione/dettagli con placeholder tipo [#..#]
+          if (/\[#.*#\]/.test(text)) continue;
               
               for (const keyword of keywords) {
                 if (combinedText.includes(keyword.toLowerCase())) {
@@ -1120,13 +1126,18 @@ export class ConsentTestRunner {
       if (!clickSuccess) {
         clickSuccess = await page.evaluate((scenario) => {
           const keywords = scenario === 'reject' 
-            ? ['rifiuta', 'decline', 'reject', 'necessari', 'deny']
-            : ['accetta', 'accept', 'consenti', 'consent', 'conferma'];
+            ? ['rifiuta tutti', 'rifiuta', 'decline', 'reject', 'necessari', 'deny']
+            : ['accetta tutti', 'accetta', 'accept all', 'accept', 'allow all', 'allow'];
 
           const allButtons = Array.from(document.querySelectorAll('button, a, [role="button"], input, [onclick]'));
           
           for (const btn of allButtons) {
             const text = (btn.textContent || '').toLowerCase().trim();
+            
+            // Salta elementi con testo troppo lungo o placeholder
+            if (text.length > 50) continue;
+            if (/\[#.*#\]/.test(text)) continue;
+            
             if (keywords.some(k => text.includes(k.toLowerCase().trim()))) {
               console.log(`🎯 Clicking fallback ${scenario}: "${text}"`);
               (btn as HTMLElement).click();

@@ -14,6 +14,7 @@ import ConsentTestBPage from "./ai-sentinel/ConsentTestBPage";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { DashboardErrorBoundary, ContainerManagerErrorBoundary } from "./components/ErrorBoundaries";
 import GA4Insights from "./pages/GA4Insights"; // ✅ Import della pagina GA4
+import LiveDebuggerPage from "./pages/LiveDebuggerPage";
 
 export default function App() {
   const { container } = useContainer();
@@ -64,7 +65,8 @@ export default function App() {
             {/* Route pubbliche */}
             <Route path="/ssd-test" element={<SSDTestPage />} />
             <Route path="/ai-sentinel" element={<ConsentTestBPage />} />
-            <Route path="/ga4-insights" element={<GA4Insights />} /> {/* ✅ Route GA4 aggiunta */}
+            <Route path="/ga4-insights" element={<GA4Insights />} />
+            <Route path="/live-debugger" element={<LiveDebuggerPage />} />
 
             {/* Route protette */}
             {container && (

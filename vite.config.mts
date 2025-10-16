@@ -14,6 +14,11 @@ export default defineConfig({
         //   proxy.on('proxyRes', (_, req, res) => console.log('[VITE PROXY] ←', req.url, res.statusCode));
         // }
       },
+      "/live-debugger": {
+        target: "http://localhost:5180",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/live-debugger/, ''),
+      },
     },
   },
 });

@@ -535,8 +535,8 @@ describe('SSD Test Reliability Improvements', () => {
     describe('API Base URL', () => {
       test('should use VITE_API_BASE with fallback', () => {
         // Simulate environment variable
-        const viteApiBase = process.env.VITE_API_BASE || 'http://localhost:4000';
-        const apiBaseUrl = viteApiBase || (typeof window !== 'undefined' && window.location.origin === 'http://localhost:5173' ? 'http://localhost:4000' : '');
+        const viteApiBase = process.env.VITE_API_BASE || 'http://localhost:3001';
+        const apiBaseUrl = viteApiBase || (typeof window !== 'undefined' && window.location.origin === 'http://localhost:5173' ? 'http://localhost:3001' : '');
         
         expect(apiBaseUrl).toBeDefined();
         expect(apiBaseUrl).toMatch(/^https?:\/\//);

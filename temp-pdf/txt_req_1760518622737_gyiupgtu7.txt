@@ -1,0 +1,26 @@
+Whenever a user clicks on one of the header (nav bar), the following dataLayer must be pushed:      
+CLICK HEADER - BOOKING
+Owner: System Integrator
+
+<script>
+  window.dataLayer = window.dataLayer || [];
+  window.dataLayer.push({
+    'event': 'click_menu',                 //Event: Tracks a menu click
+    'eventCategory': '[EVENT CATEGORY]',  //Category: Defines the category of menu
+    'eventAction': 'click_menu',          //Action: Describes the click action
+    'eventLabel': '[LABEL CLICKED]',      //Label: Describes the clicked item
+    'click_url': '[CLICK URL]',           //URL: The URL of the clicked item
+    'full_url': '[FULL URL]',             //Full URL: Current page URL
+    'referrer': '[REFERRER]',             //Referrer: The previous page
+    'lang': '[LANGUAGE]'                  //Language: The language of the page
+  });
+</script>
+
+
+In particular the parameters:
+●eventCategory: must be dynamically populated with menu_category, logo and language; the details in the following slide; 
+●eventLabel: this parameter must be populated with the label clicked by the user in the following format → eg prima_squadra_maschile;
+●click_url: This parameter should be dynamically populated with the value of the clicked link's URL. To achieve this, use the variable gtm.elementUrl;
+●full_url: This parameter should be dynamically populated with the full URL of the current page, using window.location.href;
+●referrer: This parameter should be dynamically populated with the referrer URL, using document.referrer;
+●lang: must be dynamically populated with the selected language ‘it’ or ‘en’.

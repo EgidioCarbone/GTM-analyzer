@@ -610,7 +610,7 @@ export default function DetailedResultsStep({
                 tone="blue"
                 onClick={async () => {
                   try {
-                    const apiBaseUrl = import.meta.env.VITE_API_BASE || (window.location.origin === 'http://localhost:5173' ? 'http://localhost:4000' : '');
+                    const apiBaseUrl = import.meta.env.VITE_API_BASE || (window.location.origin === 'http://localhost:5173' ? 'http://localhost:3001' : '');
                     const response = await fetch(`${apiBaseUrl}/api/ssd/artifact?file=${encodeURIComponent(report.artifacts!.htmlFile!)}`);
                     if (response.ok) {
                       const blob = await response.blob();
@@ -633,7 +633,7 @@ export default function DetailedResultsStep({
                 tone="red"
                 onClick={async () => {
                   try {
-                    const apiBaseUrl = import.meta.env.VITE_API_BASE || (window.location.origin === 'http://localhost:5173' ? 'http://localhost:4000' : '');
+                    const apiBaseUrl = import.meta.env.VITE_API_BASE || (window.location.origin === 'http://localhost:5173' ? 'http://localhost:3001' : '');
                     const response = await fetch(`${apiBaseUrl}/api/ssd/artifact?file=${encodeURIComponent(report.artifacts!.pdfTextFile!)}`);
                     if (response.ok) {
                       const text = await response.text();
@@ -656,7 +656,7 @@ export default function DetailedResultsStep({
                 description="Evidenze visive raccolte dal runner"
                 tone="green"
                 onClick={() => {
-                  const apiBaseUrl = import.meta.env.VITE_API_BASE || (window.location.origin === 'http://localhost:5173' ? 'http://localhost:4000' : '');
+                  const apiBaseUrl = import.meta.env.VITE_API_BASE || (window.location.origin === 'http://localhost:5173' ? 'http://localhost:3001' : '');
                   window.open(`${apiBaseUrl}/api/ssd/artifact?folder=${encodeURIComponent(report.artifacts!.screenshotsFolder!)}`, '_blank');
                 }}
               />
@@ -668,7 +668,7 @@ export default function DetailedResultsStep({
                 description="Traccia completa delle operazioni"
                 tone="amber"
                 onClick={() => {
-                  const apiBaseUrl = import.meta.env.VITE_API_BASE || (window.location.origin === 'http://localhost:5173' ? 'http://localhost:4000' : '');
+                  const apiBaseUrl = import.meta.env.VITE_API_BASE || (window.location.origin === 'http://localhost:5173' ? 'http://localhost:3001' : '');
                   window.open(`${apiBaseUrl}/api/ssd/artifact?file=${encodeURIComponent(report.artifacts!.rawLogsPath!)}`, '_blank');
                 }}
               />

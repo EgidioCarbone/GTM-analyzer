@@ -8,7 +8,7 @@ export const getApiBaseUrl = (): string => {
     const origin = window.location.origin.replace(/\/$/, '');
 
     if (/localhost:517\d$/i.test(origin)) {
-      return 'http://localhost:4000';
+      return 'http://localhost:3001';
     }
 
     return origin;

@@ -168,7 +168,7 @@ export default function ConsentTestBPage() {
       });
       await new Promise(resolve => setTimeout(resolve, 800));
 
-      const response = await fetch('http://localhost:4000/api/consent/audit-pw', {
+      const response = await fetch('http://localhost:3001/api/consent/audit-pw', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

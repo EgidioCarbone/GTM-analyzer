@@ -1,7 +1,7 @@
 import React, { useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { BarChart, Brain, TestTube, Shield, ArrowRight, CheckCircle, Upload } from 'lucide-react';
+import { BarChart, Brain, TestTube, Shield, ArrowRight, CheckCircle, Upload, Bug } from 'lucide-react';
 import { useContainer } from '../context/ContainerContext';
 
 // ---------- TIPI ----------
@@ -78,6 +78,16 @@ const tools: Tool[] = [
     icon: BarChart,
     color: 'cyan',
     features: ['Utenti, sessioni, pageviews', 'Top canali e pagine', 'Insight generati con IA']
+  },
+  // 🔹 CARD: Live Tag Debugger (Coming Soon)
+  {
+    id: 'live-debugger',
+    title: 'Live Tag Debugger',
+    description: 'Streaming realtime di dataLayer, rete GA4 e consent con validazioni automatiche',
+    requiresJson: false,
+    icon: Bug,
+    color: 'red',
+    features: ['Stream eventi GA4 live', 'Sniffer g/collect & consent', 'PII guard con redazione automatica']
   }
 ];
 
@@ -253,6 +263,8 @@ export default function HomePage() {
         navigate('/ai-sentinel?mode=ai-sentinel');
       } else if (tool.id === 'ga4-insights') {
         navigate('/ga4-insights');
+      } else if (tool.id === 'live-debugger') {
+        navigate('/live-debugger');
       }
     }
   };
@@ -359,14 +371,14 @@ export default function HomePage() {
           </div>
 
           {/* Tools Grid - Layout Responsivo Ottimizzato */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-8 items-stretch max-w-8xl mx-auto px-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 items-stretch max-w-6xl mx-auto px-4">
             {tools.map((tool: Tool, index: number) => (
               <motion.div
                 key={tool.id}
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.6, delay: index * 0.1 }}
-                className="flex"
+                className="w-full"
               >
                 <ToolCard tool={tool} onClick={() => handleToolClick(tool)} />
               </motion.div>

@@ -49,7 +49,7 @@ export default function SSDTestPage() {
   } = useAnalysisProgress();
 
   // API base URL configuration
-  const apiBaseUrl = import.meta.env.VITE_API_BASE || (window.location.origin === 'http://localhost:5173' ? 'http://localhost:4000' : '');
+  const apiBaseUrl = import.meta.env.VITE_API_BASE || (window.location.origin === 'http://localhost:5173' ? 'http://localhost:3001' : '');
   
   // SSD Configuration
   const { config: ssdConfig, loading: configLoading, error: configError } = useSSDConfig(apiBaseUrl);

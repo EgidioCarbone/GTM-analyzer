@@ -343,6 +343,17 @@ app.use((req, res, next) => {
   next();
 });
 
+// CORS configuration (before rate limiting to cover preflight)
+const allowedOrigin = process.env.CORS_ORIGIN || 'http://localhost:5173';
+const corsMiddleware = cors({
+  origin: allowedOrigin,
+  credentials: true,
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+});
+app.use(corsMiddleware);
+app.options('*', corsMiddleware);
+
 // Rate limiting
 const limiter = rateLimit({
   windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000'), // 15 minutes
@@ -353,12 +364,6 @@ const limiter = rateLimit({
 });
 app.use('/api/', limiter);
 
-// CORS configuration
-app.use(cors({
-  origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
-  credentials: true,
-}));
-
 // Body parsing middleware
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
@@ -368,7 +373,7 @@ app.use(ga4InsightsRouter);
 
 // Static files for artifacts with CORS headers
 app.use('/artifacts', (req, res, next) => {
-  res.header('Access-Control-Allow-Origin', process.env.CORS_ORIGIN || 'http://localhost:5173');
+  res.header('Access-Control-Allow-Origin', allowedOrigin);
   res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   // Handle CORS preflight requests
@@ -3520,7 +3525,7 @@ app.use((req, res) => {
 });
 
 // Avvio server
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`🔌 SSD Test Server attivo su http://localhost:${PORT}`);
   console.log(`📄 HTML Proxy: GET /api/fetchHtml`);
   console.log(`📊 SSD Test: POST /api/ssd/ingest, POST /api/ssd/run`);
