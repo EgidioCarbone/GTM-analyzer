@@ -9,14 +9,19 @@ import {
   RefreshCcw,
   Eye,
   Copy,
+  Info,
+  AlertTriangle,
+  OctagonAlert,
 } from 'lucide-react';
 import clsx from 'clsx';
 import type { NormalizedEvent } from '../../types/live-debugger';
+import type { AnalyzerState, EventInsight } from '../../../shared/analyzer';
 
 interface EventStreamProps {
   events: NormalizedEvent[];
   onSelect: (event: NormalizedEvent) => void;
   onRepush: (payload: any) => void;
+  analyzer: AnalyzerState;
 }
 
 type TabId = 'all' | 'network' | 'datalayer' | 'console' | 'notes';
@@ -61,6 +66,12 @@ const typeMeta = {
     icon: ActivitySquare,
   },
 } as const;
+
+const insightCardTone: Record<EventInsight['severity'], string> = {
+  info: 'border-blue-200 bg-blue-50 text-blue-700',
+  warning: 'border-amber-200 bg-amber-50 text-amber-700',
+  error: 'border-red-200 bg-red-50 text-red-700',
+};
 
 function formatTime(ts: number) {
   return new Date(ts).toLocaleTimeString('it-IT', {
@@ -118,8 +129,11 @@ function copy(text: string) {
   navigator.clipboard.writeText(text);
 }
 
-export function EventStream({ events, onSelect, onRepush }: EventStreamProps) {
+export function EventStream({ events, onSelect, onRepush, analyzer }: EventStreamProps) {
   const [activeTab, setActiveTab] = useState<TabId>('all');
+  const [expandedInsightEvent, setExpandedInsightEvent] = useState<number | null>(null);
+
+  const { insights } = analyzer;
 
   const sortedEvents = useMemo(
     () =>
@@ -150,6 +164,18 @@ export function EventStream({ events, onSelect, onRepush }: EventStreamProps) {
   }, [sortedEvents]);
 
   const visibleEvents = tabbedEvents[activeTab];
+
+  const insightByEventIndex = useMemo(() => {
+    const map = new Map<number, EventInsight[]>();
+    insights.forEach((insight) => {
+      if (typeof insight.eventIndex === 'number') {
+        const bucket = map.get(insight.eventIndex) ?? [];
+        bucket.push(insight);
+        map.set(insight.eventIndex, bucket);
+      }
+    });
+    return map;
+  }, [insights]);
 
   return (
     <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-md ring-1 ring-black/5 backdrop-blur">
@@ -192,6 +218,14 @@ export function EventStream({ events, onSelect, onRepush }: EventStreamProps) {
         ) : (
           <ul className="space-y-4">
             {visibleEvents.map((event, index) => {
+              const absoluteIndex = events.indexOf(event);
+              const eventInsights = insightByEventIndex.get(absoluteIndex) ?? [];
+              const severity = eventInsights.reduce<EventInsight['severity'] | null>((acc, curr) => {
+                if (curr.severity === 'error') return 'error';
+                if (curr.severity === 'warning' && acc !== 'error') return 'warning';
+                if (curr.severity === 'info' && !acc) return 'info';
+                return acc;
+              }, null);
               const meta =
                 typeMeta[event.kind as keyof typeof typeMeta] ??
                 ('note' in typeMeta ? typeMeta.note : typeMeta['datalayer.push']);
@@ -201,6 +235,22 @@ export function EventStream({ events, onSelect, onRepush }: EventStreamProps) {
               const status =
                 event.kind === 'ga4.hit' || event.kind === 'ua.hit' ? event.status ?? '—' : undefined;
               const eventIndex = events.indexOf(event);
+              const insightIcon = severity === 'error' ? OctagonAlert : severity === 'warning' ? AlertTriangle : Info;
+              const insightTone =
+                severity === 'error'
+                  ? 'text-red-500'
+                  : severity === 'warning'
+                  ? 'text-amber-500'
+                  : severity === 'info'
+                  ? 'text-blue-500'
+                  : null;
+              const isInsightExpanded = expandedInsightEvent === absoluteIndex;
+              const insightButtonTone =
+                severity === 'error'
+                  ? 'border-red-200 bg-red-50 text-red-600 hover:border-red-300 hover:bg-red-100'
+                  : severity === 'warning'
+                  ? 'border-amber-200 bg-amber-50 text-amber-600 hover:border-amber-300 hover:bg-amber-100'
+                  : 'border-blue-200 bg-blue-50 text-blue-600 hover:border-blue-300 hover:bg-blue-100';
 
               return (
                 <li
@@ -231,6 +281,25 @@ export function EventStream({ events, onSelect, onRepush }: EventStreamProps) {
                                 </span>
                               )}
                             </>
+                          )}
+                          {severity && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setExpandedInsightEvent((prev) =>
+                                  prev === absoluteIndex ? null : absoluteIndex,
+                                )
+                              }
+                              className={clsx(
+                                'inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-semibold transition focus:outline-none focus:ring-2 focus:ring-offset-1',
+                                insightButtonTone,
+                                isInsightExpanded ? 'ring-2 ring-offset-0 ring-current' : 'focus:ring-blue-200',
+                              )}
+                              title={eventInsights.map((i) => i.title).join('\n')}
+                            >
+                              <insightIcon className={clsx('h-3 w-3', insightTone ?? 'text-slate-600')} />
+                              {isInsightExpanded ? 'Nascondi insight' : `Insight (${eventInsights.length})`}
+                            </button>
                           )}
                         </div>
                         {subtitle && (
@@ -307,6 +376,37 @@ export function EventStream({ events, onSelect, onRepush }: EventStreamProps) {
                       Copia JSON
                     </button>
                   </div>
+
+                  {isInsightExpanded && eventInsights.length > 0 && (
+                    <div className="mt-4 space-y-2 rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
+                      {eventInsights.map((insight) => (
+                        <div
+                          key={`${insight.id}_${insight.timestamp}`}
+                          className={clsx(
+                            'rounded-xl border px-3 py-2 text-xs shadow-sm',
+                            insightCardTone[insight.severity],
+                          )}
+                        >
+                          <p className="text-sm font-semibold text-slate-900">{insight.title}</p>
+                          {insight.description && (
+                            <p className="mt-1 leading-snug text-slate-700">{insight.description}</p>
+                          )}
+                          {insight.recommendations && insight.recommendations.length > 0 && (
+                            <ul className="mt-2 list-disc space-y-1 pl-4 text-[11px] text-slate-700">
+                              {insight.recommendations.map((rec, idx) => (
+                                <li key={idx}>{rec}</li>
+                              ))}
+                            </ul>
+                          )}
+                          <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] font-semibold text-slate-600">
+                            <span className="rounded-full bg-white/60 px-2 py-0.5">
+                              {formatTime(insight.timestamp)}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </li>
               );
             })}

@@ -19,6 +19,8 @@ import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { AnimatedBackdrop } from '../components/AnimatedBackdrop';
 import type { PushUseCase, RunResultSummary } from '../../shared/types';
 import type { PushUseCaseDraft } from '../services/live-debugger-api';
+import { EventAnalyzer } from '../../shared/analyzer';
+import type { AnalyzerState } from '../../shared/analyzer';
 
 interface State {
   running: boolean;
@@ -240,7 +242,8 @@ function applyFilters(events: NormalizedEvent[], filters: FilterState): Normaliz
 export default function LiveDebuggerPage() {
   const navigate = useNavigate();
   const wsRef = useRef<WebSocket | null>(null);
-  
+  const analyzerRef = useRef(new EventAnalyzer());
+
   const [state, dispatch] = useReducer(reducer, {
     running: false,
     events: [],
@@ -253,6 +256,13 @@ export default function LiveDebuggerPage() {
   const filteredEvents = useMemo(() => {
     return applyFilters(state.events, state.filters);
   }, [state.events, state.filters]);
+
+  const analyzerState = useMemo<AnalyzerState>(() => {
+    const analyzer = analyzerRef.current;
+    analyzer.reset();
+    state.events.forEach((event, idx) => analyzer.process(event, idx));
+    return analyzer.getState();
+  }, [state.events]);
 
   const domain = state.env?.url ? new URL(state.env.url).origin : undefined;
   const originRef = useRef<string>(window.location.origin);
@@ -577,6 +587,7 @@ export default function LiveDebuggerPage() {
                   events={filteredEvents}
                   onSelect={handleEventSelect}
                   onRepush={handleRepush}
+                  analyzer={analyzerState}
                 />
                 <UseCasePanel
                   useCases={useCases}
