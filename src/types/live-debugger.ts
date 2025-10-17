@@ -6,7 +6,7 @@ export type NormalizedEvent =
   | { kind: 'datalayer.push'; ts: number; source: 'snapshot'|'hook'; payload: unknown }
   | { kind: 'ga4.hit'; ts: number; url: string; status?: number; event?: Ga4Event; mi?: string; cid?: string }
   | { kind: 'ua.hit'; ts: number; url: string; status?: number; params: Record<string,string> }
-  | { kind: 'push.result'; ts: number; id: string; ok: boolean; reason?: 'timeout'|'error'; matched?: { url: string; status?: number }[] };
+  | { kind: 'push.result'; ts: number; id: string; ok: boolean; reason?: 'timeout'|'error'|'nomatch'; matched?: { url: string; status?: number }[] };
 
 export interface Ga4Event {
   name?: string;                       // en | _en

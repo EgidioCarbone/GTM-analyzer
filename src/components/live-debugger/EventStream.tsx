@@ -95,8 +95,14 @@ function eventSubtitle(event: NormalizedEvent): string {
       return event.url;
     case 'ua.hit':
       return event.url;
-    case 'datalayer.push':
-      return event.source === 'hook' ? 'Hook' : 'Snapshot';
+    case 'datalayer.push': {
+      const name =
+        typeof event.payload === 'object' && event.payload && 'event' in event.payload
+          ? String((event.payload as Record<string, unknown>).event)
+          : null;
+      const sourceLabel = event.source === 'hook' ? 'Hook' : 'Snapshot';
+      return name ? `${name} • ${sourceLabel}` : sourceLabel;
+    }
     case 'console':
       return event.text;
     case 'env':

@@ -12,6 +12,7 @@
   },
   "include": [
     "server-ssd.ts",
-    "src/services/**/*.server.ts"
+    "src/services/**/*.server.ts",
+    "shared/**/*.ts"
   ]
 }

@@ -1,8 +1,22 @@
 import type { StartPayload, NormalizedEvent } from '../types/live-debugger';
 import type { PushCase, PushCaseCreate, PushCaseUpdate } from '../types/push-cases';
+import type { PushUseCase, ExpectedCall, RunResultSummary } from '../../shared/types';
 
 const API_BASE = import.meta.env.DEV ? '/live-debugger' : '';
 const WS_BASE = import.meta.env.DEV ? 'ws://localhost:5180' : `ws://${window.location.host}`;
+
+export type PushUseCaseDraft = {
+  name: string;
+  origin: string;
+  mode: 'datalayer' | 'gtag';
+  payload?: any;
+  gtagName?: string;
+  gtagParams?: Record<string, any>;
+  expected?: ExpectedCall;
+  timeoutMs?: number;
+};
+
+export type PushUseCaseUpdateInput = Partial<PushUseCaseDraft>;
 
 export async function startLiveDebugger(payload: StartPayload): Promise<void> {
   const res = await fetch(`${API_BASE}/api/start`, {
@@ -45,6 +59,72 @@ export async function getLiveDebuggerStatus(): Promise<{ running: boolean }> {
   if (!res.ok) {
     throw new Error('Failed to get status');
   }
+  return res.json();
+}
+
+// Push Use Cases API
+export async function getPushUseCases(origin?: string): Promise<PushUseCase[]> {
+  const params = new URLSearchParams();
+  if (origin) params.append('origin', origin);
+
+  const res = await fetch(`${API_BASE}/api/usecases?${params}`);
+  if (!res.ok) {
+    throw new Error('Failed to get push use cases');
+  }
+  return res.json();
+}
+
+export async function createPushUseCase(input: PushUseCaseDraft): Promise<PushUseCase> {
+  const res = await fetch(`${API_BASE}/api/usecases`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to create use case');
+  }
+
+  return res.json();
+}
+
+export async function updatePushUseCase(id: string, updates: PushUseCaseUpdateInput): Promise<PushUseCase> {
+  const res = await fetch(`${API_BASE}/api/usecases/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(updates),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to update use case');
+  }
+
+  return res.json();
+}
+
+export async function deletePushUseCase(id: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/usecases/${id}`, {
+    method: 'DELETE',
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to delete use case');
+  }
+}
+
+export async function runPushUseCase(id: string): Promise<{ runId: string }> {
+  const res = await fetch(`${API_BASE}/api/usecases/${id}/run`, {
+    method: 'POST',
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to run use case');
+  }
+
   return res.json();
 }
 

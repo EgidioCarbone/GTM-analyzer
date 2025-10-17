@@ -4,8 +4,11 @@ import { createServer } from 'http';
 import { chromium, Browser, BrowserContext, Page } from 'playwright';
 import type { StartPayload, NormalizedEvent, EnvInfo, Ga4Event } from '../types/live-debugger.js';
 import type { PushCase, PushCaseCreate, PushCaseUpdate } from '../types/push-cases.js';
+import type { PushUseCase, ExpectedCall, RunResultSummary } from '../../shared/types.js';
 import { pushCasesStorage } from './push-cases-storage.js';
+import { pushUseCasesStorage } from './push-usecases-storage.js';
 import { resolveMacros } from './macro-resolver.js';
+import { z } from 'zod';
 
 const PORT = process.env.LIVE_DEBUGGER_PORT ? parseInt(process.env.LIVE_DEBUGGER_PORT) : 5180;
 
@@ -29,6 +32,12 @@ function mergeParams(url: string, method: string, postData?: string | Buffer) {
 
 function safeJSON(text: string): any {
   try {
+    if (uc.mode === 'datalayer' && typeof uc.payload === 'undefined') {
+      throw new Error('Missing DataLayer payload');
+    }
+    if (uc.mode === 'gtag' && !uc.gtagName) {
+      throw new Error('Missing gtag event name');
+    }
     return JSON.parse(text);
   } catch {
     return null;
@@ -43,6 +52,24 @@ function timeout<T>(promise: Promise<T>, ms: number): Promise<T> {
     ),
   ]);
 }
+
+const ExpectedCallInputSchema = z.object({
+  urlPattern: z.string().min(1),
+  mustContainParams: z.record(z.string()).optional(),
+});
+
+const UseCaseCreateSchema = z.object({
+  name: z.string().min(1),
+  origin: z.string().min(1),
+  mode: z.enum(['datalayer', 'gtag']),
+  payload: z.any().optional(),
+  gtagName: z.string().optional(),
+  gtagParams: z.record(z.any()).optional(),
+  expected: ExpectedCallInputSchema.optional(),
+  timeoutMs: z.number().positive().optional(),
+});
+
+const UseCaseUpdateSchema = UseCaseCreateSchema.partial();
 
 // GA Detection
 const GA_HOST = /(google-analytics\.com|region\d+\.google-analytics\.com)$/i;
@@ -82,6 +109,16 @@ const trackers = new Map<string, {
   matches: { url: string; status?: number }[];
 }>();
 
+type CurrentRun = {
+  useCaseId: string;
+  expected: ExpectedCall;
+  timer: NodeJS.Timeout;
+  seenPatternMatch: boolean;
+  timeoutMs: number;
+};
+
+let currentRun: CurrentRun | null = null;
+
 function matchesTracker(t: any, url: string, params: URLSearchParams) {
   if (t.match === 'any') return true;
   if (t.match === 'custom' && t.customUrlPattern) return t.customUrlPattern.test(url);
@@ -114,6 +151,102 @@ function matchesTracker(t: any, url: string, params: URLSearchParams) {
   }
   
   return true;
+}
+
+function matchesExpectedCall(expected: ExpectedCall, url: string, params: URLSearchParams, eventName?: string): boolean {
+  let regex: RegExp;
+  try {
+    regex = new RegExp(expected.urlPattern);
+  } catch {
+    return false;
+  }
+
+  if (!regex.test(url)) {
+    return false;
+  }
+
+  if (expected.mustContainParams) {
+    for (const [key, value] of Object.entries(expected.mustContainParams)) {
+      const trimmedValue = value.trim();
+      if (!trimmedValue) continue;
+
+      if (key === 'en' || key === '_en') {
+        const actual = params.get('en') ?? params.get('_en') ?? eventName ?? '';
+        if (actual !== trimmedValue) {
+          return false;
+        }
+        continue;
+      }
+
+      if (key === 'tid' || key === 'measurement_id') {
+        const actual = params.get('tid') ?? params.get('measurement_id') ?? '';
+        if (actual !== trimmedValue) {
+          return false;
+        }
+        continue;
+      }
+
+      if ((params.get(key) ?? '') !== trimmedValue) {
+        return false;
+      }
+    }
+  }
+
+  return true;
+}
+
+function handleUseCaseCollect(data: { url: string; status?: number; params: URLSearchParams; eventName?: string }) {
+  if (!currentRun) return;
+
+  const run = currentRun;
+  let regex: RegExp;
+  try {
+    regex = new RegExp(run.expected.urlPattern);
+  } catch {
+    return;
+  }
+
+  if (!regex.test(data.url)) {
+    return;
+  }
+
+  const paramsMatch = matchesExpectedCall(run.expected, data.url, data.params, data.eventName);
+  if (!paramsMatch) {
+    run.seenPatternMatch = true;
+    return;
+  }
+
+  void finishCurrentRun({
+    ts: Date.now(),
+    ok: true,
+    matchedUrl: data.url,
+    status: data.status,
+  });
+}
+
+async function finishCurrentRun(result: RunResultSummary) {
+  if (!currentRun) return;
+  const run = currentRun;
+  currentRun = null;
+  clearTimeout(run.timer);
+
+  const event: NormalizedEvent = {
+    kind: 'push.result',
+    ts: result.ts,
+    id: run.useCaseId,
+    ok: result.ok,
+    matched: result.ok && result.matchedUrl
+      ? [{ url: result.matchedUrl, status: result.status }]
+      : undefined,
+    reason: result.ok ? undefined : result.reason,
+  };
+
+  broadcast(event);
+  try {
+    await pushUseCasesStorage.updateLastResult(run.useCaseId, result);
+  } catch (err) {
+    console.error('[LIVE-DEBUGGER] Failed updating use case result', err);
+  }
 }
 
 async function startSession(cfg: StartPayload, emit: (e: NormalizedEvent) => void): Promise<void> {
@@ -458,11 +591,14 @@ async function detectEnvironment(page: Page): Promise<EnvInfo> {
 
 // GA Sniffer
 export type OnCollect = (data: {
-  url: string; status?: number; params: URLSearchParams;
+  url: string;
+  status?: number;
+  params: URLSearchParams;
+  eventName?: string;
 }) => void;
 
 function attachGASniffer(page: Page, emit: (e: NormalizedEvent) => void, opts: { redactPII: boolean; onCollect?: OnCollect }) {
-  const requestMap = new Map<string, { url: string; ts: number; params: URLSearchParams }>();
+  const requestMap = new Map<string, { url: string; ts: number; params: URLSearchParams; eventName?: string }>();
 
   page.on('request', (req) => {
     const url = req.url();
@@ -473,12 +609,12 @@ function attachGASniffer(page: Page, emit: (e: NormalizedEvent) => void, opts: {
     const postData = req.postData();
     const params = mergeParams(url, method, postData);
 
-    requestMap.set(req.url(), { url, ts, params });
-
     // Parse and emit immediately
     const isGA4 = params.has('en') || params.has('_en');
+    let eventName: string | undefined;
     if (isGA4) {
       const event = parseGA4Event(params);
+      eventName = event.name;
       const mi = params.get('measurement_id') || params.get('tid') || undefined;
       const cid = params.get('cid') || params.get('_cid') || undefined;
       emit({ kind: 'ga4.hit', ts, url, event, mi, cid });
@@ -490,10 +626,13 @@ function attachGASniffer(page: Page, emit: (e: NormalizedEvent) => void, opts: {
       emit({ kind: 'ua.hit', ts, url, params: paramsObj });
     }
 
+    requestMap.set(req.url(), { url, ts, params, eventName });
+
     // Call onCollect callback if provided
     if (opts.onCollect) {
-      opts.onCollect({ url, params });
+      opts.onCollect({ url, params, eventName });
     }
+    handleUseCaseCollect({ url, params, eventName });
   });
 
   page.on('response', async (resp) => {
@@ -506,6 +645,7 @@ function attachGASniffer(page: Page, emit: (e: NormalizedEvent) => void, opts: {
     const status = resp.status();
     const ts = record.ts;
     const params = record.params;
+    const recordEventName = record.eventName;
 
     const isGA4 = params.has('en') || params.has('_en');
     if (isGA4) {
@@ -521,10 +661,13 @@ function attachGASniffer(page: Page, emit: (e: NormalizedEvent) => void, opts: {
       emit({ kind: 'ua.hit', ts, url, status, params: paramsObj });
     }
 
+    const eventName = recordEventName || (params.has('en') || params.has('_en') ? parseGA4Event(params).name : undefined);
+
     // Call onCollect callback with status if provided
     if (opts.onCollect) {
-      opts.onCollect({ url, status, params });
+      opts.onCollect({ url, status, params, eventName });
     }
+    handleUseCaseCollect({ url, status, params, eventName });
 
     requestMap.delete(url);
   });
@@ -571,6 +714,54 @@ function parseItems(params: URLSearchParams): Array<Record<string, unknown>> {
   });
 
   return items;
+}
+
+async function runUseCase(uc: PushUseCase): Promise<void> {
+  if (!page) {
+    throw new Error('No active session');
+  }
+
+  if (currentRun) {
+    throw new Error('Another use case is currently running');
+  }
+
+  const timeoutMs = uc.timeoutMs ?? 5000;
+  const timer = setTimeout(() => {
+    if (!currentRun) return;
+    const reason: 'timeout' | 'nomatch' = currentRun.seenPatternMatch ? 'nomatch' : 'timeout';
+    void finishCurrentRun({
+      ts: Date.now(),
+      ok: false,
+      reason,
+    });
+  }, timeoutMs);
+
+  currentRun = {
+    useCaseId: uc.id,
+    expected: uc.expected,
+    timer,
+    seenPatternMatch: false,
+    timeoutMs,
+  };
+
+  try {
+    if (uc.mode === 'datalayer') {
+      await page.evaluate((payload) => {
+        (window as any).dataLayer = (window as any).dataLayer || [];
+        (window as any).dataLayer.push(payload);
+      }, uc.payload);
+    } else {
+      await page.evaluate(({ name, params }) => {
+        (window as any).gtag && (window as any).gtag('event', name, params || {});
+      }, { name: uc.gtagName, params: uc.gtagParams ?? {} });
+    }
+  } catch (err) {
+    void finishCurrentRun({
+      ts: Date.now(),
+      ok: false,
+      reason: 'error',
+    });
+  }
 }
 
 // Express + WebSocket Server
@@ -690,6 +881,109 @@ app.post('/api/push', async (req, res) => {
     res.json({ id });
   } catch (err: any) {
     console.error('[LIVE-DEBUGGER] API /push error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Push Use Cases API
+app.get('/api/usecases', async (req, res) => {
+  try {
+    const origin = typeof req.query.origin === 'string' ? req.query.origin : undefined;
+    const useCases = await pushUseCasesStorage.list(origin);
+    res.json(useCases);
+  } catch (err: any) {
+    console.error('[LIVE-DEBUGGER] API /usecases GET error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/usecases', async (req, res) => {
+  try {
+    const parsed = UseCaseCreateSchema.parse(req.body);
+    if (parsed.mode === 'datalayer' && typeof parsed.payload === 'undefined') {
+      return res.status(400).json({ error: 'payload is required for datalayer mode' });
+    }
+    if (parsed.mode === 'gtag' && !parsed.gtagName) {
+      return res.status(400).json({ error: 'gtagName is required for gtag mode' });
+    }
+    const created = await pushUseCasesStorage.create(parsed);
+    res.status(201).json(created);
+  } catch (err: any) {
+    console.error('[LIVE-DEBUGGER] API /usecases POST error:', err);
+    if (err instanceof z.ZodError) {
+      res.status(400).json({ error: err.message });
+    } else {
+      res.status(500).json({ error: err.message });
+    }
+  }
+});
+
+app.put('/api/usecases/:id', async (req, res) => {
+  try {
+    const id = req.params.id;
+    const existing = await pushUseCasesStorage.get(id);
+    if (!existing) {
+      return res.status(404).json({ error: 'Use case not found' });
+    }
+
+    const updates = UseCaseUpdateSchema.parse(req.body);
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: 'No updates provided' });
+    }
+
+    const nextMode = updates.mode ?? existing.mode;
+    const nextPayload = updates.payload ?? existing.payload;
+    const nextGtagName = updates.gtagName ?? existing.gtagName;
+
+    if (nextMode === 'datalayer' && typeof nextPayload === 'undefined') {
+      return res.status(400).json({ error: 'payload is required for datalayer mode' });
+    }
+    if (nextMode === 'gtag' && !nextGtagName) {
+      return res.status(400).json({ error: 'gtagName is required for gtag mode' });
+    }
+
+    const updated = await pushUseCasesStorage.update(id, updates);
+    res.json(updated);
+  } catch (err: any) {
+    console.error('[LIVE-DEBUGGER] API /usecases PUT error:', err);
+    if (err instanceof z.ZodError) {
+      res.status(400).json({ error: err.message });
+    } else {
+      res.status(500).json({ error: err.message });
+    }
+  }
+});
+
+app.delete('/api/usecases/:id', async (req, res) => {
+  try {
+    const deleted = await pushUseCasesStorage.delete(req.params.id);
+    if (!deleted) {
+      return res.status(404).json({ error: 'Use case not found' });
+    }
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error('[LIVE-DEBUGGER] API /usecases DELETE error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/usecases/:id/run', async (req, res) => {
+  try {
+    if (!running || !page) {
+      return res.status(400).json({ error: 'Live debugger session is not running' });
+    }
+    if (currentRun) {
+      return res.status(409).json({ error: 'Another use case run is already in progress' });
+    }
+    const useCase = await pushUseCasesStorage.get(req.params.id);
+    if (!useCase) {
+      return res.status(404).json({ error: 'Use case not found' });
+    }
+    await runUseCase(useCase);
+    const runId = crypto.randomUUID();
+    res.json({ runId });
+  } catch (err: any) {
+    console.error('[LIVE-DEBUGGER] API /usecases RUN error:', err);
     res.status(500).json({ error: err.message });
   }
 });

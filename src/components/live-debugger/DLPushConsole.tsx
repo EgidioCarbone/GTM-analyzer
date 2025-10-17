@@ -9,7 +9,7 @@ interface DLPushConsoleProps {
 interface PushResult {
   id: string;
   ok: boolean;
-  reason?: 'timeout' | 'error';
+  reason?: 'timeout' | 'error' | 'nomatch';
   matched?: { url: string; status?: number }[];
   timestamp: number;
 }
