@@ -1,16 +1,23 @@
+import 'dotenv/config';
 import express from 'express';
 import { WebSocketServer, WebSocket } from 'ws';
 import { createServer } from 'http';
 import { chromium, Browser, BrowserContext, Page } from 'playwright';
+import OpenAI from 'openai';
 import type { StartPayload, NormalizedEvent, EnvInfo, Ga4Event } from '../types/live-debugger.js';
 import type { PushCase, PushCaseCreate, PushCaseUpdate } from '../types/push-cases.js';
 import type { PushUseCase, ExpectedCall, RunResultSummary } from '../../shared/types.js';
+import type { EventInsight } from '../../shared/analyzer.js';
 import { pushCasesStorage } from './push-cases-storage.js';
 import { pushUseCasesStorage } from './push-usecases-storage.js';
 import { resolveMacros } from './macro-resolver.js';
 import { z } from 'zod';
 
 const PORT = process.env.LIVE_DEBUGGER_PORT ? parseInt(process.env.LIVE_DEBUGGER_PORT) : 5180;
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const OPENAI_MODEL =
+  process.env.OPENAI_LIVE_DEBUGGER_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-mini';
+const openaiClient = OPENAI_API_KEY ? new OpenAI({ apiKey: OPENAI_API_KEY }) : null;
 
 // Utility functions
 function mergeParams(url: string, method: string, postData?: string | Buffer) {
@@ -70,6 +77,148 @@ const UseCaseCreateSchema = z.object({
 });
 
 const UseCaseUpdateSchema = UseCaseCreateSchema.partial();
+
+const AiAssistantRequestSchema = z.object({
+  event: z
+    .object({
+      kind: z.string(),
+      ts: z.number(),
+    })
+    .passthrough(),
+  insights: z.array(
+    z.object({
+      id: z.string(),
+      severity: z.enum(['info', 'warning', 'error']),
+      title: z.string(),
+      description: z.string().optional(),
+      recommendations: z.array(z.string()).optional(),
+      payloadPreview: z.any().optional(),
+      relatedEventName: z.string().optional(),
+    }),
+  ),
+  intent: z.enum(['explain', 'fix', 'qa']),
+  question: z.string().optional(),
+});
+
+function indentBlock(text: string, spaces = 2): string {
+  const pad = ' '.repeat(spaces);
+  return text
+    .split('\n')
+    .map((line) => `${pad}${line}`)
+    .join('\n');
+}
+
+function compactStringify(value: unknown, maxLength = 1200): string {
+  try {
+    const seen = new WeakSet();
+    const json = JSON.stringify(
+      value,
+      (_key, val) => {
+        if (typeof val === 'object' && val !== null) {
+          if (seen.has(val)) return '[Circular]';
+          seen.add(val);
+        }
+        if (typeof val === 'function') return undefined;
+        return val;
+      },
+      2,
+    );
+    if (!json) return '';
+    if (json.length <= maxLength) return json;
+    return `${json.slice(0, maxLength)}…`;
+  } catch {
+    return typeof value === 'string' ? value : JSON.stringify(value ?? null);
+  }
+}
+
+function describeEventForAi(event: NormalizedEvent): string {
+  const base = [`Tipo evento: ${event.kind}`, `Timestamp: ${new Date(event.ts).toISOString()}`];
+
+  switch (event.kind) {
+    case 'datalayer.push': {
+      base.push(`Origine push: ${event.source}`);
+      base.push(`Payload:\n${indentBlock(compactStringify(event.payload, 1200), 2)}`);
+      break;
+    }
+    case 'ga4.hit': {
+      base.push(`URL richiesta: ${event.url}`);
+      if (typeof event.status !== 'undefined') base.push(`HTTP status: ${event.status}`);
+      if (event.mi) base.push(`Measurement ID: ${event.mi}`);
+      if (event.cid) base.push(`Client ID: ${event.cid}`);
+      if (event.event?.name) base.push(`Nome evento GA4: ${event.event.name}`);
+      if (event.event?.params) {
+        base.push(`Parametri:\n${indentBlock(compactStringify(event.event.params, 1200), 2)}`);
+      }
+      if (event.event?.items) {
+        base.push(`Items:\n${indentBlock(compactStringify(event.event.items, 800), 2)}`);
+      }
+      break;
+    }
+    case 'ua.hit': {
+      base.push(`URL richiesta: ${event.url}`);
+      if (typeof event.status !== 'undefined') base.push(`HTTP status: ${event.status}`);
+      base.push(`Parametri UA:\n${indentBlock(compactStringify(event.params, 1200), 2)}`);
+      break;
+    }
+    case 'console': {
+      base.push(`Livello console: ${event.level}`);
+      base.push(`Messaggio: ${event.text}`);
+      break;
+    }
+    case 'note':
+      base.push(`Nota: ${event.message}`);
+      break;
+    case 'env':
+      base.push(`Dettagli ambiente:\n${indentBlock(compactStringify(event.env, 800), 2)}`);
+      break;
+    case 'push.result': {
+      base.push(`ID Run: ${event.id}`);
+      base.push(`Outcome: ${event.ok ? 'successo' : `fallito (${event.reason || 'motivo sconosciuto'})`}`);
+      if (event.matched?.length) {
+        base.push(
+          `Richieste abbinate:\n${indentBlock(
+            event.matched.map((m) => `${m.url}${typeof m.status !== 'undefined' ? ` (status ${m.status})` : ''}`).join('\n'),
+            2,
+          )}`,
+        );
+      }
+      break;
+    }
+    default:
+      break;
+  }
+
+  return base.join('\n');
+}
+
+function formatInsightsForAi(insights: EventInsight[]): string {
+  if (!insights.length) {
+    return 'Nessun insight associato a questo evento.';
+  }
+
+  return insights
+    .map((insight, index) => {
+      const lines = [
+        `${index + 1}. [${insight.severity.toUpperCase()}] ${insight.title}`,
+        insight.description ? indentBlock(`Descrizione: ${insight.description}`, 4) : null,
+        insight.relatedEventName ? indentBlock(`Evento correlato: ${insight.relatedEventName}`, 4) : null,
+        insight.recommendations?.length
+          ? indentBlock(
+              `Raccomandazioni:\n${insight.recommendations
+                .map((rec, idx) => `${idx + 1}) ${rec}`)
+                .map((entry) => indentBlock(entry, 6))
+                .join('\n')}`,
+              4,
+            )
+          : null,
+        insight.payloadPreview
+          ? indentBlock(`Esempio payload:\n${indentBlock(compactStringify(insight.payloadPreview, 600), 6)}`, 4)
+          : null,
+      ].filter(Boolean);
+      return lines.join('\n');
+    })
+    .join('\n\n');
+}
 
 // GA Detection
 const GA_HOST = /(google-analytics\.com|region\d+\.google-analytics\.com)$/i;
@@ -1108,6 +1257,97 @@ app.post('/api/cases/import', async (req, res) => {
   } catch (err: any) {
     console.error('[LIVE-DEBUGGER] API /cases/import error:', err);
     res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/ai/insight', async (req, res) => {
+  if (!openaiClient) {
+    return res.status(400).json({ error: 'Servizio AI non configurato (manca OPENAI_API_KEY).' });
+  }
+
+  const parseResult = AiAssistantRequestSchema.safeParse(req.body);
+  if (!parseResult.success) {
+    return res.status(400).json({
+      error: 'Payload non valido',
+      details: parseResult.error.issues,
+    });
+  }
+
+  const { event, insights, intent, question } = parseResult.data;
+
+  if (intent === 'qa' && (!question || !question.trim())) {
+    return res.status(400).json({ error: 'La domanda non può essere vuota.' });
+  }
+
+  const eventSummary = describeEventForAi(event as NormalizedEvent);
+  const insightSummary = formatInsightsForAi(insights as EventInsight[]);
+
+  let requestInstruction = '';
+  switch (intent) {
+    case 'explain':
+      requestInstruction =
+        'Spiega in modo sintetico ma chiaro, in italiano, quale problema evidenziano questi insight e quali rischi o impatti possono causare sul tracciamento o sulla lettura dei dati.';
+      break;
+    case 'fix':
+      requestInstruction =
+        'Suggerisci una lista di azioni concrete per risolvere gli insight emersi. Fornisci passi operativi, includendo esempi di configurazione GTM/GA4 quando opportuno.';
+      break;
+    case 'qa':
+      requestInstruction = `Rispondi alla seguente domanda dell\'utente in modo pratico e basato sui dati forniti: "${question?.trim()}"`;
+      break;
+    default:
+      requestInstruction = 'Fornisci assistenza contestuale basata sugli insight.';
+  }
+
+  const messages = [
+    {
+      role: 'system' as const,
+      content:
+        'Sei un assistente esperto di analytics e tagging. Rispondi sempre in italiano, con tono professionale ma conciso. Fornisci output in Markdown semplice (paragrafi, elenchi puntati) quando utile.',
+    },
+    {
+      role: 'user' as const,
+      content: [
+        '### Contesto evento',
+        eventSummary,
+        '',
+        '### Insight collegati',
+        insightSummary,
+        '',
+        '### Richiesta',
+        requestInstruction,
+      ].join('\n'),
+    },
+  ];
+
+  const temperature = intent === 'fix' ? 0.6 : intent === 'qa' ? 0.55 : 0.35;
+
+  try {
+    const completion = await openaiClient.chat.completions.create({
+      model: OPENAI_MODEL,
+      temperature,
+      max_tokens: 650,
+      messages,
+    });
+
+    const answer = completion.choices[0]?.message?.content?.trim();
+
+    if (!answer) {
+      return res.status(502).json({ error: 'Risposta vuota dal modello AI.' });
+    }
+
+    res.json({
+      intent,
+      answer,
+      usage: completion.usage ?? null,
+    });
+  } catch (err: any) {
+    console.error('AI insight error:', err);
+    const message =
+      err?.response?.data?.error?.message ||
+      err?.message ||
+      'Errore durante la generazione della risposta AI.';
+    res.status(500).json({ error: message });
   }
 });
 

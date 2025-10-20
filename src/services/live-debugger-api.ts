@@ -1,6 +1,7 @@
 import type { StartPayload, NormalizedEvent } from '../types/live-debugger';
 import type { PushCase, PushCaseCreate, PushCaseUpdate } from '../types/push-cases';
 import type { PushUseCase, ExpectedCall, RunResultSummary } from '../../shared/types';
+import type { EventInsight } from '../../shared/analyzer';
 
 const API_BASE = import.meta.env.DEV ? '/live-debugger' : '';
 const WS_BASE = import.meta.env.DEV ? 'ws://localhost:5180' : `ws://${window.location.host}`;
@@ -17,6 +18,18 @@ export type PushUseCaseDraft = {
 };
 
 export type PushUseCaseUpdateInput = Partial<PushUseCaseDraft>;
+
+export type AiAssistantIntent = 'explain' | 'fix' | 'qa';
+
+export interface AiAssistantResponse {
+  intent: AiAssistantIntent;
+  answer: string;
+  usage?: {
+    promptTokens?: number | null;
+    completionTokens?: number | null;
+    totalTokens?: number | null;
+  } | null;
+}
 
 export async function startLiveDebugger(payload: StartPayload): Promise<void> {
   const res = await fetch(`${API_BASE}/api/start`, {
@@ -123,6 +136,41 @@ export async function runPushUseCase(id: string): Promise<{ runId: string }> {
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.error || 'Failed to run use case');
+  }
+
+  return res.json();
+}
+
+export async function requestAiAssistant(
+  event: NormalizedEvent,
+  insights: EventInsight[],
+  intent: AiAssistantIntent,
+  question?: string,
+): Promise<AiAssistantResponse> {
+  const payload: Record<string, unknown> = {
+    event,
+    insights,
+    intent,
+  };
+  if (question && question.trim()) {
+    payload.question = question.trim();
+  }
+
+  const res = await fetch(`${API_BASE}/api/ai/insight`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    let message = 'Assistente AI non disponibile';
+    try {
+      const err = await res.json();
+      message = err.error || message;
+    } catch {
+      // ignore parse error
+    }
+    throw new Error(message);
   }
 
   return res.json();

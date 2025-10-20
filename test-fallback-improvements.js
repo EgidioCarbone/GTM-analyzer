@@ -87,3 +87,4 @@ console.log('\n');
 console.log('✅ Il fallback ora dovrebbe funzionare anche sui siti più "blindati"!');
 console.log('💡 Prova il Test Bench con il campo "GA4 send_to" per override manuale.');
 
+
