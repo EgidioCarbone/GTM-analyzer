@@ -1,7 +1,7 @@
 import React, { useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { BarChart, Brain, TestTube, Shield, ArrowRight, CheckCircle, Upload } from 'lucide-react';
+import { BarChart, Brain, TestTube, Shield, ArrowRight, CheckCircle, Upload, Search } from 'lucide-react';
 import { useContainer } from '../context/ContainerContext';
 
 // ---------- TIPI ----------
@@ -69,16 +69,23 @@ const tools: Tool[] = [
     color: 'cyan',
     features: ['Test automatici', 'Rilevamento CMP', 'Report dettagliati']
   },
-  // 🔹 NUOVA CARD: GA4 Insights
   {
-    id: 'ga4-insights',
-    title: 'GA4 Insights',
-    description: 'KPI, trend e insight con IA dai dati di Google Analytics 4',
-    requiresJson: false,
-    icon: BarChart,
-    color: 'cyan',
-    features: ['Utenti, sessioni, pageviews', 'Top canali e pagine', 'Insight generati con IA']
-  }
+  id: 'ga4-insights',
+  title: 'GA4 Insights',
+  description: 'Ricerca veloce con KPI/grafici e spiegazioni IA sullo stesso periodo.',
+  requiresJson: false,
+  icon: BarChart, // o Search/Brain a tua scelta
+  color: 'cyan',
+  features: ['Query naturali', 'KPI + tabella', 'Insight IA']
+},  {
+  id: 'dashboard-studio',
+  title: 'Dashboard Studio',
+  description: 'Crea e personalizza le tue dashboard con un editor intuitivo.',
+  requiresJson: false,
+  icon: BarChart, // o Search/Brain a tua scelta
+  color: 'cyan',
+  features: ['Editor drag-and-drop', 'Widget personalizzabili', 'Condivisione facile']
+}
 ];
 
 // Componente per le card degli strumenti
@@ -232,30 +239,22 @@ export default function HomePage() {
   };
 
   const handleToolClick = (tool: Tool) => {
-    if (tool.requiresJson && !container) {
-      // Se richiede JSON e non c'è, apri file picker
-      if (tool.id === 'container-manager') {
-        fileInputRef.current?.click();
-      } else if (tool.id === 'ai-plan') {
-        aiPlanFileInputRef.current?.click();
-      } else {
-        navigate('/dashboard');
-      }
-    } else {
-      // Vai direttamente allo strumento
-      if (tool.id === 'container-manager') {
-        navigate('/container-manager?mode=analytics');
-      } else if (tool.id === 'ai-plan') {
-        navigate('/plan?mode=plan');
-      } else if (tool.id === 'ssd-test') {
-        navigate('/ssd-test?mode=ssd');
-      } else if (tool.id === 'ai-sentinel') {
-        navigate('/ai-sentinel?mode=ai-sentinel');
-      } else if (tool.id === 'ga4-insights') {
-        navigate('/ga4-insights');
-      }
-    }
-  };
+  if (tool.requiresJson && !container) {
+    if (tool.id === "container-manager") { fileInputRef.current?.click(); return; }
+    if (tool.id === "ai-plan") { aiPlanFileInputRef.current?.click(); return; }
+    navigate("/dashboard"); return;
+  }
+
+  switch (tool.id) {
+    case "container-manager": navigate("/container-manager?mode=analytics"); break;
+    case "ai-plan":           navigate("/plan?mode=plan"); break;
+    case "ssd-test":          navigate("/ssd-test?mode=ssd"); break;
+    case "ai-sentinel":       navigate("/ai-sentinel?mode=ai-sentinel"); break;
+    case "ga4-insights":           navigate("/ga4"); break;
+    case "dashboard-studio":        navigate("/dashboard-studio/source"); break;
+    default:                  navigate("/dashboard");
+  }
+};
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-pink-50 flex flex-col relative overflow-hidden">

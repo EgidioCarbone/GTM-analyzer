@@ -73,5 +73,8 @@ export interface WebsiteChecklistResult {
       event: string;
       data: any;
     }[];
+    // Raw AI JSON and pretty-printed variant (optional)
+    aiJson?: any;
+    aiJsonPretty?: string;
   };
 }
