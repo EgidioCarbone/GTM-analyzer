@@ -1,3 +1,4 @@
+// vite.config.mts
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
@@ -6,13 +7,8 @@ export default defineConfig({
   server: {
     proxy: {
       "/api": {
-        target: process.env.VITE_BACKEND_TARGET || "http://localhost:4010",   // <-- PORTA BACKEND
+        target: process.env.VITE_API_BASE || "http://localhost:3001",
         changeOrigin: true,
-        // facoltativo ma utile per debug:
-        // configure: (proxy) => {
-        //   proxy.on('proxyReq', (_, req) => console.log('[VITE PROXY] →', req.url));
-        //   proxy.on('proxyRes', (_, req, res) => console.log('[VITE PROXY] ←', req.url, res.statusCode));
-        // }
       },
     },
   },

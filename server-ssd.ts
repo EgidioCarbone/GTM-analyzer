@@ -1,6 +1,7 @@
 // server-ssd.js
 // Complete SSD Test server with real PDF processing and Puppeteer execution
 // ---------------------------------------------------------------------------
+// @ts-nocheck
 
 import 'dotenv/config';
 import express from 'express';
@@ -28,6 +29,13 @@ import puppeteer from 'puppeteer';
 import { runConsentTest, ConsentTestInputSchema, type ConsentRunnerDependencies } from './src/ai-sentinel/pw-runner.js';
 import { ConsentLLMService } from './src/ai-sentinel/llm/consent-llm-service.js';
 import ga4InsightsRouter from './src/services/ga4-insights.server.ts';
+import ga4SearchRouter from "./src/services/ga4-search.server";
+import ga4ChatRouter from './src/services/ga4-chat.server.ts';
+import dashboardsBuildRouter from "./src/services/dashboards-build.server";
+import studioIntentRouter from "./src/services/studio-intent.server";
+import studioRunRouter from "./src/services/studio-run.server";
+import studioMetaRouter from "./src/services/studio-meta.server";
+import studioShareRouter from "./src/services/studio-share.server";
 
 // Global type declarations
 declare global {
@@ -237,7 +245,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const app = express();
-const PORT = process.env.PORT || 4000;
+const PORT = Number(process.env.PORT ?? 3001);
 
 // Security middleware
 app.use(helmet({
@@ -302,6 +310,17 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // GA4 insights API
 app.use(ga4InsightsRouter);
+//GA4 Search
+app.use(ga4SearchRouter);
+//GA4 Chat
+app.use(ga4ChatRouter);
+app.use(studioIntentRouter);
+app.use(studioRunRouter);
+app.use(studioShareRouter);
+app.use(studioMetaRouter);
+
+console.log("[GA4] Chat router: montato su /api/ga4/chat");
+console.log("[GA4] Quick Search router: montato su /api/ga4/search");
 
 // Static files for artifacts with CORS headers
 app.use('/artifacts', (req, res, next) => {
