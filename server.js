@@ -18,6 +18,8 @@ import { pdfExtractionService } from './src/services/pdfExtractionService.js';
 import { createSSDLLMService } from './src/services/ssdLLMService.js';
 import { createSSDPuppeteerRunner } from './src/services/ssdPuppeteerRunner.js';
 import { validateSSDIngestRequest, validateSSDRunRequest } from './src/services/ssdValidation.js';
+// server.ts
+import "dotenv/config";
 
 // Helper function for uniform error responses
 function sendError(res, httpStatus, code, message) {

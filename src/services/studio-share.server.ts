@@ -1,45 +1,41 @@
 // src/services/studio-share.server.ts
 import { Router } from "express";
-import fs from "fs";
-import path from "path";
-import crypto from "crypto";
 
-const router = Router();
-const ROOT = path.resolve(process.cwd(), "data", "shared-dashboards");
-if (!fs.existsSync(ROOT)) fs.mkdirSync(ROOT, { recursive: true });
+export const studioShareRouter = Router();
 
-// Crea link pubblico
-router.post("/api/studio/share", (req, res) => {
+/**
+ * Endpoint: POST /api/studio/share
+ * Riceve: { title, description, propertyId, startDate, endDate, charts }
+ * Ritorna: { url } con il link pubblico alla dashboard condivisa
+ */
+studioShareRouter.post("/api/studio/share", async (req, res) => {
   try {
-    const payload = req.body; // { title, description, filters, charts }
-    if (!payload || !Array.isArray(payload.charts) || payload.charts.length === 0) {
-      return res.status(400).send("Nessun grafico da condividere.");
-    }
-    const id = crypto.randomBytes(10).toString("hex");
-    const file = path.join(ROOT, `${id}.json`);
-    fs.writeFileSync(file, JSON.stringify(payload, null, 2), "utf8");
+    const { title, description, propertyId, startDate, endDate, charts } = req.body || {};
 
-    // URL pubblico (renderizzalo con una pagina viewer)
-    const url = `${process.env.PUBLIC_BASE_URL || "http://localhost:5173"}/view/${id}`;
-    return res.json({ id, url });
-  } catch (e: any) {
-    console.error(e);
-    return res.status(500).send(e?.message || "Errore share");
+    // Genera uno slug temporaneo per la dashboard pubblica
+    const slug = Math.random().toString(36).slice(2, 8);
+
+    // Usa l'URL base da variabile d'ambiente o fallback a localhost
+    const baseUrl = process.env.PUBLIC_BASE_URL || "http://localhost:3000";
+    const url = `${baseUrl}/share/${slug}`;
+
+    // Qui puoi salvare in DB se necessario
+    console.log("[SHARE CREATED]", {
+      title,
+      description,
+      propertyId,
+      startDate,
+      endDate,
+      chartsCount: charts?.length ?? 0,
+    });
+
+    res.json({ url });
+  } catch (err: any) {
+    console.error("[SHARE ERROR]", err);
+    res.status(500).json({ error: "Errore nella creazione del link di condivisione." });
   }
 });
 
-// Recupera definizione pubblica
-router.get("/api/studio/share/:id", (req, res) => {
-  try {
-    const id = req.params.id;
-    const file = path.join(ROOT, `${id}.json`);
-    if (!fs.existsSync(file)) return res.status(404).send("Not found");
-    const json = fs.readFileSync(file, "utf8");
-    res.setHeader("Content-Type", "application/json");
-    return res.send(json);
-  } catch (e: any) {
-    return res.status(500).send(e?.message || "Errore");
-  }
-});
-
-export default router;
+// 👇 esportazione default per poter fare:
+// import studioShareRouter from "./src/services/studio-share.server";
+export default studioShareRouter;

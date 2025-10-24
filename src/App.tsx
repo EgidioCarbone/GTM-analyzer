@@ -14,9 +14,8 @@ import ConsentTestBPage from "./ai-sentinel/ConsentTestBPage";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { DashboardErrorBoundary, ContainerManagerErrorBoundary } from "./components/ErrorBoundaries";
 import GA4Insights from "./pages/GA4Insights"; 
-import DashboardTemplateBuilder from "./pages/DashboardTemplateBuilder";
-import DashboardStudio from "./pages/DashboardStudio";
 import DashboardSource from "./pages/DashboardSource";
+import DashboardStudio from "./pages/DashboardStudio";
 
 
 export default function App() {
@@ -69,9 +68,8 @@ export default function App() {
             <Route path="/ssd-test" element={<SSDTestPage />} />
             <Route path="/ai-sentinel" element={<ConsentTestBPage />} />
             <Route path="/ga4" element={<GA4Insights />} />
-            <Route path="/dashboard-studio" element={<DashboardStudio />} />
             <Route path="/dashboard-studio/source" element={<DashboardSource />} />
-
+            <Route path="/dashboard-studio" element={<DashboardStudio />} />
 
             {/* Route protette */}
             {container && (

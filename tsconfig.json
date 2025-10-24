@@ -17,5 +17,15 @@
     "jsx": "react-jsx",
     "types": ["vite/client"]
   },
-  "include": ["src", "vite-env.d.ts"]
+  "include": ["src", "vite-env.d.ts"],
+  "exclude": [
+    "node_modules",
+    "src/**/__tests__/**",
+    "src/**/__mocks__/**",
+    "src/test/**",
+    "src/**/*.test.*",
+    "src/**/*.spec.*",
+    "src/ai-sentinel/**",
+    "src/test-ssd-*.ts"
+  ]
 }
