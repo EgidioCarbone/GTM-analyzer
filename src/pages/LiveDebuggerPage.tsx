@@ -1,6 +1,4 @@
-import React, { useEffect, useReducer, useRef, useMemo, useState, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Bug, ArrowLeft } from 'lucide-react';
+import React, { useEffect, useReducer, useRef, useMemo } from 'react';
 import type { NormalizedEvent, EnvInfo } from '../types/live-debugger';
 import type { FilterState } from '../types/filters';
 import * as api from '../services/live-debugger-api';
@@ -13,12 +11,7 @@ import { PushLibrary } from '../components/live-debugger/PushLibrary';
 import { SessionSummary } from '../components/live-debugger/SessionSummary';
 import { EventStream } from '../components/live-debugger/EventStream';
 import { EnvPanel } from '../components/live-debugger/EnvPanel';
-import { UseCasePanel } from '../components/live-debugger/UseCasePanel';
-import { UseCaseEditor } from '../components/live-debugger/UseCaseEditor';
-import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { AnimatedBackdrop } from '../components/AnimatedBackdrop';
-import type { PushUseCase, RunResultSummary } from '../../shared/types';
-import type { PushUseCaseDraft } from '../services/live-debugger-api';
 import { EventAnalyzer } from '../../shared/analyzer';
 import type { AnalyzerState } from '../../shared/analyzer';
 
@@ -240,7 +233,6 @@ function applyFilters(events: NormalizedEvent[], filters: FilterState): Normaliz
 }
 
 export default function LiveDebuggerPage() {
-  const navigate = useNavigate();
   const wsRef = useRef<WebSocket | null>(null);
   const analyzerRef = useRef(new EventAnalyzer());
 
@@ -265,29 +257,6 @@ export default function LiveDebuggerPage() {
   }, [state.events]);
 
   const domain = state.env?.url ? new URL(state.env.url).origin : undefined;
-  const originRef = useRef<string>(window.location.origin);
-  const [useCases, setUseCases] = useState<PushUseCase[]>([]);
-  const [useCasesLoading, setUseCasesLoading] = useState<boolean>(false);
-  const [runningUseCaseId, setRunningUseCaseId] = useState<string | null>(null);
-  const [editorState, setEditorState] = useState<{ mode: 'create' | 'edit'; useCase?: PushUseCase } | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<PushUseCase | null>(null);
-  const [deleteLoading, setDeleteLoading] = useState(false);
-
-  const refreshUseCases = useCallback(async () => {
-    setUseCasesLoading(true);
-    try {
-      const data = await api.getPushUseCases(originRef.current);
-      setUseCases(data);
-    } catch (err) {
-      console.error('Failed to load use cases:', err);
-    } finally {
-      setUseCasesLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void refreshUseCases();
-  }, [refreshUseCases]);
 
   // WebSocket connection
   useEffect(() => {
@@ -300,25 +269,6 @@ export default function LiveDebuggerPage() {
             dispatch({ type: 'SET_ENV', env: event.env });
           }
 
-          if (event.kind === 'push.result') {
-            const summary: RunResultSummary = {
-              ts: event.ts,
-              ok: event.ok,
-              matchedUrl: event.matched?.[0]?.url,
-              status: event.matched?.[0]?.status,
-              reason: event.ok ? undefined : event.reason,
-            };
-
-            setUseCases((prev) =>
-              prev.map((uc) =>
-                uc.id === event.id
-                  ? { ...uc, lastResult: summary, updatedAt: Date.now() }
-                  : uc
-              )
-            );
-
-            setRunningUseCaseId((prev) => (prev === event.id ? null : prev));
-          }
         },
         (err) => {
           console.error('WebSocket error:', err);
@@ -437,104 +387,6 @@ export default function LiveDebuggerPage() {
     });
   };
 
-  const handleOpenCreateUseCase = () => {
-    setEditorState({ mode: 'create' });
-  };
-
-  const handleEditUseCase = (useCase: PushUseCase) => {
-    setEditorState({ mode: 'edit', useCase });
-  };
-
-  const handleSaveUseCase = async (draft: PushUseCaseDraft) => {
-    if (editorState?.mode === 'edit' && editorState.useCase) {
-      try {
-        const updated = await api.updatePushUseCase(editorState.useCase.id, draft);
-        setUseCases(prev => prev.map(uc => (uc.id === updated.id ? updated : uc)));
-      } catch (err: any) {
-        console.error('Failed to update use case:', err);
-        throw err;
-      }
-    } else {
-      try {
-        const created = await api.createPushUseCase(draft);
-        setUseCases(prev => [...prev, created]);
-      } catch (err: any) {
-        console.error('Failed to create use case:', err);
-        throw err;
-      }
-    }
-  };
-
-  const handleDuplicateUseCase = async (useCase: PushUseCase) => {
-    const names = new Set(useCases.map((uc) => uc.name));
-    const baseName = `${useCase.name} copy`;
-    let candidate = baseName;
-    let counter = 2;
-    while (names.has(candidate)) {
-      candidate = `${baseName} ${counter++}`;
-    }
-
-    const draft: PushUseCaseDraft = {
-      name: candidate,
-      origin: originRef.current,
-      mode: useCase.mode,
-      payload: useCase.mode === 'datalayer' ? JSON.parse(JSON.stringify(useCase.payload ?? {})) : undefined,
-      gtagName: useCase.mode === 'gtag' ? useCase.gtagName : undefined,
-      gtagParams: useCase.mode === 'gtag' ? { ...(useCase.gtagParams ?? {}) } : undefined,
-      expected: {
-        urlPattern: useCase.expected.urlPattern,
-        mustContainParams: useCase.expected.mustContainParams
-          ? { ...useCase.expected.mustContainParams }
-          : undefined,
-      },
-      timeoutMs: useCase.timeoutMs,
-    };
-
-    try {
-      const created = await api.createPushUseCase(draft);
-      setUseCases(prev => [...prev, created]);
-    } catch (err: any) {
-      console.error('Failed to duplicate use case:', err);
-      alert(err.message || 'Errore durante la duplicazione');
-    }
-  };
-
-  const handleDeleteUseCase = (useCase: PushUseCase) => {
-    setDeleteTarget(useCase);
-  };
-
-  const handleConfirmDeleteUseCase = async () => {
-    if (!deleteTarget) return;
-    try {
-      setDeleteLoading(true);
-      await api.deletePushUseCase(deleteTarget.id);
-      setUseCases(prev => prev.filter(uc => uc.id !== deleteTarget.id));
-      setRunningUseCaseId(prev => (prev === deleteTarget.id ? null : prev));
-      setDeleteTarget(null);
-    } catch (err: any) {
-      console.error('Failed to delete use case:', err);
-      alert(err.message || 'Errore durante l\'eliminazione');
-    } finally {
-      setDeleteLoading(false);
-    }
-  };
-
-  const handleCancelDelete = () => {
-    if (deleteLoading) return;
-    setDeleteTarget(null);
-  };
-
-  const handleRunUseCase = async (useCase: PushUseCase) => {
-    try {
-      setRunningUseCaseId(useCase.id);
-      await api.runPushUseCase(useCase.id);
-    } catch (err: any) {
-      setRunningUseCaseId(null);
-      console.error('Failed to run use case:', err);
-      alert(err.message || 'Errore durante l\'esecuzione');
-    }
-  };
-
   return (
     <div
       className={`relative min-h-screen overflow-hidden bg-gradient-to-br from-slate-100 via-white to-blue-50 ${
@@ -589,25 +441,12 @@ export default function LiveDebuggerPage() {
                   onRepush={handleRepush}
                   analyzer={analyzerState}
                 />
-                <UseCasePanel
-                  useCases={useCases}
-                  loading={useCasesLoading}
-                  runningId={runningUseCaseId}
-                  deletingId={deleteLoading ? deleteTarget?.id ?? null : null}
-                  onCreate={handleOpenCreateUseCase}
-                  onRun={handleRunUseCase}
-                  onEdit={handleEditUseCase}
-                  onDuplicate={handleDuplicateUseCase}
-                  onDelete={handleDeleteUseCase}
-                />
+                <PushLibrary events={state.events} />
               </div>
 
               <aside className="flex flex-col gap-6">
                 <EnvPanel env={state.env} />
-                <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-                  <DLPushConsole onEvent={(event) => dispatch({ type: 'ADD_EVENT', event })} />
-                  <PushLibrary onEvent={(event) => dispatch({ type: 'ADD_EVENT', event })} />
-                </div>
+                <DLPushConsole onEvent={(event) => dispatch({ type: 'ADD_EVENT', event })} />
               </aside>
             </div>
           </div>
@@ -617,25 +456,6 @@ export default function LiveDebuggerPage() {
           event={state.selectedEvent}
           isOpen={state.showInspector}
           onClose={() => dispatch({ type: 'SELECT_EVENT', event: null })}
-        />
-
-        <UseCaseEditor
-          open={Boolean(editorState)}
-          mode={editorState?.mode ?? 'create'}
-          initial={editorState?.useCase}
-          onClose={() => setEditorState(null)}
-          onSubmit={handleSaveUseCase}
-        />
-
-        <ConfirmDialog
-          open={Boolean(deleteTarget)}
-          title="Elimina use case"
-          description={deleteTarget ? `Confermi l'eliminazione di "${deleteTarget.name}"?` : undefined}
-          confirmText="Elimina"
-          tone="danger"
-          loading={deleteLoading}
-          onConfirm={handleConfirmDeleteUseCase}
-          onCancel={handleCancelDelete}
         />
       </div>
     </div>

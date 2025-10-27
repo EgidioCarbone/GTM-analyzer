@@ -38,14 +38,17 @@ function mergeParams(url: string, method: string, postData?: string | Buffer) {
 }
 
 function safeJSON(text: string): any {
+  if (typeof text !== 'string') {
+    return null;
+  }
+
+  const trimmed = text.trim();
+  if (!trimmed || !/^[\[{]/.test(trimmed)) {
+    return null;
+  }
+
   try {
-    if (uc.mode === 'datalayer' && typeof uc.payload === 'undefined') {
-      throw new Error('Missing DataLayer payload');
-    }
-    if (uc.mode === 'gtag' && !uc.gtagName) {
-      throw new Error('Missing gtag event name');
-    }
-    return JSON.parse(text);
+    return JSON.parse(trimmed);
   } catch {
     return null;
   }
@@ -592,14 +595,13 @@ async function runConsent(page: Page, emit: (e: NormalizedEvent) => void): Promi
 async function runConsentInternal(page: Page, emit: (e: NormalizedEvent) => void): Promise<void> {
   // Check if Cookiebot is present
   const hasCookiebot = await page.evaluate(() => {
-    return !!(window as any).Cookiebot || 
+    return !!(window as any).Cookiebot ||
       !!document.querySelector('script[src*="consent.cookiebot.com"]');
   });
 
   if (hasCookiebot) {
     emit({ kind: 'note', ts: Date.now(), message: 'consent:cookiebot_detected' });
-    
-    // Try to click accept button (main frame + iframes)
+
     const selectors = [
       'button:has-text("Accetta tutto")',
       'button:has-text("Accept all")',
@@ -615,7 +617,6 @@ async function runConsentInternal(page: Page, emit: (e: NormalizedEvent) => void
 
     let clicked = false;
 
-    // Try main frame
     for (const sel of selectors) {
       try {
         await page.locator(sel).first().click({ timeout: 1000 });
@@ -625,7 +626,6 @@ async function runConsentInternal(page: Page, emit: (e: NormalizedEvent) => void
       } catch {}
     }
 
-    // Try iframes
     if (!clicked) {
       const frames = page.frames();
       for (const frame of frames) {
@@ -643,6 +643,90 @@ async function runConsentInternal(page: Page, emit: (e: NormalizedEvent) => void
     }
 
     if (clicked) {
+      await page.waitForTimeout(500);
+      return;
+    }
+  }
+
+  // Check if OneTrust is present
+  const hasOneTrust = await page.evaluate(() => {
+    const win = window as any;
+    return (
+      typeof win.OneTrust === 'object' ||
+      typeof win.Optanon === 'object' ||
+      !!document.querySelector(
+        '#onetrust-accept-btn-handler, #onetrust-accept-all-handler, .onetrust-accept-btn-handler, .ot-pc-accept-all, button[data-cookiebanner="accept_button"]'
+      )
+    );
+  });
+
+  if (hasOneTrust) {
+    emit({ kind: 'note', ts: Date.now(), message: 'consent:onetrust_detected' });
+
+    const selectors = [
+      '#onetrust-accept-btn-handler',
+      '#onetrust-accept-all-handler',
+      '.onetrust-accept-btn-handler',
+      '.ot-pc-accept-all',
+      '#onetrust-consent-sdk button[aria-label*="Accept"]',
+      '#onetrust-consent-sdk button[aria-label*="Accetta"]',
+      'button[data-cookiebanner="accept_button"]',
+      'button:has-text("Accept all")',
+      'button:has-text("Accetta tutto")',
+    ];
+
+    let clicked = false;
+
+    for (const sel of selectors) {
+      try {
+        await page.locator(sel).first().click({ timeout: 1200 });
+        emit({ kind: 'note', ts: Date.now(), message: 'consent:onetrust_clicked_main' });
+        clicked = true;
+        break;
+      } catch {}
+    }
+
+    if (!clicked) {
+      const frames = page.frames().filter((frame) => {
+        const url = frame.url();
+        return /cookielaw\.org|onetrust|cookieconsent/i.test(url);
+      });
+      for (const frame of frames) {
+        for (const sel of selectors) {
+          try {
+            await frame.locator(sel).first().click({ timeout: 1200 });
+            emit({ kind: 'note', ts: Date.now(), message: 'consent:onetrust_clicked_iframe' });
+            clicked = true;
+            break;
+          } catch {}
+        }
+        if (clicked) break;
+      }
+    }
+
+    if (!clicked) {
+      const apiAccepted = await page.evaluate(() => {
+        const win = window as any;
+        try {
+          if (win.OneTrust && typeof win.OneTrust.AcceptAll === 'function') {
+            win.OneTrust.AcceptAll(true);
+            return true;
+          }
+          if (win.Optanon && typeof win.Optanon.AcceptAll === 'function') {
+            win.Optanon.AcceptAll(true);
+            return true;
+          }
+        } catch {
+          // ignore errors
+        }
+        return false;
+      });
+      if (apiAccepted) {
+        emit({ kind: 'note', ts: Date.now(), message: 'consent:onetrust_api_accept' });
+        await page.waitForTimeout(500);
+        return;
+      }
+    } else {
       await page.waitForTimeout(500);
       return;
     }
@@ -735,7 +819,49 @@ async function detectEnvironment(page: Page): Promise<EnvInfo> {
     };
   });
 
-  return { url, gtm, gtag, cookiebot };
+  // OneTrust detection
+  const onetrust = await page.evaluate(() => {
+    const win = window as any;
+    const scripts = Array.from(document.querySelectorAll('script[src]'));
+    const otScript = scripts.find((s) => {
+      const src = s.getAttribute('src') || '';
+      return /cookielaw\.org|onetrust|otSDKStub\.js/i.test(src);
+    });
+
+    const hasOneTrust =
+      typeof win.OneTrust === 'object' ||
+      typeof win.Optanon === 'object' ||
+      !!document.querySelector('#onetrust-accept-btn-handler, #onetrust-accept-all-handler, .onetrust-accept-btn-handler');
+
+    const version =
+      (win.OneTrust && (win.OneTrust.OtVersion || win.OneTrust.otVersion)) ||
+      (win.Optanon && win.Optanon.version) ||
+      undefined;
+
+    let consentStatus: string | undefined;
+    try {
+      if (win.OneTrust && typeof win.OneTrust.GetConsentStatus === 'function') {
+        const status = win.OneTrust.GetConsentStatus();
+        if (typeof status === 'string' && status.trim()) {
+          consentStatus = status.trim();
+        }
+      } else if (win.OneTrust && typeof win.OneTrust.IsAlertBoxClosed === 'function') {
+        consentStatus = win.OneTrust.IsAlertBoxClosed() ? 'accepted' : 'pending';
+      } else if (win.OptanonActiveGroups) {
+        consentStatus = String(win.OptanonActiveGroups);
+      }
+    } catch {
+      // ignore errors retrieving consent status
+    }
+
+    return {
+      present: hasOneTrust || !!otScript,
+      version: version ? String(version) : undefined,
+      consentStatus,
+    };
+  });
+
+  return { url, gtm, gtag, cookiebot, onetrust };
 }
 
 // GA Sniffer

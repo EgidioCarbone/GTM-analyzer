@@ -75,20 +75,79 @@ export function EnvPanel({ env }: EnvPanelProps) {
           </div>
         </div>
 
-        <div className="flex items-start justify-between rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3">
-          <div>
-            <p className="font-semibold text-slate-700">Cookiebot</p>
-            <p className="text-xs text-slate-500">Versione e stato consenso</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <span
-              className={`h-2 w-2 rounded-full ${env.cookiebot.present ? 'bg-emerald-500' : 'bg-red-400'}`}
-            />
-            <span className="rounded-full bg-orange-100 px-2 py-0.5 text-xs font-semibold text-orange-700">
-              {env.cookiebot.version ? `v${env.cookiebot.version}` : 'n/d'}
-            </span>
-          </div>
-        </div>
+        {(() => {
+          const entries: Array<{
+            key: string;
+            title: string;
+            description: string;
+            present: boolean;
+            badgeLabel: string;
+            indicatorClass: string;
+            badgeClass: string;
+          }> = [];
+
+          if (env.cookiebot?.present) {
+            entries.push({
+              key: 'cookiebot',
+              title: 'Cookiebot',
+              description: 'Versione e stato consenso',
+              present: true,
+              badgeLabel: env.cookiebot.version ? `v${env.cookiebot.version}` : 'rilevato',
+              indicatorClass: 'bg-emerald-500',
+              badgeClass: 'bg-orange-100 text-orange-700',
+            });
+          }
+
+          if (env.onetrust?.present) {
+            entries.push({
+              key: 'onetrust',
+              title: 'OneTrust',
+              description: 'CMP attivo sul sito',
+              present: true,
+              badgeLabel: env.onetrust.consentStatus
+                ? env.onetrust.consentStatus
+                : env.onetrust.version
+                ? `v${env.onetrust.version}`
+                : 'rilevato',
+              indicatorClass: 'bg-emerald-500',
+              badgeClass: 'bg-emerald-100 text-emerald-700',
+            });
+          }
+
+          if (entries.length === 0) {
+            entries.push({
+              key: 'cmp-none',
+              title: 'Consent manager',
+              description: 'Nessun CMP compatibile individuato',
+              present: false,
+              badgeLabel: 'non rilevato',
+              indicatorClass: 'bg-red-400',
+              badgeClass: 'bg-slate-100 text-slate-500',
+            });
+          }
+
+          return entries.map((entry) => (
+            <div
+              key={entry.key}
+              className="flex items-start justify-between rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3"
+            >
+              <div>
+                <p className="font-semibold text-slate-700">{entry.title}</p>
+                <p className="text-xs text-slate-500">{entry.description}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <span
+                  className={`h-2 w-2 rounded-full ${entry.indicatorClass}`}
+                />
+                <span
+                  className={`rounded-full px-2 py-0.5 text-xs font-semibold ${entry.badgeClass}`}
+                >
+                  {entry.badgeLabel}
+                </span>
+              </div>
+            </div>
+          ));
+        })()}
       </div>
     </section>
   );

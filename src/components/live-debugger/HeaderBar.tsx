@@ -46,6 +46,7 @@ export function HeaderBar({
       case 'GTM': return 'bg-blue-100 text-blue-800 border-blue-200';
       case 'gtag': return 'bg-green-100 text-green-800 border-green-200';
       case 'Cookiebot': return 'bg-purple-100 text-purple-800 border-purple-200';
+      case 'OneTrust': return 'bg-amber-100 text-amber-800 border-amber-200';
       default: return 'bg-gray-100 text-gray-800 border-gray-200';
     }
   };
@@ -162,11 +163,23 @@ export function HeaderBar({
                 </span>
               </span>
             )}
-            {env.cookiebot && (
+            {env.cookiebot?.present && (
               <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold ${getEnvChipColor('Cookiebot')}`}>
                 Cookiebot
                 <span className="font-mono text-[11px]">
-                  {env.cookiebot.version ? `v${env.cookiebot.version}` : (env.cookiebot.present ? 'present' : 'absent')}
+                  {env.cookiebot.version ? `v${env.cookiebot.version}` : 'present'}
+                </span>
+              </span>
+            )}
+            {env.onetrust?.present && (
+              <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold ${getEnvChipColor('OneTrust')}`}>
+                OneTrust
+                <span className="font-mono text-[11px]">
+                  {env.onetrust.consentStatus
+                    ? env.onetrust.consentStatus
+                    : env.onetrust.version
+                    ? `v${env.onetrust.version}`
+                    : 'present'}
                 </span>
               </span>
             )}

@@ -19,6 +19,7 @@ export interface EnvInfo {
   gtm: { present: boolean; containerId?: string };
   gtag: { present: boolean; measurementIds?: string[] };
   cookiebot: { present: boolean; version?: string };
+  onetrust: { present: boolean; version?: string; consentStatus?: string };
 }
 
 export interface StartPayload {
