@@ -2,9 +2,9 @@ import 'dotenv/config';
 import express from 'express';
 import { WebSocketServer, WebSocket } from 'ws';
 import { createServer } from 'http';
-import { chromium, Browser, BrowserContext, Page } from 'playwright';
+import { chromium, Browser, BrowserContext, Page, Request as PlaywrightRequest } from 'playwright';
 import OpenAI from 'openai';
-import type { StartPayload, NormalizedEvent, EnvInfo, Ga4Event } from '../types/live-debugger.js';
+import type { StartPayload, NormalizedEvent, EnvInfo, Ga4Event, PushCommand } from '../types/live-debugger.js';
 import type { PushCase, PushCaseCreate, PushCaseUpdate } from '../types/push-cases.js';
 import type { PushUseCase, ExpectedCall, RunResultSummary } from '../../shared/types.js';
 import type { EventInsight } from '../../shared/analyzer.js';
@@ -239,12 +239,61 @@ function isGA(u: string): boolean {
 // DataLayer Hook Script
 const dlHookScript = `(() => {
   if (window.__ldHook) return; window.__ldHook = true;
-  const dl = Array.isArray(window.dataLayer) ? window.dataLayer : (window.dataLayer = []);
+  const win = window;
+  const dl = Array.isArray(win.dataLayer) ? win.dataLayer : (win.dataLayer = []);
   const orig = dl.push.bind(dl);
-  const emit = (d) => { try { window.__ldOnPush && window.__ldOnPush(d); } catch(e){} };
-  try { emit({ ts: Date.now(), source:'snapshot', payload: dl.slice() }); } catch {}
-  dl.push = (...a) => { try { emit({ ts: Date.now(), source:'hook', payload: a }); } catch {} return orig(...a); };
+
+  const takeMeta = () => {
+    const meta = win.__ldPendingPushMeta || null;
+    if (meta && typeof meta === 'object') {
+      delete win.__ldPendingPushMeta;
+      return meta;
+    }
+    return null;
+  };
+
+  const emit = (payload, source) => {
+    const meta = source === 'hook' ? takeMeta() : null;
+    try {
+      win.__ldOnPush && win.__ldOnPush({
+        ts: Date.now(),
+        source,
+        payload,
+        meta,
+      });
+    } catch (e) {}
+  };
+
+  try { emit(dl.slice(), 'snapshot'); } catch (e) {}
+
+  dl.push = (...args) => {
+    const meta = takeMeta();
+    try {
+      win.__ldOnPush && win.__ldOnPush({
+        ts: Date.now(),
+        source: 'hook',
+        payload: args,
+        meta,
+      });
+    } catch (e) {}
+    return orig(...args);
+  };
 })();`;
+
+interface PushTracker {
+  id: string;
+  tsStart: number;
+  timeoutMs: number;
+  mode: 'datalayer' | 'gtag';
+  match: 'auto' | 'eventName' | 'any' | 'custom';
+  eventName?: string;
+  customUrlPattern?: RegExp;
+  matches: { url: string; status?: number }[];
+  attempts: number;
+  maxAttempts: number;
+  command: Omit<PushCommand, 'id'> & { origin?: string };
+  timeoutHandle?: NodeJS.Timeout;
+}
 
 // Session Management
 let browser: Browser | null = null;
@@ -253,13 +302,141 @@ let page: Page | null = null;
 let running = false;
 
 // Push tracking
-const trackers = new Map<string, {
-  id: string; tsStart: number; timeoutMs: number;
-  mode: 'datalayer'|'gtag';
-  match: 'auto'|'eventName'|'any'|'custom';
-  eventName?: string; customUrlPattern?: RegExp;
-  matches: { url: string; status?: number }[];
-}>();
+const trackers = new Map<string, PushTracker>();
+const MAX_PUSH_ATTEMPTS = 5;
+
+async function evaluatePushCommand(
+  pushId: string,
+  command: Omit<PushCommand, 'id'> & { origin?: string },
+): Promise<void> {
+  if (!page) {
+    throw new Error('No active session');
+  }
+
+  const origin = command.origin ?? 'console';
+
+  if (command.mode === 'datalayer') {
+    await page.evaluate(
+      ({ payload, pushId, origin }) => {
+        const win = window as any;
+        win.__ldPendingPushMeta = { pushId, origin, mode: 'datalayer' };
+        win.dataLayer = win.dataLayer || [];
+        win.dataLayer.push(payload);
+        setTimeout(() => {
+          if (win.__ldPendingPushMeta?.pushId === pushId) {
+            delete win.__ldPendingPushMeta;
+          }
+        }, 0);
+      },
+      { payload: command.payload, pushId, origin },
+    );
+  } else {
+    await page.evaluate(
+      ({ name, params, pushId, origin }) => {
+        const win = window as any;
+        win.__ldPendingPushMeta = { pushId, origin, mode: 'gtag' };
+        win.gtag && win.gtag('event', name, params || {});
+        setTimeout(() => {
+          if (win.__ldPendingPushMeta?.pushId === pushId) {
+            delete win.__ldPendingPushMeta;
+          }
+        }, 0);
+      },
+      { name: command.name, params: command.params, pushId, origin },
+    );
+  }
+}
+
+async function triggerTrackerAttempt(
+  tracker: PushTracker,
+  emit: (e: NormalizedEvent) => void,
+): Promise<void> {
+  tracker.attempts += 1;
+  tracker.tsStart = Date.now();
+  tracker.matches = [];
+  trackers.set(tracker.id, tracker);
+
+  console.log(
+    '[LIVE-DEBUGGER] Push attempt',
+    tracker.attempts,
+    '/',
+    tracker.maxAttempts,
+    'for',
+    tracker.id,
+  );
+
+  try {
+    await evaluatePushCommand(tracker.id, tracker.command);
+  } catch (err) {
+    if (tracker.timeoutHandle) {
+      clearTimeout(tracker.timeoutHandle);
+      tracker.timeoutHandle = undefined;
+    }
+    trackers.delete(tracker.id);
+    emit({
+      kind: 'push.result',
+      ts: Date.now(),
+      id: tracker.id,
+      ok: false,
+      reason: 'error',
+      attempts: tracker.attempts,
+      maxAttempts: tracker.maxAttempts,
+    });
+    return;
+  }
+
+  if (tracker.timeoutHandle) {
+    clearTimeout(tracker.timeoutHandle);
+  }
+
+  const attemptNumber = tracker.attempts;
+  tracker.timeoutHandle = setTimeout(() => {
+    handlePushTimeout(tracker.id, attemptNumber, emit);
+  }, tracker.timeoutMs);
+}
+
+function handlePushTimeout(
+  trackerId: string,
+  attemptNumber: number,
+  emit: (e: NormalizedEvent) => void,
+): void {
+  const tracker = trackers.get(trackerId);
+  if (!tracker) return;
+  if (tracker.attempts !== attemptNumber) return;
+
+  tracker.timeoutHandle = undefined;
+
+  if (tracker.attempts < tracker.maxAttempts) {
+    console.log(
+      '[LIVE-DEBUGGER] GA hit missing, retrying push',
+      tracker.id,
+      'attempt',
+      tracker.attempts + 1,
+      '/',
+      tracker.maxAttempts,
+    );
+    emit({
+      kind: 'note',
+      ts: Date.now(),
+      message: `push_retry:${tracker.command.origin ?? 'console'}:${trackerId}:${
+        tracker.attempts + 1
+      }/${tracker.maxAttempts}`,
+    });
+    void triggerTrackerAttempt(tracker, emit);
+    return;
+  }
+
+  trackers.delete(trackerId);
+  emit({
+    kind: 'push.result',
+    ts: Date.now(),
+    id: tracker.id,
+    ok: false,
+    reason: 'timeout',
+    attempts: tracker.attempts,
+    maxAttempts: tracker.maxAttempts,
+  });
+}
 
 type CurrentRun = {
   useCaseId: string;
@@ -436,11 +613,24 @@ async function startSession(cfg: StartPayload, emit: (e: NormalizedEvent) => voi
 
     // Expose function for dataLayer push events
     await page.exposeFunction('__ldOnPush', (d: any) => {
+      const meta =
+        d && typeof d.meta === 'object' && d.meta
+          ? {
+              pushId: typeof d.meta.pushId === 'string' ? d.meta.pushId : undefined,
+              origin: typeof d.meta.origin === 'string' ? d.meta.origin : undefined,
+              mode:
+                d.meta.mode === 'datalayer' || d.meta.mode === 'gtag'
+                  ? d.meta.mode
+                  : undefined,
+            }
+          : undefined;
+
       emit({
         kind: 'datalayer.push',
-        ts: d.ts || Date.now(),
+        ts: typeof d.ts === 'number' ? d.ts : Date.now(),
         source: d.source,
         payload: d.payload,
+        meta,
       });
     });
 
@@ -483,9 +673,21 @@ async function startSession(cfg: StartPayload, emit: (e: NormalizedEvent) => voi
           });
           
           if (matches) {
+            if (t.timeoutHandle) {
+              clearTimeout(t.timeoutHandle);
+              t.timeoutHandle = undefined;
+            }
             t.matches.push({ url, status });
             trackers.delete(t.id);
-            emit({ kind:'push.result', ts: now, id: t.id, ok: true, matched: t.matches });
+            emit({
+              kind: 'push.result',
+              ts: now,
+              id: t.id,
+              ok: true,
+              matched: t.matches,
+              attempts: t.attempts,
+              maxAttempts: t.maxAttempts,
+            });
             console.log('[LIVE-DEBUGGER] Push result sent:', t.id);
           }
         }
@@ -506,6 +708,13 @@ async function startSession(cfg: StartPayload, emit: (e: NormalizedEvent) => voi
 async function stopSession(): Promise<void> {
   console.log('[LIVE-DEBUGGER] Stopping session');
   running = false;
+
+  trackers.forEach((t) => {
+    if (t.timeoutHandle) {
+      clearTimeout(t.timeoutHandle);
+    }
+  });
+  trackers.clear();
 
   if (page) {
     try {
@@ -531,52 +740,73 @@ async function stopSession(): Promise<void> {
   console.log('[LIVE-DEBUGGER] Session stopped');
 }
 
-export async function push(cmdNoId: Omit<PushCommand,'id'>, emit: (e: NormalizedEvent)=>void) {
+export async function push(
+  cmdNoId: Omit<PushCommand, 'id'>,
+  emit: (e: NormalizedEvent) => void,
+) {
   if (!page) {
     throw new Error('No active session');
   }
 
   const id = crypto.randomUUID();
   const timeoutMs = cmdNoId.timeoutMs ?? 5000;
-  const eventName = cmdNoId.mode === 'gtag' ? cmdNoId.name : (cmdNoId.payload?.event || undefined);
-  const tracker = {
-    id, tsStart: Date.now(), timeoutMs,
-    mode: cmdNoId.mode, match: cmdNoId.match ?? 'auto',
-    eventName, customUrlPattern: cmdNoId.match === 'custom' && cmdNoId.customUrlPattern ? new RegExp(cmdNoId.customUrlPattern) : undefined,
-    matches: [] as { url: string; status?: number }[],
-  };
-  if (cmdNoId.trackCollect ?? true) trackers.set(id, tracker);
+  const origin = cmdNoId.origin ?? 'console';
+  const shouldTrack = cmdNoId.trackCollect ?? true;
+  const command: Omit<PushCommand, 'id'> & { origin?: string } = { ...cmdNoId, origin };
 
-  try {
-    if (cmdNoId.mode === 'datalayer') {
-      await page.evaluate((payload) => {
-        window.dataLayer = window.dataLayer || [];
-        window.dataLayer.push(payload);
-      }, cmdNoId.payload);
-    } else {
-      await page.evaluate(({name, params}) => {
-        window.gtag && window.gtag('event', name, params || {});
-      }, { name: cmdNoId.name, params: cmdNoId.params });
+  if (!shouldTrack) {
+    try {
+      await evaluatePushCommand(id, command);
+      emit({
+        kind: 'push.result',
+        ts: Date.now(),
+        id,
+        ok: true,
+        matched: [],
+        attempts: 1,
+        maxAttempts: 1,
+      });
+    } catch {
+      emit({
+        kind: 'push.result',
+        ts: Date.now(),
+        id,
+        ok: false,
+        reason: 'error',
+        attempts: 1,
+        maxAttempts: 1,
+      });
     }
-  } catch (e) {
-    trackers.delete(id);
-    emit({ kind:'push.result', ts: Date.now(), id, ok: false, reason:'error' });
     return id;
   }
 
-  // Se non si vuole tracciare collect, chiudi subito con ok=true (solo esecuzione push)
-  if (!(cmdNoId.trackCollect ?? true)) {
-    emit({ kind:'push.result', ts: Date.now(), id, ok: true, matched: [] });
-    return id;
+  const eventName =
+    cmdNoId.mode === 'gtag' ? cmdNoId.name : (cmdNoId.payload?.event || undefined);
+
+  let customPattern: RegExp | undefined;
+  if (cmdNoId.match === 'custom' && cmdNoId.customUrlPattern) {
+    try {
+      customPattern = new RegExp(cmdNoId.customUrlPattern);
+    } catch {
+      customPattern = undefined;
+    }
   }
 
-  // Programma timeout
-  setTimeout(() => {
-    const t = trackers.get(id);
-    if (!t) return; // già risolto da onCollect
-    trackers.delete(id);
-    emit({ kind:'push.result', ts: Date.now(), id, ok: false, reason:'timeout' });
-  }, timeoutMs);
+  const tracker: PushTracker = {
+    id,
+    tsStart: Date.now(),
+    timeoutMs,
+    mode: cmdNoId.mode,
+    match: cmdNoId.match ?? 'auto',
+    eventName,
+    customUrlPattern: customPattern,
+    matches: [],
+    attempts: 0,
+    maxAttempts: origin === 'console' || origin === 'library' ? MAX_PUSH_ATTEMPTS : 1,
+    command,
+  };
+
+  await triggerTrackerAttempt(tracker, emit);
 
   return id;
 }
@@ -870,10 +1100,27 @@ export type OnCollect = (data: {
   status?: number;
   params: URLSearchParams;
   eventName?: string;
+  measurementId?: string;
 }) => void;
 
-function attachGASniffer(page: Page, emit: (e: NormalizedEvent) => void, opts: { redactPII: boolean; onCollect?: OnCollect }) {
-  const requestMap = new Map<string, { url: string; ts: number; params: URLSearchParams; eventName?: string }>();
+function attachGASniffer(
+  page: Page,
+  emit: (e: NormalizedEvent) => void,
+  opts: { redactPII: boolean; onCollect?: OnCollect },
+) {
+  const requestMap = new Map<
+    PlaywrightRequest,
+    {
+      url: string;
+      ts: number;
+      params: URLSearchParams;
+      eventName?: string;
+      mi?: string;
+      cid?: string;
+      isGA4: boolean;
+      uaParams?: Record<string, string>;
+    }
+  >();
 
   page.on('request', (req) => {
     const url = req.url();
@@ -883,68 +1130,146 @@ function attachGASniffer(page: Page, emit: (e: NormalizedEvent) => void, opts: {
     const method = req.method();
     const postData = req.postData();
     const params = mergeParams(url, method, postData);
-
-    // Parse and emit immediately
     const isGA4 = params.has('en') || params.has('_en');
+
     let eventName: string | undefined;
+    let mi: string | undefined;
+    let cid: string | undefined;
+    let uaParams: Record<string, string> | undefined;
+
     if (isGA4) {
       const event = parseGA4Event(params);
       eventName = event.name;
-      const mi = params.get('measurement_id') || params.get('tid') || undefined;
-      const cid = params.get('cid') || params.get('_cid') || undefined;
-      emit({ kind: 'ga4.hit', ts, url, event, mi, cid });
+      mi = params.get('measurement_id') || params.get('tid') || undefined;
+      cid = params.get('cid') || params.get('_cid') || undefined;
     } else {
-      const paramsObj: Record<string, string> = {};
+      uaParams = {};
       params.forEach((v, k) => {
-        paramsObj[k] = v;
+        uaParams![k] = v;
       });
-      emit({ kind: 'ua.hit', ts, url, params: paramsObj });
     }
 
-    requestMap.set(req.url(), { url, ts, params, eventName });
-
-    // Call onCollect callback if provided
-    if (opts.onCollect) {
-      opts.onCollect({ url, params, eventName });
-    }
-    handleUseCaseCollect({ url, params, eventName });
+    requestMap.set(req, { url, ts, params, eventName, mi, cid, isGA4, uaParams });
   });
 
   page.on('response', async (resp) => {
+    const req = resp.request();
     const url = resp.url();
-    if (!isGA(url)) return;
+    const record = requestMap.get(req);
 
-    const record = requestMap.get(url);
-    if (!record) return;
+    if (!record) {
+      if (!isGA(url)) return;
+      // fallback: create minimal record from response params
+      const ts = Date.now();
+      const params = mergeParams(url, 'GET');
+      const isGA4 = params.has('en') || params.has('_en');
+      requestMap.set(req, {
+        url,
+        ts,
+        params,
+        isGA4,
+        eventName: undefined,
+      });
+    }
+
+    const data = requestMap.get(req);
+    if (!data) return;
 
     const status = resp.status();
-    const ts = record.ts;
-    const params = record.params;
-    const recordEventName = record.eventName;
+    const ts = data.ts;
+    const params = data.params;
+    const { eventName, mi, cid, isGA4 } = data;
 
-    const isGA4 = params.has('en') || params.has('_en');
     if (isGA4) {
       const event = parseGA4Event(params);
-      const mi = params.get('measurement_id') || params.get('tid') || undefined;
-      const cid = params.get('cid') || params.get('_cid') || undefined;
-      emit({ kind: 'ga4.hit', ts, url, status, event, mi, cid });
-    } else {
-      const paramsObj: Record<string, string> = {};
-      params.forEach((v, k) => {
-        paramsObj[k] = v;
+      const measurementId = mi ?? params.get('measurement_id') ?? params.get('tid') ?? undefined;
+      const clientId = cid ?? params.get('cid') ?? params.get('_cid') ?? undefined;
+      emit({
+        kind: 'ga4.hit',
+        ts,
+        url: data.url,
+        status,
+        event,
+        mi: measurementId,
+        cid: clientId,
       });
-      emit({ kind: 'ua.hit', ts, url, status, params: paramsObj });
+
+      if (opts.onCollect) {
+        opts.onCollect({
+          url: data.url,
+          status,
+          params,
+          eventName: event.name ?? eventName,
+          measurementId,
+        });
+      }
+      handleUseCaseCollect({
+        url: data.url,
+        status,
+        params,
+        eventName: event.name ?? eventName,
+      });
+    } else {
+      const paramsObj: Record<string, string> = data.uaParams ?? {};
+      if (Object.keys(paramsObj).length === 0) {
+        params.forEach((v, k) => {
+          paramsObj[k] = v;
+        });
+      }
+
+      emit({
+        kind: 'ua.hit',
+        ts,
+        url: data.url,
+        status,
+        params: paramsObj,
+      });
+
+      if (opts.onCollect) {
+        opts.onCollect({ url: data.url, status, params, eventName });
+      }
+      handleUseCaseCollect({ url: data.url, status, params, eventName });
     }
 
-    const eventName = recordEventName || (params.has('en') || params.has('_en') ? parseGA4Event(params).name : undefined);
+    requestMap.delete(req);
+  });
 
-    // Call onCollect callback with status if provided
+  page.on('requestfailed', (req) => {
+    if (!isGA(req.url())) return;
+    const record = requestMap.get(req);
+    if (!record) return;
+
+    const ts = record.ts;
+    const params = record.params;
+
+    if (record.isGA4) {
+      const event = parseGA4Event(params);
+      emit({
+        kind: 'ga4.hit',
+        ts,
+        url: record.url,
+        status: undefined,
+        event,
+        mi: record.mi,
+        cid: record.cid,
+      });
+      handleUseCaseCollect({ url: record.url, params, eventName: event.name ?? record.eventName });
+    } else {
+      const paramsObj = record.uaParams ?? {};
+      emit({
+        kind: 'ua.hit',
+        ts,
+        url: record.url,
+        params: paramsObj,
+      });
+      handleUseCaseCollect({ url: record.url, params, eventName: record.eventName });
+    }
+
     if (opts.onCollect) {
-      opts.onCollect({ url, status, params, eventName });
+      opts.onCollect({ url: record.url, params, eventName: record.eventName, status: undefined, measurementId: record.mi });
     }
-    handleUseCaseCollect({ url, status, params, eventName });
 
-    requestMap.delete(url);
+    requestMap.delete(req);
   });
 }
 
@@ -1021,14 +1346,34 @@ async function runUseCase(uc: PushUseCase): Promise<void> {
 
   try {
     if (uc.mode === 'datalayer') {
-      await page.evaluate((payload) => {
-        (window as any).dataLayer = (window as any).dataLayer || [];
-        (window as any).dataLayer.push(payload);
-      }, uc.payload);
+      await page.evaluate(
+        ({ payload, pushId }) => {
+          const win = window as any;
+          win.__ldPendingPushMeta = { pushId, origin: 'usecase', mode: 'datalayer' };
+          win.dataLayer = win.dataLayer || [];
+          win.dataLayer.push(payload);
+          setTimeout(() => {
+            if (win.__ldPendingPushMeta?.pushId === pushId) {
+              delete win.__ldPendingPushMeta;
+            }
+          }, 0);
+        },
+        { payload: uc.payload, pushId: uc.id },
+      );
     } else {
-      await page.evaluate(({ name, params }) => {
-        (window as any).gtag && (window as any).gtag('event', name, params || {});
-      }, { name: uc.gtagName, params: uc.gtagParams ?? {} });
+      await page.evaluate(
+        ({ name, params, pushId }) => {
+          const win = window as any;
+          win.__ldPendingPushMeta = { pushId, origin: 'usecase', mode: 'gtag' };
+          win.gtag && win.gtag('event', name, params || {});
+          setTimeout(() => {
+            if (win.__ldPendingPushMeta?.pushId === pushId) {
+              delete win.__ldPendingPushMeta;
+            }
+          }, 0);
+        },
+        { name: uc.gtagName, params: uc.gtagParams ?? {}, pushId: uc.id },
+      );
     }
   } catch (err) {
     void finishCurrentRun({

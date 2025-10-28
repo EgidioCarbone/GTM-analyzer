@@ -8,6 +8,7 @@ import { EventInspector } from '../components/live-debugger/EventInspector';
 import { Toolbar } from '../components/live-debugger/Toolbar';
 import { DLPushConsole } from '../components/live-debugger/DLPushConsole';
 import { PushLibrary } from '../components/live-debugger/PushLibrary';
+import { PushTimeline, type PushTimelineEntry } from '../components/live-debugger/PushTimeline';
 import { SessionSummary } from '../components/live-debugger/SessionSummary';
 import { EventStream } from '../components/live-debugger/EventStream';
 import { EnvPanel } from '../components/live-debugger/EnvPanel';
@@ -232,6 +233,25 @@ function applyFilters(events: NormalizedEvent[], filters: FilterState): Normaliz
   return filtered;
 }
 
+function extractPushObject(payload: unknown): Record<string, any> | undefined {
+  if (!payload) return undefined;
+  if (Array.isArray(payload)) {
+    const first = payload[0];
+    return typeof first === 'object' && first !== null ? first as Record<string, any> : undefined;
+  }
+  if (typeof payload === 'object') {
+    return payload as Record<string, any>;
+  }
+  return undefined;
+}
+
+function extractPushEventName(payload: Record<string, any> | undefined): string | undefined {
+  if (!payload) return undefined;
+  const candidates = [payload.event, payload.event_name, payload['eventName']];
+  const name = candidates.find((value) => typeof value === 'string' && value.trim().length > 0);
+  return typeof name === 'string' ? name.trim() : undefined;
+}
+
 export default function LiveDebuggerPage() {
   const wsRef = useRef<WebSocket | null>(null);
   const analyzerRef = useRef(new EventAnalyzer());
@@ -257,6 +277,139 @@ export default function LiveDebuggerPage() {
   }, [state.events]);
 
   const domain = state.env?.url ? new URL(state.env.url).origin : undefined;
+
+  const pushTimelineEntries = useMemo<PushTimelineEntry[]>(() => {
+    type AccEntry = {
+      pushId: string;
+      pushEvent?: Extract<NormalizedEvent, { kind: 'datalayer.push' }>;
+      pushIndex?: number;
+      pushName?: string;
+      pushPayload?: Record<string, any>;
+      origin?: 'console' | 'library' | 'usecase' | 'api';
+      gaEvents: Array<{
+        event: Extract<NormalizedEvent, { kind: 'ga4.hit' }>;
+        index: number;
+        delayMs?: number;
+      }>;
+      result?: Extract<NormalizedEvent, { kind: 'push.result' }>;
+      resultIndex?: number;
+    };
+
+    const allowedOrigins = new Set(['console', 'library']);
+    const accList: AccEntry[] = [];
+    const accMap = new Map<string, AccEntry>();
+
+    state.events.forEach((event, idx) => {
+      if (event.kind === 'datalayer.push') {
+        const meta = event.meta;
+        if (!meta?.origin || !allowedOrigins.has(meta.origin)) {
+          return;
+        }
+        if (meta.mode && meta.mode !== 'datalayer') {
+          return;
+        }
+        const pushId = meta.pushId ?? `push-${event.ts}-${idx}`;
+        const payloadObj = extractPushObject(event.payload);
+        const pushName = extractPushEventName(payloadObj);
+
+        let acc = accMap.get(pushId);
+        if (!acc) {
+          acc = { pushId, gaEvents: [] };
+          accList.push(acc);
+          accMap.set(pushId, acc);
+        }
+
+        acc.pushEvent = event;
+        acc.pushIndex = idx;
+        acc.pushName = pushName;
+        acc.pushPayload = payloadObj;
+        acc.origin = meta.origin;
+      } else if (event.kind === 'ga4.hit') {
+        if (accList.length === 0) return;
+        let candidate: AccEntry | undefined;
+        const eventName = event.event?.name;
+
+        if (eventName) {
+          for (let i = accList.length - 1; i >= 0; i--) {
+            const acc = accList[i];
+            if (!acc.pushEvent) continue;
+            if (acc.pushEvent.ts > event.ts) continue;
+            if (acc.pushName && acc.pushName !== eventName) continue;
+            const already = acc.gaEvents.some(
+              ({ event: ga }) =>
+                (ga.mi && ga.mi === event.mi) &&
+                (ga.event?.name === eventName),
+            );
+            if (already) continue;
+            candidate = acc;
+            break;
+          }
+        }
+
+        if (!candidate) {
+          for (let i = accList.length - 1; i >= 0; i--) {
+            const acc = accList[i];
+            if (!acc.pushEvent) continue;
+            if (acc.pushEvent.ts > event.ts) continue;
+            if (acc.pushName) continue;
+            const already = acc.gaEvents.some(
+              ({ event: ga }) =>
+                (ga.mi && ga.mi === event.mi) &&
+                (ga.event?.name === event.event?.name),
+            );
+            if (already) continue;
+            candidate = acc;
+            break;
+          }
+        }
+
+        if (candidate && candidate.pushEvent) {
+          const delayMs = event.ts - candidate.pushEvent.ts;
+          candidate.gaEvents.push({
+            event,
+            index: idx,
+            delayMs: delayMs >= 0 ? delayMs : undefined,
+          });
+        }
+      } else if (event.kind === 'push.result') {
+        const acc = accMap.get(event.id);
+        if (acc) {
+          acc.result = event;
+          acc.resultIndex = idx;
+        }
+      }
+    });
+
+    const toEntry = (acc: AccEntry): PushTimelineEntry | null => {
+      if (!acc.pushEvent || typeof acc.pushIndex !== 'number') {
+        return null;
+      }
+
+      return {
+        id: `push-${acc.pushId}`,
+        pushId: acc.pushId,
+        origin: acc.origin,
+        pushEvent: acc.pushEvent,
+        pushIndex: acc.pushIndex,
+        pushName: acc.pushName,
+        pushPayload: acc.pushPayload,
+        gaEvents: [...acc.gaEvents].sort((a, b) => a.index - b.index),
+        result: acc.result,
+        resultIndex: acc.resultIndex,
+      };
+    };
+
+    const finalEntries = accList
+      .map(toEntry)
+      .filter((entry): entry is PushTimelineEntry => entry !== null)
+      .sort((a, b) => b.pushEvent.ts - a.pushEvent.ts);
+
+    const MAX_ITEMS = 200;
+    if (finalEntries.length > MAX_ITEMS) {
+      return finalEntries.slice(0, MAX_ITEMS);
+    }
+    return finalEntries;
+  }, [state.events]);
 
   // WebSocket connection
   useEffect(() => {
@@ -434,7 +587,7 @@ export default function LiveDebuggerPage() {
             />
 
             <div className="grid gap-6 lg:grid-cols-[1.75fr_1.25fr] xl:grid-cols-[1.5fr_1.2fr]">
-              <div className="space-y-6">
+              <div className="space-y-6 order-1 lg:order-1">
                 <EventStream
                   events={filteredEvents}
                   onSelect={handleEventSelect}
@@ -444,10 +597,14 @@ export default function LiveDebuggerPage() {
                 <PushLibrary events={state.events} />
               </div>
 
-              <aside className="flex flex-col gap-6">
+              <aside className="flex flex-col gap-6 order-3 lg:order-2">
                 <EnvPanel env={state.env} />
                 <DLPushConsole onEvent={(event) => dispatch({ type: 'ADD_EVENT', event })} />
               </aside>
+
+              <div className="order-2 lg:order-3 lg:col-span-2">
+                <PushTimeline entries={pushTimelineEntries} />
+              </div>
             </div>
           </div>
         </main>

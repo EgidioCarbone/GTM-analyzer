@@ -127,6 +127,8 @@ export function DLPushConsole({ onEvent }: DLPushConsoleProps) {
         };
       }
 
+      cmd.origin = 'console';
+
       const result = await api.pushLiveDebugger(cmd);
       console.log('Push initiated with ID:', result.id);
     } catch (err: any) {

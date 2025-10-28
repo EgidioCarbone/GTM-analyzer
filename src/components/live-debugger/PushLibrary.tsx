@@ -188,6 +188,7 @@ export function PushLibrary({ events }: PushLibraryProps) {
         trackCollect: true,
         match: expectedEventName ? 'eventName' : 'auto',
         timeoutMs: 15000,
+        origin: 'library',
       });
 
       commandMapRef.current.set(result.id, { pushId: push.id });

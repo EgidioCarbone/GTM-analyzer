@@ -1,12 +1,27 @@
 // Tipi per Live Debugger
+export interface DataLayerPushMeta {
+  pushId?: string;
+  origin?: 'console' | 'library' | 'usecase' | 'api';
+  mode?: 'datalayer' | 'gtag';
+}
+
 export type NormalizedEvent =
   | { kind: 'env'; ts: number; env: EnvInfo }
   | { kind: 'note'; ts: number; message: string }
   | { kind: 'console'; ts: number; level: 'log'|'warn'|'error'; text: string }
-  | { kind: 'datalayer.push'; ts: number; source: 'snapshot'|'hook'; payload: unknown }
+  | { kind: 'datalayer.push'; ts: number; source: 'snapshot'|'hook'; payload: unknown; meta?: DataLayerPushMeta }
   | { kind: 'ga4.hit'; ts: number; url: string; status?: number; event?: Ga4Event; mi?: string; cid?: string }
   | { kind: 'ua.hit'; ts: number; url: string; status?: number; params: Record<string,string> }
-  | { kind: 'push.result'; ts: number; id: string; ok: boolean; reason?: 'timeout'|'error'|'nomatch'; matched?: { url: string; status?: number }[] };
+  | {
+      kind: 'push.result';
+      ts: number;
+      id: string;
+      ok: boolean;
+      reason?: 'timeout' | 'error' | 'nomatch';
+      matched?: { url: string; status?: number }[];
+      attempts?: number;
+      maxAttempts?: number;
+    };
 
 export interface Ga4Event {
   name?: string;                       // en | _en
@@ -40,4 +55,5 @@ export interface PushCommand {
   timeoutMs?: number;             // default 5000
   match?: 'auto'|'eventName'|'any'|'custom';
   customUrlPattern?: string;      // regex su URL, se match='custom'
+  origin?: 'console' | 'library' | 'api';
 }
