@@ -220,12 +220,13 @@ interface AiAssistantState {
   } | null;
 }
 
-type TabId = 'all' | 'network' | 'datalayer' | 'console' | 'notes';
+type TabId = 'all' | 'network' | 'datalayer' | 'pageviews' | 'console' | 'notes';
 
 const TABS: Array<{ id: TabId; label: string; badgeClass: string }> = [
   { id: 'all', label: 'Tutti', badgeClass: 'bg-slate-900 text-white border-slate-900' },
-  { id: 'network', label: 'GA / UA', badgeClass: 'bg-blue-50 text-blue-700 border-blue-200' },
+  { id: 'network', label: 'Network', badgeClass: 'bg-blue-50 text-blue-700 border-blue-200' },
   { id: 'datalayer', label: 'DataLayer', badgeClass: 'bg-purple-50 text-purple-700 border-purple-200' },
+  { id: 'pageviews', label: 'Page View', badgeClass: 'bg-teal-50 text-teal-700 border-teal-200' },
   { id: 'console', label: 'Console', badgeClass: 'bg-amber-50 text-amber-700 border-amber-200' },
   { id: 'notes', label: 'Note & Env', badgeClass: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
 ];
@@ -241,10 +242,30 @@ const typeMeta = {
     tone: 'bg-green-100 text-green-700 border-green-200',
     icon: Network,
   },
+  'meta.hit': {
+    label: 'Meta Pixel',
+    tone: 'bg-indigo-100 text-indigo-700 border-indigo-200',
+    icon: Network,
+  },
+  'linkedin.hit': {
+    label: 'LinkedIn',
+    tone: 'bg-sky-100 text-sky-700 border-sky-200',
+    icon: Network,
+  },
+  'adobe.hit': {
+    label: 'Adobe',
+    tone: 'bg-amber-100 text-amber-700 border-amber-200',
+    icon: Network,
+  },
   'datalayer.push': {
     label: 'DataLayer',
     tone: 'bg-purple-100 text-purple-700 border-purple-200',
     icon: Layers,
+  },
+  'page.view': {
+    label: 'Page view',
+    tone: 'bg-teal-100 text-teal-700 border-teal-200',
+    icon: Globe2,
   },
   console: {
     label: 'Console',
@@ -283,8 +304,16 @@ function eventTitle(event: NormalizedEvent): string {
       return event.event?.name || 'GA4 Hit';
     case 'ua.hit':
       return event.params.event_name || 'UA Hit';
+    case 'meta.hit':
+      return event.eventName ? `Meta • ${event.eventName}` : 'Meta Pixel';
+    case 'linkedin.hit':
+      return event.eventName ? `LinkedIn • ${event.eventName}` : 'LinkedIn Pixel';
+    case 'adobe.hit':
+      return event.eventType ? `Adobe • ${event.eventType}` : 'Adobe Analytics';
     case 'datalayer.push':
       return event.payload?.event || 'DataLayer Push';
+    case 'page.view':
+      return event.title ? `Page view • ${event.title}` : 'Page view';
     case 'console':
       return `${event.level.toUpperCase()}: ${event.text}`;
     case 'note':
@@ -302,6 +331,12 @@ function eventSubtitle(event: NormalizedEvent): string {
       return event.url;
     case 'ua.hit':
       return event.url;
+    case 'meta.hit':
+      return `${event.url}${event.pixelId ? ` • Pixel ${event.pixelId}` : ''}`;
+    case 'linkedin.hit':
+      return `${event.url}${event.trackingId ? ` • ID ${event.trackingId}` : ''}`;
+    case 'adobe.hit':
+      return `${event.url}${event.reportSuite ? ` • Suite ${event.reportSuite}` : ''}`;
     case 'datalayer.push': {
       const name =
         typeof event.payload === 'object' && event.payload && 'event' in event.payload
@@ -310,6 +345,8 @@ function eventSubtitle(event: NormalizedEvent): string {
       const sourceLabel = event.source === 'hook' ? 'Hook' : 'Snapshot';
       return name ? `${name} • ${sourceLabel}` : sourceLabel;
     }
+    case 'page.view':
+      return `${event.url} • ${event.source}`;
     case 'console':
       return event.text;
     case 'env':
@@ -346,10 +383,18 @@ export function EventStream({ events, onSelect, onRepush, analyzer }: EventStrea
     return sortedEvents.reduce<Record<TabId, NormalizedEvent[]>>(
       (acc, event) => {
         acc.all.push(event);
-        if (event.kind === 'ga4.hit' || event.kind === 'ua.hit') {
+        if (
+          event.kind === 'ga4.hit' ||
+          event.kind === 'ua.hit' ||
+          event.kind === 'meta.hit' ||
+          event.kind === 'linkedin.hit' ||
+          event.kind === 'adobe.hit'
+        ) {
           acc.network.push(event);
         } else if (event.kind === 'datalayer.push') {
           acc.datalayer.push(event);
+        } else if (event.kind === 'page.view') {
+          acc.pageviews.push(event);
         } else if (event.kind === 'console') {
           acc.console.push(event);
         } else {
@@ -357,7 +402,7 @@ export function EventStream({ events, onSelect, onRepush, analyzer }: EventStrea
         }
         return acc;
       },
-      { all: [], network: [], datalayer: [], console: [], notes: [] },
+      { all: [], network: [], datalayer: [], pageviews: [], console: [], notes: [] },
     );
   }, [sortedEvents]);
 
@@ -536,9 +581,15 @@ export function EventStream({ events, onSelect, onRepush, analyzer }: EventStrea
               const title = eventTitle(event);
               const subtitle = eventSubtitle(event);
               const status =
-                event.kind === 'ga4.hit' || event.kind === 'ua.hit' ? event.status ?? '—' : undefined;
+                event.kind === 'ga4.hit' ||
+                event.kind === 'ua.hit' ||
+                event.kind === 'meta.hit' ||
+                event.kind === 'linkedin.hit' ||
+                event.kind === 'adobe.hit'
+                  ? event.status ?? '—'
+                  : undefined;
               const eventIndex = events.indexOf(event);
-              const insightIcon = severity === 'error' ? OctagonAlert : severity === 'warning' ? AlertTriangle : Info;
+              const InsightIcon = severity === 'error' ? OctagonAlert : severity === 'warning' ? AlertTriangle : Info;
               const insightTone =
                 severity === 'error'
                   ? 'text-red-500'
@@ -557,6 +608,67 @@ export function EventStream({ events, onSelect, onRepush, analyzer }: EventStrea
               const aiSession = aiSessions[absoluteIndex];
               const hasAiAnswer = Boolean(aiSession?.answer);
               const isAiActive = activeAiEventIndex === absoluteIndex;
+              const infoBadges: Array<{ key: string; label: string; tone: string }> = [];
+
+              if (event.kind === 'ga4.hit') {
+                if (event.mi) infoBadges.push({ key: 'mi', label: event.mi, tone: 'bg-blue-100 text-blue-700' });
+                if (event.cid)
+                  infoBadges.push({
+                    key: 'cid',
+                    label: `CID ${event.cid.slice(0, 8)}…`,
+                    tone: 'bg-slate-100 text-slate-600',
+                  });
+              } else if (event.kind === 'ua.hit') {
+                if (event.params.tid)
+                  infoBadges.push({ key: 'tid', label: event.params.tid, tone: 'bg-green-100 text-green-700' });
+                if (event.params.cid)
+                  infoBadges.push({
+                    key: 'cid',
+                    label: `CID ${event.params.cid.slice(0, 8)}…`,
+                    tone: 'bg-slate-100 text-slate-600',
+                  });
+              } else if (event.kind === 'meta.hit') {
+                if (event.pixelId)
+                  infoBadges.push({ key: 'pixel', label: `Pixel ${event.pixelId}`, tone: 'bg-indigo-100 text-indigo-700' });
+                if (event.eventName)
+                  infoBadges.push({
+                    key: 'metaevent',
+                    label: event.eventName,
+                    tone: 'bg-indigo-50 text-indigo-600',
+                  });
+              } else if (event.kind === 'linkedin.hit') {
+                if (event.trackingId)
+                  infoBadges.push({
+                    key: 'lid',
+                    label: `Account ${event.trackingId}`,
+                    tone: 'bg-sky-100 text-sky-700',
+                  });
+                if (event.eventName)
+                  infoBadges.push({
+                    key: 'lievent',
+                    label: event.eventName,
+                    tone: 'bg-sky-50 text-sky-600',
+                  });
+              } else if (event.kind === 'adobe.hit') {
+                if (event.reportSuite)
+                  infoBadges.push({
+                    key: 'suite',
+                    label: event.reportSuite,
+                    tone: 'bg-amber-100 text-amber-700',
+                  });
+                if (event.eventType)
+                  infoBadges.push({
+                    key: 'adobevent',
+                    label: event.eventType,
+                    tone: 'bg-amber-50 text-amber-600',
+                  });
+              } else if (event.kind === 'page.view') {
+                infoBadges.push({
+                  key: 'source',
+                  label: `Source: ${event.source}`,
+                  tone: 'bg-teal-100 text-teal-700',
+                });
+              }
 
               return (
                 <li
@@ -574,20 +686,14 @@ export function EventStream({ events, onSelect, onRepush, analyzer }: EventStrea
                           <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500">
                             #{eventIndex + 1}
                           </span>
-                          {(event.kind === 'ga4.hit' || event.kind === 'ua.hit') && (
-                            <>
-                              {event.mi && (
-                                <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">
-                                  {event.mi}
-                                </span>
-                              )}
-                              {event.cid && (
-                                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
-                                  CID {event.cid.slice(0, 8)}…
-                                </span>
-                              )}
-                            </>
-                          )}
+                          {infoBadges.map((badge) => (
+                            <span
+                              key={badge.key}
+                              className={`rounded-full px-2 py-0.5 text-xs font-medium ${badge.tone}`}
+                            >
+                              {badge.label}
+                            </span>
+                          ))}
                           {severity && (
                             <button
                               type="button"
@@ -603,7 +709,7 @@ export function EventStream({ events, onSelect, onRepush, analyzer }: EventStrea
                               )}
                               title={eventInsights.map((i) => i.title).join('\n')}
                             >
-                              <insightIcon className={clsx('h-3 w-3', insightTone ?? 'text-slate-600')} />
+                              <InsightIcon className={clsx('h-3 w-3', insightTone ?? 'text-slate-600')} />
                               {isInsightExpanded ? 'Nascondi insight' : `Insight (${eventInsights.length})`}
                             </button>
                           )}
@@ -652,7 +758,11 @@ export function EventStream({ events, onSelect, onRepush, analyzer }: EventStrea
                       Ispeziona
                     </button>
 
-                    {(event.kind === 'ga4.hit' || event.kind === 'ua.hit') && (
+                    {(event.kind === 'ga4.hit' ||
+                      event.kind === 'ua.hit' ||
+                      event.kind === 'meta.hit' ||
+                      event.kind === 'linkedin.hit' ||
+                      event.kind === 'adobe.hit') && (
                       <a
                         href={event.url}
                         target="_blank"

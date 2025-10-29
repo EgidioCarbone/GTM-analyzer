@@ -20,23 +20,350 @@ import clsx from 'clsx';
 import { toast } from 'react-hot-toast';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import * as api from '../../services/live-debugger-api';
-import type { NormalizedEvent } from '../../types/live-debugger';
+import type { NormalizedEvent, PushCommand } from '../../types/live-debugger';
+import {
+  ConsoleMode,
+  MODE_LABELS,
+  formatJSON,
+  DATALAYER_PRESETS,
+  META_PRESETS,
+  LINKEDIN_PRESETS,
+  ADOBE_PRESETS,
+  DEFAULT_META_PRESET,
+  DEFAULT_LINKEDIN_PRESET,
+  DEFAULT_ADOBE_PRESET,
+  getPresetOptions,
+  commandPayloadSnapshot,
+  commandExpectedEvent,
+} from './pushPresets';
 
 interface SavedPush {
   id: string;
   name: string;
-  payload: any;
+  command: Omit<PushCommand, 'id' | 'origin'>;
   createdAt: number;
   lastUsed?: number;
 }
 
+type MatchMode = 'auto' | 'eventName' | 'any' | 'custom';
+
+interface FormState {
+  name: string;
+  mode: ConsoleMode;
+  payload: string;
+  gtagName: string;
+  gtagParams: string;
+  metaEventName: string;
+  metaParams: string;
+  metaPixelId: string;
+  metaEventId: string;
+  metaTrackType: 'track' | 'trackCustom';
+  linkedinConversionId: string;
+  linkedinTrackingId: string;
+  linkedinPayload: string;
+  adobeCall: 't' | 'tl';
+  adobeReportSuite: string;
+  adobeLinkType: string;
+  adobeLinkName: string;
+  adobeVariables: string;
+  trackCollect: boolean;
+  matchMode: MatchMode;
+  customPattern: string;
+  timeoutMs: number;
+}
+
+const createDefaultFormState = (): FormState => ({
+  name: '',
+  mode: 'datalayer',
+  payload: formatJSON(DATALAYER_PRESETS.page_view),
+  gtagName: 'page_view',
+  gtagParams: formatJSON({ custom_parameter: 'value' }),
+  metaEventName: DEFAULT_META_PRESET.eventName,
+  metaParams: formatJSON(DEFAULT_META_PRESET.params ?? {}),
+  metaPixelId: DEFAULT_META_PRESET.pixelId ?? '',
+  metaEventId: DEFAULT_META_PRESET.eventId ?? '',
+  metaTrackType: DEFAULT_META_PRESET.trackType ?? 'track',
+  linkedinConversionId: DEFAULT_LINKEDIN_PRESET.conversionId,
+  linkedinTrackingId: DEFAULT_LINKEDIN_PRESET.trackingId ?? '',
+  linkedinPayload: formatJSON(DEFAULT_LINKEDIN_PRESET.payload ?? {}),
+  adobeCall: DEFAULT_ADOBE_PRESET.call,
+  adobeReportSuite: DEFAULT_ADOBE_PRESET.reportSuite ?? 'debugsuite',
+  adobeLinkType: DEFAULT_ADOBE_PRESET.linkType ?? 'o',
+  adobeLinkName: DEFAULT_ADOBE_PRESET.linkName ?? '',
+  adobeVariables: formatJSON(DEFAULT_ADOBE_PRESET.variables ?? {}),
+  trackCollect: true,
+  matchMode: 'auto',
+  customPattern: '',
+  timeoutMs: 15000,
+});
+
+const formFromCommand = (command: Omit<PushCommand, 'id' | 'origin'>, name: string): FormState => {
+  const form = createDefaultFormState();
+  form.name = name;
+  form.mode = command.mode ?? 'datalayer';
+  form.trackCollect = command.trackCollect ?? true;
+  form.matchMode = (command.match ?? 'auto') as MatchMode;
+  form.customPattern = command.customUrlPattern ?? '';
+  form.timeoutMs = command.timeoutMs ?? 15000;
+
+  switch (command.mode) {
+    case 'datalayer':
+      form.payload = formatJSON(command.payload ?? {});
+      break;
+    case 'gtag':
+      form.gtagName = command.name ?? '';
+      form.gtagParams = formatJSON(command.params ?? {});
+      break;
+    case 'meta':
+      form.metaEventName = command.meta?.eventName ?? '';
+      form.metaParams = formatJSON(command.meta?.params ?? {});
+      form.metaPixelId = command.meta?.pixelId ?? '';
+      form.metaEventId = command.meta?.eventId ?? '';
+      form.metaTrackType = command.meta?.trackType ?? 'track';
+      break;
+    case 'linkedin':
+      form.linkedinConversionId = command.linkedin?.conversionId ?? '';
+      form.linkedinTrackingId = command.linkedin?.trackingId ?? '';
+      form.linkedinPayload = formatJSON(command.linkedin?.payload ?? {});
+      break;
+    case 'adobe':
+      form.adobeCall = command.adobe?.call ?? 't';
+      form.adobeReportSuite = command.adobe?.reportSuite ?? 'debugsuite';
+      form.adobeLinkType = command.adobe?.linkType ?? 'o';
+      form.adobeLinkName = command.adobe?.linkName ?? '';
+      form.adobeVariables = formatJSON(command.adobe?.variables ?? {});
+      break;
+    default:
+      break;
+  }
+
+  if (form.matchMode !== 'custom') {
+    form.customPattern = '';
+  }
+
+  return form;
+};
+
+const parseJSONInput = (value: string, context: string, required = false): any => {
+  if (!value.trim()) {
+    if (required) {
+      throw new Error(`${context}: JSON obbligatorio`);
+    }
+    return {};
+  }
+  try {
+    return JSON.parse(value);
+  } catch (err) {
+    throw new Error(`${context}: JSON non valido`);
+  }
+};
+
+const buildCommandFromForm = (form: FormState): Omit<PushCommand, 'id' | 'origin'> => {
+  const common = {
+    trackCollect: form.trackCollect,
+    timeoutMs: form.timeoutMs,
+    match: form.matchMode,
+    customUrlPattern: form.matchMode === 'custom' && form.customPattern.trim() ? form.customPattern.trim() : undefined,
+  };
+
+  switch (form.mode) {
+    case 'datalayer': {
+      const parsedPayload = parseJSONInput(form.payload, 'Payload DataLayer', true);
+      return {
+        mode: 'datalayer',
+        payload: parsedPayload,
+        ...common,
+      };
+    }
+    case 'gtag': {
+      if (!form.gtagName.trim()) {
+        throw new Error('Nome evento gtag obbligatorio');
+      }
+      const params = parseJSONInput(form.gtagParams, 'Parametri gtag');
+      return {
+        mode: 'gtag',
+        name: form.gtagName.trim(),
+        params,
+        ...common,
+      };
+    }
+    case 'meta': {
+      if (!form.metaEventName.trim()) {
+        throw new Error('Evento Meta obbligatorio');
+      }
+      const params = parseJSONInput(form.metaParams, 'Parametri Meta');
+      const eventId = form.metaEventId.trim() || (typeof params.event_id === 'string' ? params.event_id : undefined);
+      return {
+        mode: 'meta',
+        meta: {
+          eventName: form.metaEventName.trim(),
+          params,
+          pixelId: form.metaPixelId.trim() || undefined,
+          eventId,
+          trackType: form.metaTrackType,
+        },
+        ...common,
+      };
+    }
+    case 'linkedin': {
+      if (!form.linkedinConversionId.trim()) {
+        throw new Error('Conversion ID LinkedIn obbligatorio');
+      }
+      const payload = parseJSONInput(form.linkedinPayload, 'Payload LinkedIn');
+      return {
+        mode: 'linkedin',
+        linkedin: {
+          conversionId: form.linkedinConversionId.trim(),
+          trackingId: form.linkedinTrackingId.trim() || undefined,
+          payload,
+        },
+        ...common,
+      };
+    }
+    case 'adobe': {
+      const variables = parseJSONInput(form.adobeVariables, 'Variabili Adobe');
+      return {
+        mode: 'adobe',
+        adobe: {
+          call: form.adobeCall,
+          linkType: form.adobeCall === 'tl' ? (form.adobeLinkType.trim() || 'o') : undefined,
+          linkName: form.adobeCall === 'tl' ? (form.adobeLinkName.trim() || undefined) : undefined,
+          variables,
+          reportSuite: form.adobeReportSuite.trim() || undefined,
+        },
+        ...common,
+      };
+    }
+    default:
+      throw new Error(`Modalità non supportata: ${form.mode}`);
+  }
+};
+
+const normalizeSavedPush = (item: any): SavedPush | null => {
+  if (!item || typeof item !== 'object') return null;
+
+  const id = typeof item.id === 'string' ? item.id : crypto.randomUUID();
+  const name = typeof item.name === 'string' ? item.name.trim() : 'Push salvato';
+  const createdAt = typeof item.createdAt === 'number' ? item.createdAt : Date.now();
+  const lastUsed = typeof item.lastUsed === 'number' ? item.lastUsed : undefined;
+
+  if ('command' in item && item.command && typeof item.command === 'object') {
+    const command = item.command as Omit<PushCommand, 'id' | 'origin'>;
+    return { id, name, command, createdAt, lastUsed };
+  }
+
+  if ('payload' in item) {
+    return {
+      id,
+      name,
+      command: {
+        mode: 'datalayer',
+        payload: item.payload,
+        trackCollect: true,
+        match: 'auto',
+        timeoutMs: 15000,
+      },
+      createdAt,
+      lastUsed,
+    };
+  }
+
+  return null;
+};
+
+const applyModeDefaultsToForm = (state: FormState, mode: ConsoleMode): FormState => {
+  const next: FormState = { ...state, mode };
+  switch (mode) {
+    case 'datalayer':
+      next.payload = formatJSON(DATALAYER_PRESETS.page_view);
+      break;
+    case 'gtag':
+      next.gtagName = 'page_view';
+      next.gtagParams = formatJSON({ custom_parameter: 'value' });
+      break;
+    case 'meta':
+      next.metaEventName = DEFAULT_META_PRESET.eventName;
+      next.metaParams = formatJSON(DEFAULT_META_PRESET.params ?? {});
+      next.metaPixelId = DEFAULT_META_PRESET.pixelId ?? '';
+      next.metaEventId = DEFAULT_META_PRESET.eventId ?? '';
+      next.metaTrackType = DEFAULT_META_PRESET.trackType ?? 'track';
+      break;
+    case 'linkedin':
+      next.linkedinConversionId = DEFAULT_LINKEDIN_PRESET.conversionId;
+      next.linkedinTrackingId = DEFAULT_LINKEDIN_PRESET.trackingId ?? '';
+      next.linkedinPayload = formatJSON(DEFAULT_LINKEDIN_PRESET.payload ?? {});
+      break;
+    case 'adobe':
+      next.adobeCall = DEFAULT_ADOBE_PRESET.call;
+      next.adobeReportSuite = DEFAULT_ADOBE_PRESET.reportSuite ?? 'debugsuite';
+      next.adobeLinkType = DEFAULT_ADOBE_PRESET.linkType ?? 'o';
+      next.adobeLinkName = DEFAULT_ADOBE_PRESET.linkName ?? '';
+      next.adobeVariables = formatJSON(DEFAULT_ADOBE_PRESET.variables ?? {});
+      break;
+    default:
+      break;
+  }
+
+  if (next.matchMode !== 'custom') {
+    next.customPattern = '';
+  }
+
+  return next;
+};
+
+const applyPresetToForm = (state: FormState, presetName: string): FormState => {
+  if (!presetName) return state;
+  const next = { ...state };
+
+  switch (state.mode) {
+    case 'datalayer': {
+      const preset = DATALAYER_PRESETS[presetName];
+      if (preset) {
+        next.payload = formatJSON(preset);
+      }
+      break;
+    }
+    case 'meta': {
+      const preset = META_PRESETS[presetName];
+      if (preset) {
+        next.metaEventName = preset.eventName;
+        next.metaParams = formatJSON(preset.params ?? {});
+        next.metaPixelId = preset.pixelId ?? '';
+        next.metaEventId = preset.eventId ?? '';
+        next.metaTrackType = preset.trackType ?? 'track';
+      }
+      break;
+    }
+    case 'linkedin': {
+      const preset = LINKEDIN_PRESETS[presetName];
+      if (preset) {
+        next.linkedinConversionId = preset.conversionId;
+        next.linkedinTrackingId = preset.trackingId ?? '';
+        next.linkedinPayload = formatJSON(preset.payload ?? {});
+      }
+      break;
+    }
+    case 'adobe': {
+      const preset = ADOBE_PRESETS[presetName];
+      if (preset) {
+        next.adobeCall = preset.call;
+        next.adobeReportSuite = preset.reportSuite ?? 'debugsuite';
+        next.adobeLinkType = preset.linkType ?? 'o';
+        next.adobeLinkName = preset.linkName ?? '';
+        next.adobeVariables = formatJSON(preset.variables ?? {});
+      }
+      break;
+    }
+    default:
+      break;
+  }
+
+  return next;
+};
+
 interface PushLibraryProps {
   events: NormalizedEvent[];
 }
-
-const DEFAULT_TEMPLATE =
-  '{\n  "event": "navigation_click",\n  "event_category": "menu_secondo_livello",\n  "event_action": "path_destinazione",\n  "event_label": "button_name",\n  "navigation_type": "desktop"\n}';
-const MINIMAL_TEMPLATE = '{\n  "event": "navigation_click"\n}';
 
 interface PushRunStatus {
   status: 'pending' | 'waiting' | 'success' | 'timeout' | 'nomatch' | 'error';
@@ -52,7 +379,8 @@ interface PushRunStatus {
 export function PushLibrary({ events }: PushLibraryProps) {
   const [savedPushes, setSavedPushes] = useState<SavedPush[]>([]);
   const [showForm, setShowForm] = useState(false);
-  const [formData, setFormData] = useState({ name: '', payload: DEFAULT_TEMPLATE });
+  const [formData, setFormData] = useState<FormState>(() => createDefaultFormState());
+  const [currentPreset, setCurrentPreset] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [runningId, setRunningId] = useState<string | null>(null);
   const [isRunningAll, setIsRunningAll] = useState(false);
@@ -71,7 +399,12 @@ export function PushLibrary({ events }: PushLibraryProps) {
     const saved = localStorage.getItem('live-debugger-saved-pushes');
     if (saved) {
       try {
-        setSavedPushes(JSON.parse(saved));
+        const parsed = JSON.parse(saved);
+        const entries = Array.isArray(parsed) ? parsed : [parsed];
+        const normalized = entries
+          .map(normalizeSavedPush)
+          .filter((item): item is SavedPush => item !== null);
+        setSavedPushes(normalized);
       } catch (err) {
         console.error('Failed to load saved pushes:', err);
       }
@@ -87,16 +420,76 @@ export function PushLibrary({ events }: PushLibraryProps) {
   };
 
   const resetForm = () => {
-    setFormData({ name: '', payload: MINIMAL_TEMPLATE });
+    setFormData(createDefaultFormState());
     setEditingId(null);
     setShowForm(false);
+    setCurrentPreset('');
   };
 
   const openCreateForm = () => {
     setEditingId(null);
-    setFormData({ name: '', payload: MINIMAL_TEMPLATE });
+    setFormData(createDefaultFormState());
+    setCurrentPreset('');
     setShowForm(true);
   };
+
+  const modeOptions: Array<{ value: ConsoleMode; label: string }> = [
+    { value: 'datalayer', label: MODE_LABELS.datalayer },
+    { value: 'gtag', label: MODE_LABELS.gtag },
+    { value: 'meta', label: MODE_LABELS.meta },
+    { value: 'linkedin', label: MODE_LABELS.linkedin },
+    { value: 'adobe', label: MODE_LABELS.adobe },
+  ];
+
+  const presetOptions = getPresetOptions(formData.mode);
+
+  const handleModeChange = (nextMode: ConsoleMode) => {
+    setCurrentPreset('');
+    setFormData((prev) => applyModeDefaultsToForm(prev, nextMode));
+  };
+
+  const handlePresetChange = (presetName: string) => {
+    setCurrentPreset(presetName);
+    if (!presetName) return;
+    setFormData((prev) => applyPresetToForm(prev, presetName));
+  };
+
+  const modeTips: string[] = (() => {
+    switch (formData.mode) {
+      case 'datalayer':
+        return [
+          'Ricorda di valorizzare il campo "event" nel payload.',
+          'Rimuovi placeholder come <value> prima di inviare il push.',
+          'I dati inviati vengono aggiunti direttamente al dataLayer della pagina.',
+        ];
+      case 'gtag':
+        return [
+          'Il nome evento fa distinzione tra maiuscole e minuscole.',
+          'Puoi includere parametri personalizzati coerenti con la tua configurazione GA4.',
+          'Verifica che gli importi numerici siano inviati come numeri, non stringhe.',
+        ];
+      case 'meta':
+        return [
+          'Includi un event_id per facilitare la deduplica con le conversion API.',
+          'Valorizza currency e value per eventi di revenue (Purchase, AddToCart).',
+          'I parametri vengono inviati al pixel Meta con chiavi cd[...].',
+        ];
+      case 'linkedin':
+        return [
+          'Il conversionId deve corrispondere alla conversione creata in Campaign Manager.',
+          'Puoi aggiungere value e currency nel payload per testare conversioni monetarie.',
+          'Tracking ID (pid) è opzionale ma utile per account multipli.',
+        ];
+      case 'adobe':
+        return [
+          'Le variabili eVar/prop/events devono rispettare il naming Adobe (es. eVar1, prop2).',
+          'Per s.tl() imposta linkType (o, d, e) e opzionalmente linkName.',
+          'Report Suite determina l’endpoint /b/ss/ utilizzato per la chiamata.',
+        ];
+      default:
+        return [];
+    }
+  })();
 
   const getPushNames = (ids: string[]) => {
     const map = new Map(savedPushes.map((p) => [p.id, p.name]));
@@ -119,31 +512,34 @@ export function PushLibrary({ events }: PushLibraryProps) {
   };
 
   const handleSave = () => {
-    if (!formData.name.trim() || !formData.payload.trim()) {
-      toast.error('Nome e payload sono obbligatori');
+    const trimmedName = formData.name.trim();
+    if (!trimmedName) {
+      toast.error('Il nome del push è obbligatorio');
       return;
     }
 
     try {
-      const payload = JSON.parse(formData.payload);
+      const command = buildCommandFromForm(formData);
+
       if (editingId) {
-        setRunStates(state => {
+        setRunStates((state) => {
           const next = { ...state };
           delete next[editingId];
           return next;
         });
       }
-      saveToStorage(prev => {
+
+      saveToStorage((prev) => {
         if (editingId) {
-          return prev.map(p =>
-            p.id === editingId
+          return prev.map((push) =>
+            push.id === editingId
               ? {
-                  ...p,
-                  name: formData.name.trim(),
-                  payload,
+                  ...push,
+                  name: trimmedName,
+                  command,
                   lastUsed: Date.now(),
                 }
-              : p
+              : push,
           );
         }
 
@@ -151,8 +547,8 @@ export function PushLibrary({ events }: PushLibraryProps) {
           ...prev,
           {
             id: crypto.randomUUID(),
-            name: formData.name.trim(),
-            payload,
+            name: trimmedName,
+            command,
             createdAt: Date.now(),
             lastUsed: Date.now(),
           },
@@ -161,13 +557,13 @@ export function PushLibrary({ events }: PushLibraryProps) {
 
       resetForm();
       toast.success(editingId ? 'Push aggiornato' : 'Push salvato');
-    } catch (err) {
-      toast.error('Payload JSON non valido');
+    } catch (err: any) {
+      toast.error(err?.message || 'Configurazione non valida');
     }
   };
 
   const executePush = async (push: SavedPush) => {
-    const expectedEventName = extractEventName(push.payload);
+    const expectedEventName = commandExpectedEvent(push.command);
     const startedAt = Date.now();
     for (const [commandId, meta] of Array.from(commandMapRef.current.entries())) {
       if (meta.pushId === push.id) {
@@ -182,12 +578,17 @@ export function PushLibrary({ events }: PushLibraryProps) {
 
     setRunningId(push.id);
     try {
+      const computedMatch: MatchMode = push.command.match && push.command.match !== 'auto'
+        ? push.command.match
+        : expectedEventName
+        ? 'eventName'
+        : 'auto';
+
       const result = await api.pushLiveDebugger({
-        mode: 'datalayer',
-        payload: push.payload,
-        trackCollect: true,
-        match: expectedEventName ? 'eventName' : 'auto',
-        timeoutMs: 15000,
+        ...push.command,
+        match: computedMatch,
+        customUrlPattern:
+          computedMatch === 'custom' ? push.command.customUrlPattern : undefined,
         origin: 'library',
       });
 
@@ -204,7 +605,7 @@ export function PushLibrary({ events }: PushLibraryProps) {
         prev.map(p => (p.id === push.id ? { ...p, lastUsed: Date.now() } : p))
       );
 
-      toast(`Push “${push.name}” inviato. In attesa del GA4…`);
+      toast(`Push “${push.name}” (${MODE_LABELS[push.command.mode]}) inviato.`);
     } catch (err: any) {
       upsertRunState(push.id, () => ({
         status: 'error',
@@ -219,10 +620,8 @@ export function PushLibrary({ events }: PushLibraryProps) {
   };
 
   const handleEdit = (push: SavedPush) => {
-    setFormData({
-      name: push.name,
-      payload: JSON.stringify(push.payload, null, 2),
-    });
+    setFormData(formFromCommand(push.command, push.name));
+    setCurrentPreset('');
     setEditingId(push.id);
     setShowForm(true);
   };
@@ -245,23 +644,16 @@ export function PushLibrary({ events }: PushLibraryProps) {
       const list = Array.isArray(parsed) ? parsed : [parsed];
 
       const normalized: SavedPush[] = list.map((item, idx) => {
-        if (typeof item !== 'object' || item === null) {
-          throw new Error('Ogni elemento deve essere un oggetto con name e payload.');
+        const base = normalizeSavedPush(item) ?? normalizeSavedPush({ name: `import_${idx + 1}`, payload: item });
+        if (!base) {
+          throw new Error('Formato push non riconosciuto.');
         }
-        const anyItem = item as Record<string, any>;
-        const payload =
-          typeof anyItem.payload === 'object' && anyItem.payload !== null
-            ? anyItem.payload
-            : { ...anyItem };
-        const name =
-          typeof anyItem.name === 'string' && anyItem.name.trim().length > 0
-            ? anyItem.name.trim()
-            : `import_${idx + 1}`;
         return {
           id: crypto.randomUUID(),
-          name,
-          payload,
+          name: base.name || `import_${idx + 1}`,
+          command: base.command,
           createdAt: Date.now(),
+          lastUsed: Date.now(),
         };
       });
 
@@ -353,14 +745,6 @@ export function PushLibrary({ events }: PushLibraryProps) {
     setDeleteDialog(null);
   };
 
-  const extractEventName = (payload: any): string | undefined => {
-    const source = Array.isArray(payload) ? payload[0] : payload;
-    if (source && typeof source === 'object' && typeof source.event === 'string') {
-      return source.event.trim() || undefined;
-    }
-    return undefined;
-  };
-
   const shorten = (value: string, max = 80) =>
     value.length > max ? `${value.slice(0, max)}…` : value;
 
@@ -389,7 +773,7 @@ export function PushLibrary({ events }: PushLibraryProps) {
         return (
           <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-600">
             <Loader2 className="h-3 w-3 animate-spin" />
-            In attesa evento GA4…
+            In attesa hit…
             {state.expectedEventName && (
               <span className="font-mono text-[10px] text-amber-600">{state.expectedEventName}</span>
             )}
@@ -399,7 +783,7 @@ export function PushLibrary({ events }: PushLibraryProps) {
         return (
           <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
             <CheckCircle2 className="h-3 w-3" />
-            Evento GA4 confermato
+            Hit confermata
             {state.expectedEventName && (
               <span className="font-mono text-[10px] text-emerald-600">{state.expectedEventName}</span>
             )}
@@ -412,7 +796,7 @@ export function PushLibrary({ events }: PushLibraryProps) {
         return (
           <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-600">
             <AlertTriangle className="h-3 w-3" />
-            Nessun GA4 entro 15s
+            Nessun hit entro 15s
             {state.expectedEventName && (
               <span className="font-mono text-[10px] text-amber-600">{state.expectedEventName}</span>
             )}
@@ -422,7 +806,7 @@ export function PushLibrary({ events }: PushLibraryProps) {
         return (
           <span className="inline-flex items-center gap-1 rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-600">
             <AlertTriangle className="h-3 w-3" />
-            GA4 ricevuto ma non combacia
+            Hit ricevuta ma non combacia
             {state.expectedEventName && (
               <span className="font-mono text-[10px] text-red-500">{state.expectedEventName}</span>
             )}
@@ -518,13 +902,13 @@ export function PushLibrary({ events }: PushLibraryProps) {
         if (event.ok) {
           toast.success(
             currentState?.expectedEventName
-              ? `Evento GA4 “${currentState.expectedEventName}” rilevato per “${pushName}”`
-              : `Evento GA4 rilevato per “${pushName}”`
+              ? `Hit “${currentState.expectedEventName}” rilevata per “${pushName}”`
+              : `Hit rilevata per “${pushName}”`
           );
         } else {
           const reasonLabel =
             event.reason === 'timeout'
-              ? 'nessun evento GA4 entro 15s'
+              ? 'nessuna hit entro 15s'
               : event.reason === 'nomatch'
               ? 'evento non corrispondente'
               : 'errore sconosciuto';
@@ -596,7 +980,7 @@ export function PushLibrary({ events }: PushLibraryProps) {
               </div>
               <ul className="space-y-2">
                 {previewPushes.map(push => {
-                  const eventName = extractEventName(push.payload);
+                  const eventName = commandExpectedEvent(push.command);
                   return (
                     <li
                       key={push.id}
@@ -835,7 +1219,7 @@ export function PushLibrary({ events }: PushLibraryProps) {
                       {savedPushes.map(push => {
                         const isSelected = selectedIds.includes(push.id);
                         const runState = runStates[push.id];
-                        const expectedName = runState?.expectedEventName ?? extractEventName(push.payload);
+                        const expectedName = runState?.expectedEventName ?? commandExpectedEvent(push.command);
                         const lastOutcome = runState?.completedAt ? formatTime(runState.completedAt) : null;
                         return (
                           <div
@@ -861,7 +1245,7 @@ export function PushLibrary({ events }: PushLibraryProps) {
                               <div className="flex flex-wrap items-center gap-2 pr-8">
                                 <span className="text-sm font-semibold text-slate-800">{push.name}</span>
                                 <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-semibold text-blue-700">
-                                  dataLayer
+                                  {MODE_LABELS[push.command.mode]}
                                 </span>
                                 {expectedName && (
                                   <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
@@ -890,7 +1274,7 @@ export function PushLibrary({ events }: PushLibraryProps) {
                                 {push.lastUsed && ` • Usato: ${formatTime(push.lastUsed)}`}
                               </div>
                               <pre className="max-h-56 overflow-auto rounded-xl bg-slate-50 p-3 text-[11px] text-slate-600">
-                                {JSON.stringify(push.payload, null, 2)}
+                                {JSON.stringify(commandPayloadSnapshot(push.command), null, 2)}
                               </pre>
                             </div>
                             <div className="mt-4 flex flex-wrap gap-2">

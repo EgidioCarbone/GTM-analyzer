@@ -163,6 +163,64 @@ function describeEventForAi(event: NormalizedEvent): string {
       base.push(`Parametri UA:\n${indentBlock(compactStringify(event.params, 1200), 2)}`);
       break;
     }
+    case 'meta.hit': {
+      base.push(`URL richiesta: ${event.url}`);
+      if (typeof event.status !== 'undefined') base.push(`HTTP status: ${event.status}`);
+      if (event.pixelId) base.push(`Pixel ID: ${event.pixelId}`);
+      if (event.eventName) base.push(`Evento Meta: ${event.eventName}`);
+      if (event.dl) base.push(`Document location: ${event.dl}`);
+      base.push(`Parametri:\n${indentBlock(compactStringify(event.params, 1200), 2)}`);
+      break;
+    }
+    case 'linkedin.hit': {
+      base.push(`URL richiesta: ${event.url}`);
+      if (typeof event.status !== 'undefined') base.push(`HTTP status: ${event.status}`);
+      if (event.trackingId) base.push(`Tracking ID: ${event.trackingId}`);
+      if (event.eventName) base.push(`Evento LinkedIn: ${event.eventName}`);
+      base.push(`Parametri:\n${indentBlock(compactStringify(event.params, 1200), 2)}`);
+      break;
+    }
+    case 'adobe.hit': {
+      base.push(`URL richiesta: ${event.url}`);
+      if (typeof event.status !== 'undefined') base.push(`HTTP status: ${event.status}`);
+      if (event.reportSuite) base.push(`Report Suite: ${event.reportSuite}`);
+      if (event.eventType) base.push(`Tipo evento Adobe: ${event.eventType}`);
+      base.push(`Parametri:\n${indentBlock(compactStringify(event.params, 1200), 2)}`);
+      break;
+    }
+    case 'page.view': {
+      base.push(`URL: ${event.url}`);
+      if (event.title) base.push(`Titolo: ${event.title}`);
+      base.push(`Origine: ${event.source}`);
+      break;
+    }
+    case 'push.command': {
+      base.push(`Origine comando: ${event.origin}`);
+      base.push(`Modalità: ${event.mode}`);
+      if (event.payload) {
+        base.push(`Payload:\n${indentBlock(compactStringify(event.payload, 800), 2)}`);
+      }
+      if (event.params) {
+        base.push(`Parametri:\n${indentBlock(compactStringify(event.params, 800), 2)}`);
+      }
+      if (event.meta) {
+        base.push(`Meta:\n${indentBlock(compactStringify(event.meta, 600), 2)}`);
+      }
+      if (event.linkedin) {
+        base.push(`LinkedIn:\n${indentBlock(compactStringify(event.linkedin, 600), 2)}`);
+      }
+      if (event.adobe) {
+        base.push(`Adobe:\n${indentBlock(compactStringify(event.adobe, 600), 2)}`);
+      }
+      base.push(`Tracking abilitato: ${event.trackCollect !== false ? 'sì' : 'no'}`);
+      if (event.match) {
+        base.push(`Match mode: ${event.match}`);
+      }
+      if (event.timeoutMs) {
+        base.push(`Timeout: ${event.timeoutMs}ms`);
+      }
+      break;
+    }
     case 'console': {
       base.push(`Livello console: ${event.level}`);
       base.push(`Messaggio: ${event.text}`);
@@ -236,6 +294,43 @@ function isGA(u: string): boolean {
   }
 }
 
+function isMetaPixel(url: URL): boolean {
+  return url.hostname.includes('facebook.com') && url.pathname === '/tr';
+}
+
+function isLinkedInPixel(url: URL): boolean {
+  return url.hostname.includes('px.ads.linkedin.com');
+}
+
+function isAdobeAnalytics(url: URL): boolean {
+  return (
+    /(\.omtrdc\.net|\.2o7\.net|\.adobedc\.net)$/i.test(url.hostname) &&
+    /\/b\/ss\//i.test(url.pathname)
+  );
+}
+
+function extractAdobeReportSuite(pathname: string): string | undefined {
+  const match = pathname.match(/\/b\/ss\/([^/]+)/i);
+  if (match) {
+    return decodeURIComponent(match[1]);
+  }
+  return undefined;
+}
+
+function paramsToObject(params: URLSearchParams): Record<string, string> {
+  const obj: Record<string, string> = {};
+  params.forEach((value, key) => {
+    if (typeof obj[key] === 'undefined') {
+      obj[key] = value;
+    } else if (Array.isArray(obj[key])) {
+      (obj[key] as unknown as string[]).push(value);
+    } else {
+      obj[key] = `${obj[key]},${value}`;
+    }
+  });
+  return obj;
+}
+
 // DataLayer Hook Script
 const dlHookScript = `(() => {
   if (window.__ldHook) return; window.__ldHook = true;
@@ -280,18 +375,218 @@ const dlHookScript = `(() => {
   };
 })();`;
 
+const pageViewHookScript = `(() => {
+  if (window.__ldPageHook) return; window.__ldPageHook = true;
+  let lastTs = 0;
+  const emit = (source) => {
+    const now = Date.now();
+    if (now - lastTs < 200) return;
+    lastTs = now;
+    try {
+      window.__ldOnPageView && window.__ldOnPageView({
+        ts: now,
+        url: window.location.href,
+        title: document.title,
+        source
+      });
+    } catch (err) {}
+  };
+
+  const origPushState = history.pushState;
+  history.pushState = function (...args) {
+    const res = origPushState.apply(this, args);
+    setTimeout(() => emit('history'), 0);
+    return res;
+  };
+
+  const origReplaceState = history.replaceState;
+  history.replaceState = function (...args) {
+    const res = origReplaceState.apply(this, args);
+    setTimeout(() => emit('history'), 0);
+    return res;
+  };
+
+  window.addEventListener('popstate', () => emit('history'));
+})();`;
+
+const vendorHookScript = `(() => {
+  if (window.__ldVendorHook) return; window.__ldVendorHook = true;
+  const win = window;
+
+  const toStringValue = (value) => {
+    if (value === null || typeof value === 'undefined') return '';
+    if (typeof value === 'object') {
+      try { return JSON.stringify(value); } catch (err) { return String(value); }
+    }
+    return String(value);
+  };
+
+  const sendBeaconOrFetch = (url) => {
+    try {
+      if (navigator.sendBeacon) {
+        navigator.sendBeacon(url, '');
+        return;
+      }
+    } catch (err) {}
+    try {
+      fetch(url, { mode: 'no-cors', keepalive: true }).catch(() => {});
+      return;
+    } catch (err) {}
+    try {
+      const img = new Image();
+      img.src = url;
+    } catch (err) {}
+  };
+
+  const sendMeta = (detail) => {
+    const eventName = detail && detail.eventName ? String(detail.eventName) : 'CustomEvent';
+    const params = detail && detail.params && typeof detail.params === 'object' ? detail.params : {};
+    const pixelId = detail && detail.pixelId
+      ? String(detail.pixelId)
+      : (params.pixel_id || params.id || win.__ldMetaPixelId || '999999999999999');
+    const eventId = detail && detail.eventId ? String(detail.eventId) : (params.event_id || params.eventID || undefined);
+
+    const base = new URL('https://www.facebook.com/tr');
+    base.searchParams.set('id', String(pixelId));
+    base.searchParams.set('ev', eventName);
+    if (win.location && win.location.href) {
+      base.searchParams.set('dl', win.location.href);
+    }
+    base.searchParams.set('it', String(Date.now()));
+    if (eventId) {
+      base.searchParams.set('eid', String(eventId));
+    }
+
+    Object.entries(params).forEach(([key, value]) => {
+      if (value === null || typeof value === 'undefined') return;
+      base.searchParams.append('cd[' + key + ']', toStringValue(value));
+    });
+
+    sendBeaconOrFetch(base.toString());
+    return 1;
+  };
+
+  win.__ldMetaSend = sendMeta;
+
+  if (typeof win.fbq !== 'function') {
+    const fbq = function(command, eventName, params, options) {
+      if (command !== 'track' && command !== 'trackCustom') return;
+      return sendMeta({
+        eventName,
+        params: params || {},
+        pixelId: options && (options.pixelId || options.pixelID || options.pixel_id),
+        eventId: options && (options.eventID || options.eventId),
+      });
+    };
+    fbq.callMethod = fbq;
+    fbq.push = function(args) {
+      if (!Array.isArray(args)) return;
+      return fbq.apply(win, args);
+    };
+    fbq.loaded = true;
+    fbq.version = '2.0';
+    win.fbq = fbq;
+  }
+
+  const sendLinkedIn = (detail) => {
+    const payload = detail && detail.payload && typeof detail.payload === 'object' ? detail.payload : {};
+    const base = new URL('https://px.ads.linkedin.com/collect/');
+    const conversionId = detail && detail.conversionId
+      ? detail.conversionId
+      : (payload.conversionId || payload.conversion_id);
+    const trackingId = detail && detail.trackingId
+      ? detail.trackingId
+      : (payload.trackingId || payload.pid || payload.accountid);
+
+    if (conversionId) {
+      base.searchParams.set('conversionId', String(conversionId));
+    }
+    if (trackingId) {
+      base.searchParams.set('pid', String(trackingId));
+    }
+    base.searchParams.set('time', String(Date.now()));
+
+    Object.entries(payload).forEach(([key, value]) => {
+      if (value === null || typeof value === 'undefined') return;
+      if (key === 'conversionId' || key === 'conversion_id' || key === 'pid' || key === 'trackingId' || key === 'accountid') return;
+      base.searchParams.append(key, toStringValue(value));
+    });
+
+    sendBeaconOrFetch(base.toString());
+    return true;
+  };
+
+  win.__ldLinkedInSend = sendLinkedIn;
+
+  if (typeof win.lintrk !== 'function') {
+    win.lintrk = function(command, payload) {
+      if (command !== 'track') return;
+      return sendLinkedIn({ payload });
+    };
+  }
+
+  const sendAdobe = (detail) => {
+    const call = detail && detail.call ? detail.call : 't';
+    const endpoint = detail && detail.endpoint ? detail.endpoint : 'https://live-debugger.omtrdc.net';
+    const variables = detail && detail.variables && typeof detail.variables === 'object' ? detail.variables : {};
+    const reportSuite = detail && detail.reportSuite
+      ? detail.reportSuite
+      : (variables.reportSuite || 'debugsuite');
+    const baseUrl = endpoint.replace(/\/$/, '');
+    const url = new URL(baseUrl + '/b/ss/' + encodeURIComponent(reportSuite) + '/1/JS-1.4.1/s' + Date.now());
+
+    Object.entries(variables).forEach(([key, value]) => {
+      if (value === null || typeof value === 'undefined') return;
+      if (key === 'reportSuite') return;
+      url.searchParams.append(key, toStringValue(value));
+    });
+
+    if (call === 'tl') {
+      const linkType = detail && detail.linkType ? detail.linkType : 'o';
+      url.searchParams.set('pe', String(linkType));
+      const linkName = detail && detail.linkName ? detail.linkName : undefined;
+      if (linkName) {
+        url.searchParams.set('pev2', String(linkName));
+      }
+    }
+
+    sendBeaconOrFetch(url.toString());
+    return 1;
+  };
+
+  win.__ldAdobeSend = sendAdobe;
+
+  if (!win.s) {
+    win.s = {};
+  }
+  if (typeof win.s.t !== 'function') {
+    win.s.t = function(vars) {
+      return sendAdobe({ call: 't', variables: vars || {} });
+    };
+  }
+  if (typeof win.s.tl !== 'function') {
+    win.s.tl = function(linkObj, linkType, linkName, vars) {
+      return sendAdobe({ call: 'tl', linkType, linkName, variables: vars || {} });
+    };
+  }
+})();`;
+
 interface PushTracker {
   id: string;
   tsStart: number;
   timeoutMs: number;
-  mode: 'datalayer' | 'gtag';
+  mode: PushCommand['mode'];
+  vendor: NetworkVendor;
   match: 'auto' | 'eventName' | 'any' | 'custom';
   eventName?: string;
+  conversionId?: string;
+  reportSuite?: string;
   customUrlPattern?: RegExp;
   matches: { url: string; status?: number }[];
   attempts: number;
   maxAttempts: number;
   command: Omit<PushCommand, 'id'> & { origin?: string };
+  expectedParams?: Record<string, any>;
   timeoutHandle?: NodeJS.Timeout;
 }
 
@@ -314,36 +609,139 @@ async function evaluatePushCommand(
   }
 
   const origin = command.origin ?? 'console';
+  switch (command.mode) {
+    case 'datalayer': {
+      await page.evaluate(
+        ({ payload, pushId, origin }) => {
+          const win = window as any;
+          win.__ldPendingPushMeta = { pushId, origin, mode: 'datalayer' };
+          win.dataLayer = win.dataLayer || [];
+          win.dataLayer.push(payload);
+          setTimeout(() => {
+            if (win.__ldPendingPushMeta?.pushId === pushId) {
+              delete win.__ldPendingPushMeta;
+            }
+          }, 0);
+        },
+        { payload: command.payload, pushId, origin },
+      );
+      break;
+    }
+    case 'gtag': {
+      await page.evaluate(
+        ({ name, params, pushId, origin }) => {
+          const win = window as any;
+          win.__ldPendingPushMeta = { pushId, origin, mode: 'gtag' };
+          if (typeof win.gtag === 'function') {
+            win.gtag('event', name, params || {});
+          }
+          setTimeout(() => {
+            if (win.__ldPendingPushMeta?.pushId === pushId) {
+              delete win.__ldPendingPushMeta;
+            }
+          }, 0);
+        },
+        { name: command.name, params: command.params, pushId, origin },
+      );
+      break;
+    }
+    case 'meta': {
+      const meta = command.meta;
+      if (!meta || !meta.eventName) {
+        throw new Error('Meta push requires meta.eventName');
+      }
+      await page.evaluate(
+        ({ meta, pushId, origin }) => {
+          const win = window as any;
+          const detail = {
+            eventName: meta.eventName,
+            params: meta.params || {},
+            pixelId: meta.pixelId,
+            eventId: meta.eventId,
+            trackType: meta.trackType || 'track',
+            pushId,
+            origin,
+          };
 
-  if (command.mode === 'datalayer') {
-    await page.evaluate(
-      ({ payload, pushId, origin }) => {
-        const win = window as any;
-        win.__ldPendingPushMeta = { pushId, origin, mode: 'datalayer' };
-        win.dataLayer = win.dataLayer || [];
-        win.dataLayer.push(payload);
-        setTimeout(() => {
-          if (win.__ldPendingPushMeta?.pushId === pushId) {
-            delete win.__ldPendingPushMeta;
+          try {
+            if (typeof win.fbq === 'function') {
+              win.fbq(detail.trackType, detail.eventName, detail.params, {
+                pixelId: detail.pixelId,
+                eventID: detail.eventId,
+              });
+            } else if (typeof win.__ldMetaSend === 'function') {
+              win.__ldMetaSend(detail);
+            }
+          } catch (err) {}
+        },
+        { meta: command.meta, pushId, origin },
+      );
+      break;
+    }
+    case 'linkedin': {
+      const linkedin = command.linkedin;
+      if (!linkedin || !linkedin.conversionId) {
+        throw new Error('LinkedIn push requires linkedin.conversionId');
+      }
+      await page.evaluate(
+        ({ linkedin }) => {
+          const win = window as any;
+          const payload = {
+            ...(linkedin.payload || {}),
+            conversionId: linkedin.conversionId,
+          };
+          if (linkedin.trackingId) {
+            payload.trackingId = linkedin.trackingId;
           }
-        }, 0);
-      },
-      { payload: command.payload, pushId, origin },
-    );
-  } else {
-    await page.evaluate(
-      ({ name, params, pushId, origin }) => {
-        const win = window as any;
-        win.__ldPendingPushMeta = { pushId, origin, mode: 'gtag' };
-        win.gtag && win.gtag('event', name, params || {});
-        setTimeout(() => {
-          if (win.__ldPendingPushMeta?.pushId === pushId) {
-            delete win.__ldPendingPushMeta;
-          }
-        }, 0);
-      },
-      { name: command.name, params: command.params, pushId, origin },
-    );
+          try {
+            if (typeof win.lintrk === 'function') {
+              win.lintrk('track', payload);
+            } else if (typeof win.__ldLinkedInSend === 'function') {
+              win.__ldLinkedInSend({
+                conversionId: linkedin.conversionId,
+                trackingId: linkedin.trackingId,
+                payload,
+              });
+            }
+          } catch (err) {}
+        },
+        { linkedin: command.linkedin },
+      );
+      break;
+    }
+    case 'adobe': {
+      const adobe = command.adobe;
+      if (!adobe) {
+        throw new Error('Adobe push requires adobe configuration');
+      }
+      await page.evaluate(
+        ({ adobe }) => {
+          const win = window as any;
+          const detail = {
+            call: adobe.call || 't',
+            linkType: adobe.linkType,
+            linkName: adobe.linkName,
+            variables: adobe.variables || {},
+            reportSuite: adobe.reportSuite,
+            endpoint: adobe.endpoint,
+          };
+          try {
+            if (detail.call === 'tl' && win.s && typeof win.s.tl === 'function') {
+              win.s.tl(null, detail.linkType || 'o', detail.linkName || '', detail.variables || {});
+            } else if (win.s && typeof win.s.t === 'function') {
+              win.s.t(detail.variables || {});
+            } else if (typeof win.__ldAdobeSend === 'function') {
+              win.__ldAdobeSend(detail);
+            }
+          } catch (err) {}
+        },
+        { adobe: command.adobe },
+      );
+      break;
+    }
+    default: {
+      throw new Error(`Unsupported push mode: ${command.mode}`);
+    }
   }
 }
 
@@ -448,38 +846,86 @@ type CurrentRun = {
 
 let currentRun: CurrentRun | null = null;
 
-function matchesTracker(t: any, url: string, params: URLSearchParams) {
-  if (t.match === 'any') return true;
-  if (t.match === 'custom' && t.customUrlPattern) return t.customUrlPattern.test(url);
-  
-  const en = params.get('en') || params.get('_en') || '';
-  
-  if (t.match === 'eventName') {
-    // Per eventName, controlla sia en che altri parametri che potrebbero contenere il nome evento
-    if (en && t.eventName && en === t.eventName) return true;
-    
-    // Per eventi custom, controlla anche altri parametri comuni
-    const eventParam = params.get('event') || params.get('event_name') || '';
-    if (eventParam && t.eventName && eventParam === t.eventName) return true;
-    
+function matchesTracker(t: PushTracker, vendor: NetworkVendor, url: string, params: URLSearchParams) {
+  if (t.match === 'custom' && t.customUrlPattern) {
+    return t.customUrlPattern.test(url);
+  }
+
+  if (t.match === 'any') {
+    return t.vendor === vendor || (t.vendor === 'ga4' && vendor === 'ga4');
+  }
+
+  if (t.vendor !== vendor) {
     return false;
   }
-  
-  // auto: se eventName è noto, prova a matcharlo in vari modi, altrimenti accetta
-  if (t.eventName) {
-    // Controlla en (per eventi standard GA4)
-    if (en && en === t.eventName) return true;
-    
-    // Controlla event/event_name (per eventi custom)
-    const eventParam = params.get('event') || params.get('event_name') || '';
-    if (eventParam && eventParam === t.eventName) return true;
-    
-    // Se non trova il nome evento nei parametri, accetta comunque (fallback)
-    // Questo gestisce il caso di eventi custom che potrebbero non essere esposti nei parametri GA
+
+  const gaEventName = params.get('en') || params.get('_en') || '';
+
+  if (vendor === 'ga4') {
+    if (t.match === 'eventName') {
+      if (gaEventName && t.eventName && gaEventName === t.eventName) return true;
+      const eventParam = params.get('event') || params.get('event_name') || '';
+      if (eventParam && t.eventName && eventParam === t.eventName) return true;
+      return false;
+    }
+
+    if (t.eventName) {
+      if (gaEventName && gaEventName === t.eventName) return true;
+      const eventParam = params.get('event') || params.get('event_name') || '';
+      if (eventParam && eventParam === t.eventName) return true;
+      return true;
+    }
+
     return true;
   }
-  
-  return true;
+
+  if (vendor === 'meta') {
+    const ev = params.get('ev') || params.get('event') || '';
+    if (t.eventName) {
+      return ev === t.eventName;
+    }
+    return true;
+  }
+
+  if (vendor === 'linkedin') {
+    const conversionParam =
+      params.get('conversionId') ||
+      params.get('conversion_id') ||
+      params.get('conversion') ||
+      params.get('event') ||
+      '';
+    if (t.conversionId) {
+      return conversionParam === t.conversionId;
+    }
+    if (t.eventName) {
+      return conversionParam === t.eventName;
+    }
+    return true;
+  }
+
+  if (vendor === 'adobe') {
+    if (t.reportSuite) {
+      try {
+        const parsed = new URL(url);
+        const suite = extractAdobeReportSuite(parsed.pathname);
+        if (suite && suite === t.reportSuite) {
+          return true;
+        }
+      } catch {
+        // ignore URL parse errors
+      }
+    }
+    if (t.eventName) {
+      const adobeEvent = params.get('pev2') || params.get('events') || '';
+      if (adobeEvent && adobeEvent.includes(t.eventName)) {
+        return true;
+      }
+      return false;
+    }
+    return true;
+  }
+
+  return false;
 }
 
 function matchesExpectedCall(expected: ExpectedCall, url: string, params: URLSearchParams, eventName?: string): boolean {
@@ -610,6 +1056,8 @@ async function startSession(cfg: StartPayload, emit: (e: NormalizedEvent) => voi
 
     // Inject dataLayer hook BEFORE navigation
     await page.addInitScript(dlHookScript);
+    await page.addInitScript(pageViewHookScript);
+    await page.addInitScript(vendorHookScript);
 
     // Expose function for dataLayer push events
     await page.exposeFunction('__ldOnPush', (d: any) => {
@@ -634,6 +1082,55 @@ async function startSession(cfg: StartPayload, emit: (e: NormalizedEvent) => voi
       });
     });
 
+    let lastPageViewTs = 0;
+    const emitPageView = (payload: { ts?: number; url?: string; title?: string; source?: string }) => {
+      const ts = typeof payload?.ts === 'number' ? payload.ts : Date.now();
+      if (ts - lastPageViewTs < 100) return;
+      lastPageViewTs = ts;
+      const currentUrl =
+        typeof payload?.url === 'string' && payload.url
+          ? payload.url
+          : page?.url() ?? '';
+      if (!currentUrl) return;
+      const title =
+        typeof payload?.title === 'string' && payload.title ? payload.title : undefined;
+      const rawSource = typeof payload?.source === 'string' ? payload.source : 'manual';
+      const source =
+        rawSource === 'navigation'
+          ? 'navigation'
+          : rawSource.startsWith('history')
+          ? 'history'
+          : rawSource === 'ga4'
+          ? 'ga4'
+          : 'manual';
+      emit({
+        kind: 'page.view',
+        ts,
+        url: currentUrl,
+        title,
+        source,
+      });
+    };
+
+    await page.exposeFunction('__ldOnPageView', (data: any) => {
+      emitPageView(typeof data === 'object' && data ? data : {});
+    });
+
+    page.on('framenavigated', (frame) => {
+      if (frame === page?.mainFrame()) {
+        const ts = Date.now();
+        const currentUrl = frame.url();
+        void page
+          ?.title()
+          .then((title) => {
+            emitPageView({ ts, url: currentUrl, title, source: 'navigation' });
+          })
+          .catch(() => {
+            emitPageView({ ts, url: currentUrl, source: 'navigation' });
+          });
+      }
+    });
+
     // Navigate to URL
     const waitUntil = cfg.waitUntil ?? 'load';
     const timeoutMs = cfg.timeoutMs ?? 30000;
@@ -649,20 +1146,22 @@ async function startSession(cfg: StartPayload, emit: (e: NormalizedEvent) => voi
     const env = await detectEnvironment(page);
     emit({ kind: 'env', ts: Date.now(), env });
 
-    // Attach GA sniffer with onCollect callback
-    attachGASniffer(page, emit, {
+    // Attach network sniffer with onCollect callback
+    attachNetworkSniffer(page, emit, {
       redactPII: cfg.redactPII ?? true,
-      onCollect: ({ url, status, params }) => {
+      onCollect: ({ record, status, params }) => {
+        const url = record.url;
+        const vendor = record.vendor;
         const now = Date.now();
-        console.log('[LIVE-DEBUGGER] GA collect detected:', { url, status, params: Object.fromEntries(params) });
+        console.log('[LIVE-DEBUGGER] Network hit detected:', { url, status, params: Object.fromEntries(params) });
         
         for (const t of trackers.values()) {
           if (now - t.tsStart > t.timeoutMs) {
             console.log('[LIVE-DEBUGGER] Tracker timeout:', t.id);
             continue;
           }
-          
-          const matches = matchesTracker(t, url, params);
+
+          const matches = matchesTracker(t, vendor, url, params);
           console.log('[LIVE-DEBUGGER] Tracker match check:', { 
             trackerId: t.id, 
             eventName: t.eventName, 
@@ -678,6 +1177,13 @@ async function startSession(cfg: StartPayload, emit: (e: NormalizedEvent) => voi
               t.timeoutHandle = undefined;
             }
             t.matches.push({ url, status });
+            record.origin = (t.command.origin ?? 'console') as 'console' | 'library' | 'usecase' | 'api';
+            record.pushId = t.id;
+            record.expectedEventName = t.eventName;
+            record.expectedParams = t.expectedParams;
+            record.conversionId = t.conversionId;
+            record.reportSuite = t.reportSuite;
+            record.mode = t.mode;
             trackers.delete(t.id);
             emit({
               kind: 'push.result',
@@ -691,7 +1197,8 @@ async function startSession(cfg: StartPayload, emit: (e: NormalizedEvent) => voi
             console.log('[LIVE-DEBUGGER] Push result sent:', t.id);
           }
         }
-      }
+      },
+      onPageView: emitPageView,
     });
 
     emit({ kind: 'note', ts: Date.now(), message: 'READY' });
@@ -754,6 +1261,24 @@ export async function push(
   const shouldTrack = cmdNoId.trackCollect ?? true;
   const command: Omit<PushCommand, 'id'> & { origin?: string } = { ...cmdNoId, origin };
 
+  emit({
+    kind: 'push.command',
+    ts: Date.now(),
+    id,
+    origin: origin as 'console' | 'library' | 'usecase' | 'api',
+    mode: command.mode,
+    payload: command.payload,
+    name: command.name,
+    params: command.params,
+    meta: command.meta,
+    linkedin: command.linkedin,
+    adobe: command.adobe,
+    trackCollect: shouldTrack,
+    timeoutMs,
+    match: command.match ?? 'auto',
+    customUrlPattern: command.customUrlPattern,
+  });
+
   if (!shouldTrack) {
     try {
       await evaluatePushCommand(id, command);
@@ -780,8 +1305,54 @@ export async function push(
     return id;
   }
 
-  const eventName =
-    cmdNoId.mode === 'gtag' ? cmdNoId.name : (cmdNoId.payload?.event || undefined);
+  let eventName: string | undefined;
+  let conversionId: string | undefined;
+  let reportSuite: string | undefined;
+  let expectedParams: Record<string, any> | undefined;
+
+  switch (command.mode) {
+    case 'gtag':
+      eventName = command.name;
+      expectedParams = command.params ?? undefined;
+      break;
+    case 'datalayer':
+      eventName = command.payload?.event || command.payload?.event_name || undefined;
+      expectedParams = command.payload ?? undefined;
+      break;
+    case 'meta':
+      eventName = command.meta?.eventName;
+      expectedParams = command.meta?.params ?? undefined;
+      break;
+    case 'linkedin':
+      conversionId = command.linkedin?.conversionId;
+      eventName = command.linkedin?.payload?.eventName || conversionId;
+      expectedParams = command.linkedin?.payload ?? undefined;
+      if (command.linkedin?.trackingId) {
+        expectedParams = {
+          ...(expectedParams || {}),
+          trackingId: command.linkedin.trackingId,
+        };
+      }
+      break;
+    case 'adobe':
+      eventName = command.adobe?.linkName || command.adobe?.variables?.events;
+      reportSuite = command.adobe?.reportSuite || command.adobe?.variables?.reportSuite;
+      expectedParams = command.adobe?.variables ?? undefined;
+      break;
+  }
+
+  const vendor: NetworkVendor = (() => {
+    switch (command.mode) {
+      case 'meta':
+        return 'meta';
+      case 'linkedin':
+        return 'linkedin';
+      case 'adobe':
+        return 'adobe';
+      default:
+        return 'ga4';
+    }
+  })();
 
   let customPattern: RegExp | undefined;
   if (cmdNoId.match === 'custom' && cmdNoId.customUrlPattern) {
@@ -796,14 +1367,18 @@ export async function push(
     id,
     tsStart: Date.now(),
     timeoutMs,
-    mode: cmdNoId.mode,
+    mode: command.mode,
+    vendor,
     match: cmdNoId.match ?? 'auto',
     eventName,
+    conversionId,
+    reportSuite,
     customUrlPattern: customPattern,
     matches: [],
     attempts: 0,
     maxAttempts: origin === 'console' || origin === 'library' ? MAX_PUSH_ATTEMPTS : 1,
     command,
+    expectedParams,
   };
 
   await triggerTrackerAttempt(tracker, emit);
@@ -1096,177 +1671,399 @@ async function detectEnvironment(page: Page): Promise<EnvInfo> {
 
 // GA Sniffer
 export type OnCollect = (data: {
-  url: string;
-  status?: number;
+  record: NetworkRecord;
   params: URLSearchParams;
-  eventName?: string;
-  measurementId?: string;
+  status?: number;
 }) => void;
 
-function attachGASniffer(
+type NetworkVendor = 'ga4' | 'ua' | 'meta' | 'linkedin' | 'adobe';
+
+interface NetworkRecord {
+  vendor: NetworkVendor;
+  url: string;
+  ts: number;
+  params: URLSearchParams;
+  ga?: { eventName?: string; measurementId?: string; clientId?: string };
+  uaParams?: Record<string, string>;
+  meta?: { eventName?: string; pixelId?: string; dl?: string };
+  linkedin?: { eventName?: string; trackingId?: string };
+  adobe?: { reportSuite?: string; eventType?: string };
+  origin?: 'console' | 'library' | 'usecase' | 'api';
+  pushId?: string;
+  expectedEventName?: string;
+  expectedParams?: Record<string, any>;
+  conversionId?: string;
+  reportSuite?: string;
+  mode?: PushCommand['mode'];
+}
+
+function attachNetworkSniffer(
   page: Page,
   emit: (e: NormalizedEvent) => void,
   opts: { redactPII: boolean; onCollect?: OnCollect },
 ) {
-  const requestMap = new Map<
-    PlaywrightRequest,
-    {
-      url: string;
-      ts: number;
-      params: URLSearchParams;
-      eventName?: string;
-      mi?: string;
-      cid?: string;
-      isGA4: boolean;
-      uaParams?: Record<string, string>;
+  const requestMap = new Map<PlaywrightRequest, NetworkRecord>();
+
+  const createRecord = (url: string, params: URLSearchParams, ts: number): NetworkRecord | null => {
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      return null;
     }
-  >();
+
+    if (isGA(url)) {
+      const isGA4 = params.has('en') || params.has('_en');
+      if (isGA4) {
+        const measurementId = params.get('measurement_id') || params.get('tid') || undefined;
+        const clientId = params.get('cid') || params.get('_cid') || undefined;
+        const event = parseGA4Event(params);
+        return {
+          vendor: 'ga4',
+          url,
+          ts,
+          params,
+          ga: { eventName: event.name, measurementId, clientId },
+        };
+      }
+      const uaParams: Record<string, string> = {};
+      params.forEach((v, k) => {
+        uaParams[k] = v;
+      });
+      return {
+        vendor: 'ua',
+        url,
+        ts,
+        params,
+        uaParams,
+      };
+    }
+
+    if (isMetaPixel(parsed)) {
+      const pixelId = params.get('id') ?? undefined;
+      const eventName = params.get('ev') ?? undefined;
+      const dl = params.get('dl') ?? undefined;
+      const eventId = params.get('eid') ?? undefined;
+      return {
+        vendor: 'meta',
+        url,
+        ts,
+        params,
+        meta: { pixelId, eventName, dl },
+        conversionId: eventId ?? undefined,
+      };
+    }
+
+    if (isLinkedInPixel(parsed)) {
+      const eventName =
+        params.get('event') ||
+        params.get('conversionId') ||
+        params.get('conversion') ||
+        params.get('type') ||
+        undefined;
+      const trackingId = params.get('pid') || params.get('accountid') || undefined;
+      const conversionId =
+        params.get('conversionId') || params.get('conversion_id') || params.get('conversion') || undefined;
+      return {
+        vendor: 'linkedin',
+        url,
+        ts,
+        params,
+        linkedin: { eventName, trackingId },
+        conversionId,
+      };
+    }
+
+    if (isAdobeAnalytics(parsed)) {
+      const reportSuite = extractAdobeReportSuite(parsed.pathname);
+      const eventType = params.get('pe') || params.get('pev1') || params.get('events') || undefined;
+      return {
+        vendor: 'adobe',
+        url,
+        ts,
+        params,
+        adobe: { reportSuite, eventType },
+        reportSuite,
+      };
+    }
+
+    return null;
+  };
 
   page.on('request', (req) => {
     const url = req.url();
-    if (!isGA(url)) return;
-
-    const ts = Date.now();
     const method = req.method();
     const postData = req.postData();
     const params = mergeParams(url, method, postData);
-    const isGA4 = params.has('en') || params.has('_en');
+    const ts = Date.now();
 
-    let eventName: string | undefined;
-    let mi: string | undefined;
-    let cid: string | undefined;
-    let uaParams: Record<string, string> | undefined;
+    const record = createRecord(url, params, ts);
+    if (!record) return;
 
-    if (isGA4) {
-      const event = parseGA4Event(params);
-      eventName = event.name;
-      mi = params.get('measurement_id') || params.get('tid') || undefined;
-      cid = params.get('cid') || params.get('_cid') || undefined;
-    } else {
-      uaParams = {};
-      params.forEach((v, k) => {
-        uaParams![k] = v;
-      });
-    }
+    opts.onCollect?.({ record, params });
 
-    requestMap.set(req, { url, ts, params, eventName, mi, cid, isGA4, uaParams });
+    requestMap.set(req, record);
   });
 
   page.on('response', async (resp) => {
     const req = resp.request();
-    const url = resp.url();
-    const record = requestMap.get(req);
+    let record = requestMap.get(req);
 
     if (!record) {
-      if (!isGA(url)) return;
-      // fallback: create minimal record from response params
-      const ts = Date.now();
-      const params = mergeParams(url, 'GET');
-      const isGA4 = params.has('en') || params.has('_en');
-      requestMap.set(req, {
-        url,
-        ts,
-        params,
-        isGA4,
-        eventName: undefined,
-      });
+      const fallbackParams = mergeParams(resp.url(), 'GET');
+      const fallbackRecord = createRecord(resp.url(), fallbackParams, Date.now());
+      if (!fallbackRecord) return;
+      record = fallbackRecord;
     }
 
-    const data = requestMap.get(req);
-    if (!data) return;
-
     const status = resp.status();
-    const ts = data.ts;
-    const params = data.params;
-    const { eventName, mi, cid, isGA4 } = data;
+    const params = record.params;
 
-    if (isGA4) {
-      const event = parseGA4Event(params);
-      const measurementId = mi ?? params.get('measurement_id') ?? params.get('tid') ?? undefined;
-      const clientId = cid ?? params.get('cid') ?? params.get('_cid') ?? undefined;
-      emit({
-        kind: 'ga4.hit',
-        ts,
-        url: data.url,
-        status,
-        event,
-        mi: measurementId,
-        cid: clientId,
-      });
-
-      if (opts.onCollect) {
-        opts.onCollect({
-          url: data.url,
+    switch (record.vendor) {
+      case 'ga4': {
+        const event = parseGA4Event(params);
+        const measurementId =
+          record.ga?.measurementId ?? params.get('measurement_id') ?? params.get('tid') ?? undefined;
+        const clientId = record.ga?.clientId ?? params.get('cid') ?? params.get('_cid') ?? undefined;
+        emit({
+          kind: 'ga4.hit',
+          ts: record.ts,
+          url: record.url,
+          status,
+          event,
+          mi: measurementId,
+          cid: clientId,
+          origin: record.origin,
+          pushId: record.pushId,
+        });
+        if (event.name === 'page_view') {
+          const pageLocationValue =
+            event.params && typeof (event.params as Record<string, unknown>)['page_location'] === 'string'
+              ? ((event.params as Record<string, unknown>)['page_location'] as string)
+              : undefined;
+          const pageTitleValue =
+            event.params && typeof (event.params as Record<string, unknown>)['page_title'] === 'string'
+              ? ((event.params as Record<string, unknown>)['page_title'] as string)
+              : undefined;
+          opts.onPageView?.({
+            ts: record.ts,
+            url: pageLocationValue ?? record.url,
+            title: pageTitleValue,
+            source: 'ga4',
+            origin: record.origin,
+          });
+        }
+        record.ga = record.ga ?? {};
+        if (event.name && !record.ga.eventName) {
+          record.ga.eventName = event.name;
+        }
+        if (measurementId && !record.ga.measurementId) {
+          record.ga.measurementId = measurementId;
+        }
+        if (clientId && !record.ga.clientId) {
+          record.ga.clientId = clientId;
+        }
+        opts.onCollect?.({ record, params, status });
+        handleUseCaseCollect({
+          url: record.url,
           status,
           params,
-          eventName: event.name ?? eventName,
-          measurementId,
+          eventName: event.name ?? record.ga?.eventName,
         });
+        break;
       }
-      handleUseCaseCollect({
-        url: data.url,
-        status,
-        params,
-        eventName: event.name ?? eventName,
-      });
-    } else {
-      const paramsObj: Record<string, string> = data.uaParams ?? {};
-      if (Object.keys(paramsObj).length === 0) {
-        params.forEach((v, k) => {
-          paramsObj[k] = v;
+      case 'ua': {
+        const paramsObj = record.uaParams ?? paramsToObject(params);
+        emit({
+          kind: 'ua.hit',
+          ts: record.ts,
+          url: record.url,
+          status,
+          params: paramsObj,
+          origin: record.origin,
+          pushId: record.pushId,
         });
+        record.uaParams = record.uaParams ?? paramsObj;
+        opts.onCollect?.({ record, params, status });
+        handleUseCaseCollect({ url: record.url, status, params, eventName: paramsObj.event });
+        break;
       }
-
-      emit({
-        kind: 'ua.hit',
-        ts,
-        url: data.url,
-        status,
-        params: paramsObj,
-      });
-
-      if (opts.onCollect) {
-        opts.onCollect({ url: data.url, status, params, eventName });
+      case 'meta': {
+        const payload = paramsToObject(params);
+        emit({
+          kind: 'meta.hit',
+          ts: record.ts,
+          url: record.url,
+          status,
+          eventName: record.meta?.eventName,
+          pixelId: record.meta?.pixelId,
+          dl: record.meta?.dl,
+          params: payload,
+          origin: record.origin,
+          pushId: record.pushId,
+          conversionId: record.conversionId,
+        });
+        opts.onCollect?.({ record, params, status });
+        break;
       }
-      handleUseCaseCollect({ url: data.url, status, params, eventName });
+      case 'linkedin': {
+        const payload = paramsToObject(params);
+        emit({
+          kind: 'linkedin.hit',
+          ts: record.ts,
+          url: record.url,
+          status,
+          eventName: record.linkedin?.eventName,
+          trackingId: record.linkedin?.trackingId,
+          params: payload,
+          origin: record.origin,
+          pushId: record.pushId,
+          conversionId: record.conversionId,
+        });
+        opts.onCollect?.({ record, params, status });
+        break;
+      }
+      case 'adobe': {
+        const payload = paramsToObject(params);
+        emit({
+          kind: 'adobe.hit',
+          ts: record.ts,
+          url: record.url,
+          status,
+          reportSuite: record.adobe?.reportSuite,
+          eventType: record.adobe?.eventType,
+          params: payload,
+          origin: record.origin,
+          pushId: record.pushId,
+        });
+        record.adobe = record.adobe ?? {};
+        if (!record.adobe.reportSuite && record.reportSuite) {
+          record.adobe.reportSuite = record.reportSuite;
+        }
+        opts.onCollect?.({ record, params, status });
+        break;
+      }
     }
 
     requestMap.delete(req);
   });
 
   page.on('requestfailed', (req) => {
-    if (!isGA(req.url())) return;
     const record = requestMap.get(req);
     if (!record) return;
 
-    const ts = record.ts;
-    const params = record.params;
-
-    if (record.isGA4) {
-      const event = parseGA4Event(params);
-      emit({
-        kind: 'ga4.hit',
-        ts,
-        url: record.url,
-        status: undefined,
-        event,
-        mi: record.mi,
-        cid: record.cid,
-      });
-      handleUseCaseCollect({ url: record.url, params, eventName: event.name ?? record.eventName });
-    } else {
-      const paramsObj = record.uaParams ?? {};
-      emit({
-        kind: 'ua.hit',
-        ts,
-        url: record.url,
-        params: paramsObj,
-      });
-      handleUseCaseCollect({ url: record.url, params, eventName: record.eventName });
-    }
-
-    if (opts.onCollect) {
-      opts.onCollect({ url: record.url, params, eventName: record.eventName, status: undefined, measurementId: record.mi });
+    switch (record.vendor) {
+      case 'ga4': {
+        const event = parseGA4Event(record.params);
+        emit({
+          kind: 'ga4.hit',
+          ts: record.ts,
+          url: record.url,
+          status: undefined,
+          event,
+          mi: record.ga?.measurementId,
+          cid: record.ga?.clientId,
+          origin: record.origin,
+          pushId: record.pushId,
+        });
+        handleUseCaseCollect({
+          url: record.url,
+          params: record.params,
+          eventName: event.name ?? record.ga?.eventName,
+        });
+        record.ga = record.ga ?? {};
+        if (event.name && !record.ga.eventName) {
+          record.ga.eventName = event.name;
+        }
+        opts.onCollect?.({ record, params: record.params, status: undefined });
+        if (event.name === 'page_view') {
+          const pageLocationValue =
+            event.params && typeof (event.params as Record<string, unknown>)['page_location'] === 'string'
+              ? ((event.params as Record<string, unknown>)['page_location'] as string)
+              : undefined;
+          const pageTitleValue =
+            event.params && typeof (event.params as Record<string, unknown>)['page_title'] === 'string'
+              ? ((event.params as Record<string, unknown>)['page_title'] as string)
+              : undefined;
+          opts.onPageView?.({
+            ts: record.ts,
+            url: pageLocationValue ?? record.url,
+            title: pageTitleValue,
+            source: 'ga4',
+          });
+        }
+        break;
+      }
+      case 'ua': {
+        const paramsObj = record.uaParams ?? paramsToObject(record.params);
+        emit({
+          kind: 'ua.hit',
+          ts: record.ts,
+          url: record.url,
+          params: paramsObj,
+          origin: record.origin,
+          pushId: record.pushId,
+        });
+        handleUseCaseCollect({
+          url: record.url,
+          params: record.params,
+          eventName: paramsObj.event,
+        });
+        record.uaParams = record.uaParams ?? paramsObj;
+        opts.onCollect?.({ record, params: record.params, status: undefined });
+        break;
+      }
+      case 'meta': {
+        const metaPayload = paramsToObject(record.params);
+        emit({
+          kind: 'meta.hit',
+          ts: record.ts,
+          url: record.url,
+          status: undefined,
+          eventName: record.meta?.eventName,
+          pixelId: record.meta?.pixelId,
+          dl: record.meta?.dl,
+          params: metaPayload,
+          origin: record.origin,
+          pushId: record.pushId,
+          conversionId: record.conversionId,
+        });
+        opts.onCollect?.({ record, params: record.params, status: undefined });
+        break;
+      }
+      case 'linkedin': {
+        const liPayload = paramsToObject(record.params);
+        emit({
+          kind: 'linkedin.hit',
+          ts: record.ts,
+          url: record.url,
+          status: undefined,
+          eventName: record.linkedin?.eventName,
+          trackingId: record.linkedin?.trackingId,
+          params: liPayload,
+          origin: record.origin,
+          pushId: record.pushId,
+          conversionId: record.conversionId,
+        });
+        opts.onCollect?.({ record, params: record.params, status: undefined });
+        break;
+      }
+      case 'adobe': {
+        const adobePayload = paramsToObject(record.params);
+        emit({
+          kind: 'adobe.hit',
+          ts: record.ts,
+          url: record.url,
+          status: undefined,
+          reportSuite: record.adobe?.reportSuite,
+          eventType: record.adobe?.eventType,
+          params: adobePayload,
+          origin: record.origin,
+          pushId: record.pushId,
+        });
+        opts.onCollect?.({ record, params: record.params, status: undefined });
+        break;
+      }
     }
 
     requestMap.delete(req);
@@ -1481,8 +2278,9 @@ app.post('/api/push', async (req, res) => {
   try {
     const cmdNoId = req.body;
     
-    if (!cmdNoId.mode || !['datalayer', 'gtag'].includes(cmdNoId.mode)) {
-      return res.status(400).json({ error: 'mode must be "datalayer" or "gtag"' });
+    const allowedModes: PushCommand['mode'][] = ['datalayer', 'gtag', 'meta', 'linkedin', 'adobe'];
+    if (!cmdNoId.mode || !allowedModes.includes(cmdNoId.mode)) {
+      return res.status(400).json({ error: 'mode must be one of datalayer, gtag, meta, linkedin, adobe' });
     }
 
     if (cmdNoId.mode === 'datalayer' && !cmdNoId.payload) {
@@ -1491,6 +2289,18 @@ app.post('/api/push', async (req, res) => {
 
     if (cmdNoId.mode === 'gtag' && !cmdNoId.name) {
       return res.status(400).json({ error: 'name is required for gtag mode' });
+    }
+
+    if (cmdNoId.mode === 'meta' && !(cmdNoId.meta && cmdNoId.meta.eventName)) {
+      return res.status(400).json({ error: 'meta.eventName is required for meta mode' });
+    }
+
+    if (cmdNoId.mode === 'linkedin' && !(cmdNoId.linkedin && cmdNoId.linkedin.conversionId)) {
+      return res.status(400).json({ error: 'linkedin.conversionId is required for linkedin mode' });
+    }
+
+    if (cmdNoId.mode === 'adobe' && !cmdNoId.adobe) {
+      return res.status(400).json({ error: 'adobe configuration is required for adobe mode' });
     }
 
     if (!running) {

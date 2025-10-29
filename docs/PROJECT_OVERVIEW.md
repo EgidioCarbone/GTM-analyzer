@@ -7,7 +7,7 @@
   - Gestione container GTM con calcolo qualità, remediation guidata e piani di misurazione AI.
   - SSD (Specification-Driven Testing): converte PDF con requisiti marketing in DSL eseguibile, lancia test browser automatizzati e genera report dettagliati.
   - AI Sentinel: test GDPR/CCPA con Playwright per CMP multipli, con fallback LLM per riconoscimento banner.
-  - Live Tag Debugger: cattura in tempo reale dataLayer push, hit GA4/UA, consent updates, arricchiti da insight AI.
+  - Live Tag Debugger: cattura dataLayer push, page view e hit multi-vendor (GA4/UA, Meta Pixel, LinkedIn Insight, Adobe), con insight AI in tempo reale.
   - GA4 Insights: estrazione KPI, visualizzazioni e narrativa AI sui dati GA4.
 
 ## 2. Struttura del repository
@@ -109,13 +109,13 @@
 - **Server**: `live-debugger-server.ts`
   - Avvia Playwright Chromium, espone WebSocket per stream eventi normalizzati.
   - `resolveMacros` interpreta variabili GTM, `pushCasesStorage` e `pushUseCasesStorage` gestiscono libreria use-case.
-  - Stream comprende: `datalayer.push`, `ga4.hit`, `ua.hit`, `console` logs, `env` updates.
+  - Stream comprende: `datalayer.push`, `page.view`, hit GA (`ga4.hit`, `ua.hit`), Meta Pixel, LinkedIn Insight, Adobe Analytics, log console e aggiornamenti env.
   - `EventAnalyzer` (`shared/analyzer.ts`) produce insight (severity, recommendations) usati da AI assistant.
   - Assistente AI: `openaiClient` se API key presente, risponde a `AiAssistantRequest` (intent explain/fix/qa).
 - **Frontend**:
-  - `LiveDebuggerPage` + `components/live-debugger/*` – layout multi-pannello (stream eventi, inspector, filtri, timeline sessione, push library editor).
-  - Stato gestito con `useReducer`; filtri includono time range, tipi, measurement ID, search text, host regex.
-  - Eventi arricchiti con highlight, details JSON, screenshot se disponibili.
+  - `LiveDebuggerPage` + `components/live-debugger/*` – layout multi-pannello (stream eventi, inspector, filtri, timeline sessione, push library editor, network table multi-vendor).
+  - Stato gestito con `useReducer`; filtri includono time range, tipi (GA/UA, Meta, LinkedIn, Adobe, Page view), measurement ID/pixel, search text, host regex.
+  - Eventi arricchiti con highlight, details JSON, insight AI; page view e retry push mostrati con badge dedicati.
 
 ## 8. GA4 Insights
 - **Backend**:

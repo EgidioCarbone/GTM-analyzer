@@ -22,6 +22,18 @@ export function FiltersPro({ filters, onFiltersChange, events, domain }: Filters
   const [isExpanded, setIsExpanded] = useState(false);
   const [searchDebounced, setSearchDebounced] = useState(filters.searchText);
 
+  const typeOptions: Array<{ key: keyof FilterState['types']; label: string }> = [
+    { key: 'datalayer', label: 'DataLayer' },
+    { key: 'pageview', label: 'Page View' },
+    { key: 'ga4', label: 'GA4' },
+    { key: 'ua', label: 'UA' },
+    { key: 'meta', label: 'Meta Pixel' },
+    { key: 'linkedin', label: 'LinkedIn' },
+    { key: 'adobe', label: 'Adobe' },
+    { key: 'console', label: 'Console' },
+    { key: 'env', label: 'Env' },
+  ];
+
   // Debounce search
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -45,6 +57,17 @@ export function FiltersPro({ filters, onFiltersChange, events, domain }: Filters
         if (event.params.event_name) eventNames.add(event.params.event_name);
         if (event.params.tid) measurementIds.add(event.params.tid);
         if (event.status) statusCodes.add(event.status);
+      } else if (event.kind === 'meta.hit') {
+        if (event.eventName) eventNames.add(event.eventName);
+        if (event.status) statusCodes.add(event.status);
+      } else if (event.kind === 'linkedin.hit') {
+        if (event.eventName) eventNames.add(event.eventName);
+        if (event.status) statusCodes.add(event.status);
+      } else if (event.kind === 'adobe.hit') {
+        if (event.eventType) eventNames.add(event.eventType);
+        if (event.status) statusCodes.add(event.status);
+      } else if (event.kind === 'page.view') {
+        eventNames.add('page.view');
       } else if (event.kind === 'datalayer.push' && event.payload?.event) {
         eventNames.add(event.payload.event);
       }
@@ -71,7 +94,11 @@ export function FiltersPro({ filters, onFiltersChange, events, domain }: Filters
       if (saved) {
         try {
           const parsed = JSON.parse(saved);
-          onFiltersChange({ ...filters, ...parsed });
+          const mergedTypes = { ...filters.types, ...(parsed.types ?? {}) };
+          onFiltersChange({ ...filters, ...parsed, types: mergedTypes });
+          if (typeof parsed.searchText === 'string') {
+            setSearchDebounced(parsed.searchText);
+          }
         } catch (err) {
           console.error('Failed to load saved filters:', err);
         }
@@ -108,7 +135,17 @@ export function FiltersPro({ filters, onFiltersChange, events, domain }: Filters
   const resetFilters = () => {
     const defaultFilters: FilterState = {
       timeRange: '5m',
-      types: { datalayer: true, ga4: true, ua: true, console: false, env: false },
+      types: {
+        datalayer: true,
+        pageview: true,
+        ga4: true,
+        ua: true,
+        meta: true,
+        linkedin: true,
+        adobe: true,
+        console: false,
+        env: false,
+      },
       gaOnly: false,
       eventNames: [],
       measurementIds: [],
@@ -157,10 +194,12 @@ export function FiltersPro({ filters, onFiltersChange, events, domain }: Filters
           <div className="flex items-center gap-2">
             <Type className="h-4 w-4 text-slate-400" />
             <div className="flex flex-wrap gap-1">
-              {Object.entries(filters.types).map(([type, enabled]) => (
+              {typeOptions.map(({ key, label }) => {
+                const enabled = filters.types[key];
+                return (
                 <button
-                  key={type}
-                  onClick={() => handleTypeToggle(type as keyof FilterState['types'])}
+                  key={key}
+                  onClick={() => handleTypeToggle(key)}
                   className={clsx(
                     'rounded-full border px-3 py-1 text-xs font-semibold transition',
                     enabled
@@ -168,9 +207,10 @@ export function FiltersPro({ filters, onFiltersChange, events, domain }: Filters
                       : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:text-slate-700'
                   )}
                 >
-                  {type.toUpperCase()}
+                  {label}
                 </button>
-              ))}
+              );
+              })}
             </div>
           </div>
 
@@ -182,7 +222,7 @@ export function FiltersPro({ filters, onFiltersChange, events, domain }: Filters
               onChange={(e) => onFiltersChange({ ...filters, gaOnly: e.target.checked })}
               className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
             />
-            Solo GA
+            Solo Google
           </label>
 
           {/* Search */}

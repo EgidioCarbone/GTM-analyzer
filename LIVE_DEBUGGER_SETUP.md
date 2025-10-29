@@ -72,9 +72,10 @@ npm run dev               # Tutto insieme
 - **UrlForm**: Input URL + bottoni Avvia/Stop
 - **StatusBar**: Status con timer real-time
 - **EnvPanel**: Chip colorati per GTM/gtag/Cookiebot
-- **FiltersBar**: Filtri GA only, search, event type
+- **FiltersBar**: Filtri multi-vendor (GA4/UA, Meta, LinkedIn, Adobe), search, toggles avanzati
 - **DataLayerPanel**: Lista eventi dataLayer (JSON collapsible)
-- **NetworkTable**: Tabella GA hits (time, event, MI, CID, status)
+- **NetworkTable**: Tabella richieste tracciate (GA4/UA, Meta Pixel, LinkedIn Insight, Adobe Analytics)
+- **Event Stream**: Evidenziazioni per page view, retry push e insight AI contestuali
 
 ## 🧪 Test Consigliati
 
@@ -84,6 +85,8 @@ npm run dev               # Tutto insieme
 | `https://www.google.com/analytics/` | GTM + GA4 detection |
 | `https://www.cookiebot.com/en/` | Cookiebot auto-consent |
 | `https://analytics.google.com/` | Multiple trackers |
+| `https://www.facebook.com/business` | Meta Pixel hit detection |
+| `https://www.linkedin.com/company/linkedin` | LinkedIn Insight event |
 
 ## 🐛 Troubleshooting
 
@@ -138,6 +141,8 @@ La pagina "Live Tag Debugger" che prima mostrava "Pagina in Costruzione" ora è 
 - ✅ DataLayer hook completo (snapshot + push)
 - ✅ GA sniffer (GET/POST, region, debug)
 - ✅ WebSocket real-time streaming
+- ✅ Sniffer multi-vendor (GA4/UA, Meta Pixel, LinkedIn Insight, Adobe Analytics)
+- ✅ Page view tracking con integrazione timeline
 - ✅ UI moderna con filtri funzionanti
 - ✅ Stop rilascia risorse correttamente
 

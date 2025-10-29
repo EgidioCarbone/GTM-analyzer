@@ -41,11 +41,35 @@ export function EventInspector({ event, isOpen, onClose }: EventInspectorProps) 
           color: 'bg-green-100 text-green-800',
           icon: '📈'
         };
+      case 'meta.hit':
+        return {
+          type: 'Meta Pixel',
+          color: 'bg-indigo-100 text-indigo-800',
+          icon: '📣'
+        };
+      case 'linkedin.hit':
+        return {
+          type: 'LinkedIn Insight',
+          color: 'bg-sky-100 text-sky-800',
+          icon: '🔗'
+        };
+      case 'adobe.hit':
+        return {
+          type: 'Adobe Analytics',
+          color: 'bg-amber-100 text-amber-800',
+          icon: '🅰️'
+        };
       case 'datalayer.push':
         return {
           type: 'DataLayer Push',
           color: 'bg-purple-100 text-purple-800',
           icon: '📦'
+        };
+      case 'page.view':
+        return {
+          type: 'Page View',
+          color: 'bg-teal-100 text-teal-800',
+          icon: '🌐'
         };
       case 'console':
         return {
@@ -86,10 +110,44 @@ export function EventInspector({ event, isOpen, onClose }: EventInspectorProps) 
           params: event.params,
           timestamp: event.ts
         };
+      case 'meta.hit':
+        return {
+          url: event.url,
+          status: event.status,
+          eventName: event.eventName,
+          pixelId: event.pixelId,
+          params: event.params,
+          timestamp: event.ts
+        };
+      case 'linkedin.hit':
+        return {
+          url: event.url,
+          status: event.status,
+          eventName: event.eventName,
+          trackingId: event.trackingId,
+          params: event.params,
+          timestamp: event.ts
+        };
+      case 'adobe.hit':
+        return {
+          url: event.url,
+          status: event.status,
+          reportSuite: event.reportSuite,
+          eventType: event.eventType,
+          params: event.params,
+          timestamp: event.ts
+        };
       case 'datalayer.push':
         return {
           source: event.source,
           payload: event.payload,
+          timestamp: event.ts
+        };
+      case 'page.view':
+        return {
+          url: event.url,
+          title: event.title,
+          source: event.source,
           timestamp: event.ts
         };
       case 'console':
@@ -167,9 +225,19 @@ export function EventInspector({ event, isOpen, onClose }: EventInspectorProps) 
         );
 
       case 'params':
-        const params = event.kind === 'ga4.hit' ? event.event : 
-                      event.kind === 'ua.hit' ? event.params : 
-                      event.kind === 'datalayer.push' ? event.payload : {};
+        const params =
+          event.kind === 'ga4.hit'
+            ? event.event
+            : event.kind === 'ua.hit' ||
+              event.kind === 'meta.hit' ||
+              event.kind === 'linkedin.hit' ||
+              event.kind === 'adobe.hit'
+            ? event.params
+            : event.kind === 'datalayer.push'
+            ? event.payload
+            : event.kind === 'page.view'
+            ? { url: event.url, title: event.title, source: event.source }
+            : {};
         
         return (
           <div className="space-y-4">

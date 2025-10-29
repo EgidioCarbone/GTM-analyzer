@@ -1,6 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import type { PushCommand, NormalizedEvent } from '../../types/live-debugger';
 import * as api from '../../services/live-debugger-api';
+import {
+  ConsoleMode,
+  DATALAYER_PRESETS,
+  META_PRESETS,
+  LINKEDIN_PRESETS,
+  ADOBE_PRESETS,
+  MODE_LABELS,
+  DEFAULT_META_PRESET,
+  DEFAULT_LINKEDIN_PRESET,
+  DEFAULT_ADOBE_PRESET,
+  formatJSON,
+  getPresetOptions,
+} from './pushPresets';
 
 interface DLPushConsoleProps {
   onEvent: (event: NormalizedEvent) => void;
@@ -14,39 +27,45 @@ interface PushResult {
   timestamp: number;
 }
 
-const PRESETS = {
-  page_view: { event: 'page_view' },
-  view_item: { 
-    event: 'view_item', 
-    ecommerce: { 
-      items: [{ item_id: 'SKU_123', item_name: 'Prodotto' }] 
-    } 
-  },
-  add_to_cart: { 
-    event: 'add_to_cart', 
-    ecommerce: { 
-      currency: 'EUR', 
-      value: 19.9, 
-      items: [{ item_id: 'SKU_123', quantity: 1 }] 
-    } 
-  },
-  purchase: { 
-    event: 'purchase', 
-    ecommerce: { 
-      transaction_id: 'T123', 
-      value: 99, 
-      currency: 'EUR', 
-      items: [{ item_id: 'SKU_123' }] 
-    } 
-  }
-};
 
 export function DLPushConsole({ onEvent }: DLPushConsoleProps) {
-  const [mode, setMode] = useState<'datalayer' | 'gtag'>('datalayer');
-  const [eventName, setEventName] = useState('');
-  const [payload, setPayload] = useState('{\n  "event": "page_view"\n}');
-  const [gtagName, setGtagName] = useState('');
-  const [gtagParams, setGtagParams] = useState('{\n  "custom_parameter": "value"\n}');
+  const [mode, setMode] = useState<ConsoleMode>('datalayer');
+  const [eventName, setEventName] = useState('page_view');
+  const [payload, setPayload] = useState(formatJSON(DATALAYER_PRESETS.page_view));
+  const [gtagName, setGtagName] = useState('page_view');
+  const [gtagParams, setGtagParams] = useState(formatJSON({ custom_parameter: 'value' }));
+  const [metaEventName, setMetaEventName] = useState(DEFAULT_META_PRESET.eventName);
+  const [metaParams, setMetaParams] = useState(
+    formatJSON(DEFAULT_META_PRESET.params ?? { event_id: 'meta-event-001' }),
+  );
+  const [metaPixelId, setMetaPixelId] = useState(DEFAULT_META_PRESET.pixelId ?? '');
+  const [metaEventId, setMetaEventId] = useState(DEFAULT_META_PRESET.eventId ?? '');
+  const [metaTrackType, setMetaTrackType] = useState<'track' | 'trackCustom'>(
+    DEFAULT_META_PRESET.trackType ?? 'track',
+  );
+  const [linkedinConversionId, setLinkedinConversionId] = useState(
+    DEFAULT_LINKEDIN_PRESET.conversionId,
+  );
+  const [linkedinTrackingId, setLinkedinTrackingId] = useState(
+    DEFAULT_LINKEDIN_PRESET.trackingId ?? '',
+  );
+  const [linkedinPayload, setLinkedinPayload] = useState(
+    formatJSON(DEFAULT_LINKEDIN_PRESET.payload ?? {
+      value: 45,
+      currency: 'EUR',
+    }),
+  );
+  const [adobeCall, setAdobeCall] = useState<'t' | 'tl'>(DEFAULT_ADOBE_PRESET.call);
+  const [adobeReportSuite, setAdobeReportSuite] = useState(
+    DEFAULT_ADOBE_PRESET.reportSuite ?? 'debugsuite',
+  );
+  const [adobeLinkType, setAdobeLinkType] = useState(DEFAULT_ADOBE_PRESET.linkType ?? 'o');
+  const [adobeLinkName, setAdobeLinkName] = useState(DEFAULT_ADOBE_PRESET.linkName ?? '');
+  const [adobeVariables, setAdobeVariables] = useState(
+    formatJSON(DEFAULT_ADOBE_PRESET.variables ?? {
+      pageName: 'Live Debugger Demo',
+    }),
+  );
   const [trackCollect, setTrackCollect] = useState(true);
   const [matchMode, setMatchMode] = useState<'auto' | 'eventName' | 'any' | 'custom'>('auto');
   const [customPattern, setCustomPattern] = useState('');
@@ -74,13 +93,105 @@ export function DLPushConsole({ onEvent }: DLPushConsoleProps) {
     // We just need to pass the handler up
   }, [onEvent]);
 
-  const handlePresetChange = (presetName: string) => {
-    if (presetName && PRESETS[presetName as keyof typeof PRESETS]) {
-      const presetData = PRESETS[presetName as keyof typeof PRESETS];
-      setEventName(presetData.event);
-      setPayload(JSON.stringify(presetData, null, 2));
+  const applyDefaultsForMode = (nextMode: ConsoleMode) => {
+    if (nextMode === 'datalayer') {
+      setEventName('page_view');
+      setPayload(formatJSON(DATALAYER_PRESETS.page_view));
+      return;
     }
+
+    if (nextMode === 'gtag') {
+      setGtagName('page_view');
+      setGtagParams(formatJSON({ custom_parameter: 'value' }));
+      return;
+    }
+
+    if (nextMode === 'meta') {
+      setMetaEventName(DEFAULT_META_PRESET.eventName);
+      setMetaParams(formatJSON(DEFAULT_META_PRESET.params ?? {}));
+      setMetaPixelId(DEFAULT_META_PRESET.pixelId ?? '');
+      setMetaEventId(DEFAULT_META_PRESET.eventId ?? '');
+      setMetaTrackType(DEFAULT_META_PRESET.trackType ?? 'track');
+      return;
+    }
+
+    if (nextMode === 'linkedin') {
+      setLinkedinConversionId(DEFAULT_LINKEDIN_PRESET.conversionId);
+      setLinkedinTrackingId(DEFAULT_LINKEDIN_PRESET.trackingId ?? '');
+      setLinkedinPayload(formatJSON(DEFAULT_LINKEDIN_PRESET.payload ?? {}));
+      return;
+    }
+
+    if (nextMode === 'adobe') {
+      setAdobeCall(DEFAULT_ADOBE_PRESET.call);
+      setAdobeReportSuite(DEFAULT_ADOBE_PRESET.reportSuite ?? 'debugsuite');
+      setAdobeLinkType(DEFAULT_ADOBE_PRESET.linkType ?? 'o');
+      setAdobeLinkName(DEFAULT_ADOBE_PRESET.linkName ?? '');
+      setAdobeVariables(formatJSON(DEFAULT_ADOBE_PRESET.variables ?? {}));
+    }
+  };
+
+  const handleModeChange = (nextMode: ConsoleMode) => {
+    setMode(nextMode);
+    setPreset('');
+    applyDefaultsForMode(nextMode);
+  };
+
+  const modeOptions: Array<{ value: ConsoleMode; label: string }> = [
+    { value: 'datalayer', label: MODE_LABELS.datalayer },
+    { value: 'gtag', label: MODE_LABELS.gtag },
+    { value: 'meta', label: MODE_LABELS.meta },
+    { value: 'linkedin', label: MODE_LABELS.linkedin },
+    { value: 'adobe', label: MODE_LABELS.adobe },
+  ];
+
+  const presetOptions = getPresetOptions(mode);
+
+  const handlePresetChange = (presetName: string) => {
     setPreset(presetName);
+    if (!presetName) return;
+
+    if (mode === 'datalayer') {
+      const presetData = DATALAYER_PRESETS[presetName];
+      if (presetData) {
+        setEventName(presetData.event ?? '');
+        setPayload(formatJSON(presetData));
+      }
+      return;
+    }
+
+    if (mode === 'meta') {
+      const presetData = META_PRESETS[presetName];
+      if (presetData) {
+        setMetaEventName(presetData.eventName);
+        setMetaParams(formatJSON(presetData.params ?? {}));
+        setMetaPixelId(presetData.pixelId ?? '');
+        setMetaEventId(presetData.eventId ?? '');
+        setMetaTrackType(presetData.trackType ?? 'track');
+      }
+      return;
+    }
+
+    if (mode === 'linkedin') {
+      const presetData = LINKEDIN_PRESETS[presetName];
+      if (presetData) {
+        setLinkedinConversionId(presetData.conversionId);
+        setLinkedinTrackingId(presetData.trackingId ?? '');
+        setLinkedinPayload(formatJSON(presetData.payload ?? {}));
+      }
+      return;
+    }
+
+    if (mode === 'adobe') {
+      const presetData = ADOBE_PRESETS[presetName];
+      if (presetData) {
+        setAdobeCall(presetData.call);
+        setAdobeReportSuite(presetData.reportSuite ?? '');
+        setAdobeLinkType(presetData.linkType ?? 'o');
+        setAdobeLinkName(presetData.linkName ?? '');
+        setAdobeVariables(formatJSON(presetData.variables ?? {}));
+      }
+    }
   };
 
   const handlePush = async () => {
@@ -107,7 +218,7 @@ export function DLPushConsole({ onEvent }: DLPushConsoleProps) {
           match: matchMode,
           customUrlPattern: matchMode === 'custom' ? customPattern : undefined
         };
-      } else {
+      } else if (mode === 'gtag') {
         let parsedParams;
         try {
           parsedParams = JSON.parse(gtagParams);
@@ -125,6 +236,94 @@ export function DLPushConsole({ onEvent }: DLPushConsoleProps) {
           match: matchMode,
           customUrlPattern: matchMode === 'custom' ? customPattern : undefined
         };
+      } else if (mode === 'meta') {
+        if (!metaEventName.trim()) {
+          alert('Specifica un evento Meta valido');
+          return;
+        }
+
+        let parsedParams: Record<string, any> = {};
+        if (metaParams.trim()) {
+          try {
+            parsedParams = JSON.parse(metaParams);
+          } catch (err) {
+            alert('Parametri Meta non validi (JSON).');
+            return;
+          }
+        }
+
+        const trimmedPixelId = metaPixelId.trim();
+        const trimmedEventId = metaEventId.trim() || (typeof parsedParams.event_id === 'string' ? parsedParams.event_id : undefined);
+
+        cmd = {
+          mode: 'meta',
+          meta: {
+            eventName: metaEventName.trim(),
+            params: parsedParams,
+            pixelId: trimmedPixelId || undefined,
+            eventId: trimmedEventId,
+            trackType: metaTrackType,
+          },
+          trackCollect,
+          timeoutMs,
+          match: matchMode,
+          customUrlPattern: matchMode === 'custom' ? customPattern : undefined,
+        };
+      } else if (mode === 'linkedin') {
+        if (!linkedinConversionId.trim()) {
+          alert('Conversion ID obbligatorio per LinkedIn');
+          return;
+        }
+
+        let parsedPayload: Record<string, any> = {};
+        if (linkedinPayload.trim()) {
+          try {
+            parsedPayload = JSON.parse(linkedinPayload);
+          } catch (err) {
+            alert('Payload LinkedIn non valido (JSON).');
+            return;
+          }
+        }
+
+        cmd = {
+          mode: 'linkedin',
+          linkedin: {
+            conversionId: linkedinConversionId.trim(),
+            trackingId: linkedinTrackingId.trim() || undefined,
+            payload: parsedPayload,
+          },
+          trackCollect,
+          timeoutMs,
+          match: matchMode,
+          customUrlPattern: matchMode === 'custom' ? customPattern : undefined,
+        };
+      } else if (mode === 'adobe') {
+        let parsedVariables: Record<string, any> = {};
+        if (adobeVariables.trim()) {
+          try {
+            parsedVariables = JSON.parse(adobeVariables);
+          } catch (err) {
+            alert('Variabili Adobe non valide (JSON).');
+            return;
+          }
+        }
+
+        cmd = {
+          mode: 'adobe',
+          adobe: {
+            call: adobeCall,
+            linkType: adobeCall === 'tl' ? (adobeLinkType.trim() || 'o') : undefined,
+            linkName: adobeCall === 'tl' ? (adobeLinkName.trim() || undefined) : undefined,
+            variables: parsedVariables,
+            reportSuite: adobeReportSuite.trim() || undefined,
+          },
+          trackCollect,
+          timeoutMs,
+          match: matchMode,
+          customUrlPattern: matchMode === 'custom' ? customPattern : undefined,
+        };
+      } else {
+        return;
       }
 
       cmd.origin = 'console';
@@ -161,46 +360,43 @@ export function DLPushConsole({ onEvent }: DLPushConsoleProps) {
 
       <div className="space-y-4">
         <div className="flex flex-wrap gap-3">
-          <label className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:border-slate-300">
-            <input
-              type="radio"
-              name="mode"
-              value="datalayer"
-              checked={mode === 'datalayer'}
-              onChange={(e) => setMode(e.target.value as 'datalayer' | 'gtag')}
-              className="h-4 w-4 text-blue-600 focus:ring-blue-500"
-            />
-            DataLayer push
-          </label>
-          <label className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:border-slate-300">
-            <input
-              type="radio"
-              name="mode"
-              value="gtag"
-              checked={mode === 'gtag'}
-              onChange={(e) => setMode(e.target.value as 'datalayer' | 'gtag')}
-              className="h-4 w-4 text-blue-600 focus:ring-blue-500"
-            />
-            gtag('event')
-          </label>
+          {modeOptions.map((option) => (
+            <label
+              key={option.value}
+              className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 transition hover:border-slate-300"
+            >
+              <input
+                type="radio"
+                name="mode"
+                value={option.value}
+                checked={mode === option.value}
+                onChange={() => handleModeChange(option.value)}
+                className="h-4 w-4 text-blue-600 focus:ring-blue-500"
+              />
+              {option.label}
+            </label>
+          ))}
         </div>
 
-        <div>
-          <label className="mb-2 block text-sm font-semibold text-slate-600">
-            Presets GA4
-          </label>
-          <select
-            value={preset}
-            onChange={(e) => handlePresetChange(e.target.value)}
-            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-inner focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
-          >
-            <option value="">Seleziona preset...</option>
-            <option value="page_view">page_view</option>
-            <option value="view_item">view_item</option>
-            <option value="add_to_cart">add_to_cart</option>
-            <option value="purchase">purchase</option>
-          </select>
-        </div>
+        {presetOptions.length > 0 && (
+          <div>
+            <label className="mb-2 block text-sm font-semibold text-slate-600">
+              Preset {MODE_LABELS[mode]}
+            </label>
+            <select
+              value={preset}
+              onChange={(e) => handlePresetChange(e.target.value)}
+              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-inner focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
+            >
+              <option value="">Seleziona preset...</option>
+              {presetOptions.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         {mode === 'datalayer' && (
           <div className="space-y-3">
@@ -255,6 +451,199 @@ export function DLPushConsole({ onEvent }: DLPushConsoleProps) {
                 rows={4}
                 className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 font-mono text-xs text-slate-700 shadow-inner focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
                 placeholder='{\n  "custom_parameter": "value"\n}'
+              />
+            </div>
+          </div>
+        )}
+
+        {mode === 'meta' && (
+          <div className="space-y-3">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-slate-600">
+                  Evento Meta Pixel
+                </label>
+                <input
+                  type="text"
+                  value={metaEventName}
+                  onChange={(e) => setMetaEventName(e.target.value)}
+                  placeholder="Purchase"
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-inner focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                />
+              </div>
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-slate-600">
+                  Track type
+                </label>
+                <select
+                  value={metaTrackType}
+                  onChange={(e) => setMetaTrackType(e.target.value as 'track' | 'trackCustom')}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-inner focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                >
+                  <option value="track">track</option>
+                  <option value="trackCustom">trackCustom</option>
+                </select>
+              </div>
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-slate-600">
+                  Pixel ID (opzionale)
+                </label>
+                <input
+                  type="text"
+                  value={metaPixelId}
+                  onChange={(e) => setMetaPixelId(e.target.value)}
+                  placeholder="999999999999999"
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-inner focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                />
+              </div>
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-slate-600">
+                  Event ID (opzionale)
+                </label>
+                <input
+                  type="text"
+                  value={metaEventId}
+                  onChange={(e) => setMetaEventId(e.target.value)}
+                  placeholder="meta-event-001"
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-inner focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="mb-2 block text-sm font-semibold text-slate-600">
+                Parametri JSON
+              </label>
+              <textarea
+                value={metaParams}
+                onChange={(e) => setMetaParams(e.target.value)}
+                rows={6}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 font-mono text-xs text-slate-700 shadow-inner focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                placeholder={`{
+  "value": 99,
+  "currency": "EUR",
+  "event_id": "meta-event-001"
+}`}
+              />
+            </div>
+          </div>
+        )}
+
+        {mode === 'linkedin' && (
+          <div className="space-y-3">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-slate-600">
+                  Conversion ID
+                </label>
+                <input
+                  type="text"
+                  value={linkedinConversionId}
+                  onChange={(e) => setLinkedinConversionId(e.target.value)}
+                  placeholder="1234567"
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-inner focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                />
+              </div>
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-slate-600">
+                  Tracking ID (opzionale)
+                </label>
+                <input
+                  type="text"
+                  value={linkedinTrackingId}
+                  onChange={(e) => setLinkedinTrackingId(e.target.value)}
+                  placeholder="9876543"
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-inner focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="mb-2 block text-sm font-semibold text-slate-600">
+                Payload JSON
+              </label>
+              <textarea
+                value={linkedinPayload}
+                onChange={(e) => setLinkedinPayload(e.target.value)}
+                rows={5}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 font-mono text-xs text-slate-700 shadow-inner focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                placeholder={`{
+  "value": 45,
+  "currency": "EUR"
+}`}
+              />
+            </div>
+          </div>
+        )}
+
+        {mode === 'adobe' && (
+          <div className="space-y-3">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-slate-600">
+                  Chiamata
+                </label>
+                <select
+                  value={adobeCall}
+                  onChange={(e) => setAdobeCall(e.target.value as 't' | 'tl')}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-inner focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                >
+                  <option value="t">s.t()</option>
+                  <option value="tl">s.tl()</option>
+                </select>
+              </div>
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-slate-600">
+                  Report Suite
+                </label>
+                <input
+                  type="text"
+                  value={adobeReportSuite}
+                  onChange={(e) => setAdobeReportSuite(e.target.value)}
+                  placeholder="debugsuite"
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-inner focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                />
+              </div>
+              {adobeCall === 'tl' && (
+                <>
+                  <div>
+                    <label className="mb-2 block text-sm font-semibold text-slate-600">
+                      Link type
+                    </label>
+                    <input
+                      type="text"
+                      value={adobeLinkType}
+                      onChange={(e) => setAdobeLinkType(e.target.value)}
+                      placeholder="o"
+                      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-inner focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-2 block text-sm font-semibold text-slate-600">
+                      Link name
+                    </label>
+                    <input
+                      type="text"
+                      value={adobeLinkName}
+                      onChange={(e) => setAdobeLinkName(e.target.value)}
+                      placeholder="CTA - preventivo"
+                      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-inner focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                    />
+                  </div>
+                </>
+              )}
+            </div>
+            <div>
+              <label className="mb-2 block text-sm font-semibold text-slate-600">
+                Variabili (eVar/prop/events)
+              </label>
+              <textarea
+                value={adobeVariables}
+                onChange={(e) => setAdobeVariables(e.target.value)}
+                rows={6}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 font-mono text-xs text-slate-700 shadow-inner focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                placeholder={`{
+  "pageName": "Live Debugger Demo",
+  "events": "event1"
+}`}
               />
             </div>
           </div>

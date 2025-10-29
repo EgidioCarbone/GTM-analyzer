@@ -11,6 +11,7 @@ import {
   ActivitySquare,
   BarChart3,
   Layers,
+  Globe,
 } from 'lucide-react';
 import type { NormalizedEvent } from '../../types/live-debugger';
 import type { FilterState } from '../../types/filters';
@@ -51,21 +52,58 @@ export function Toolbar({
   };
 
   const exportToCSV = () => {
-    const gaEvents = events.filter(e => e.kind === 'ga4.hit' || e.kind === 'ua.hit');
-    
-    const headers = ['timestamp', 'type', 'event', 'mi', 'cid', 'status', 'url'];
-    const rows = gaEvents.map(event => {
+    const networkEvents = events.filter(
+      (event) =>
+        event.kind === 'ga4.hit' ||
+        event.kind === 'ua.hit' ||
+        event.kind === 'meta.hit' ||
+        event.kind === 'linkedin.hit' ||
+        event.kind === 'adobe.hit',
+    );
+
+    const headers = ['timestamp', 'type', 'name', 'identifier', 'status', 'url'];
+    const rows = networkEvents.map((event) => {
       const timestamp = new Date(event.ts).toISOString();
-      const type = event.kind === 'ga4.hit' ? 'GA4' : 'UA';
-      const eventName = event.kind === 'ga4.hit' ? event.event?.name || '' : event.params?.event_name || '';
-      const mi = event.kind === 'ga4.hit' ? event.mi || '' : event.params?.tid || '';
-      const cid = event.kind === 'ga4.hit' ? event.cid || '' : event.params?.cid || '';
+      let type = '';
+      let name = '';
+      let identifier = '';
+
+      switch (event.kind) {
+        case 'ga4.hit':
+          type = 'GA4';
+          name = event.event?.name || '';
+          identifier = event.mi || '';
+          break;
+        case 'ua.hit':
+          type = 'UA';
+          name = event.params.event_name || '';
+          identifier = event.params.tid || '';
+          break;
+        case 'meta.hit':
+          type = 'Meta Pixel';
+          name = event.eventName || '';
+          identifier = event.pixelId || '';
+          break;
+        case 'linkedin.hit':
+          type = 'LinkedIn';
+          name = event.eventName || '';
+          identifier = event.trackingId || '';
+          break;
+        case 'adobe.hit':
+          type = 'Adobe Analytics';
+          name = event.eventType || '';
+          identifier = event.reportSuite || '';
+          break;
+        default:
+          type = event.kind;
+      }
+
       const status = event.status || '';
       const url = event.url;
-      
-      return [timestamp, type, eventName, mi, cid, status, url];
+
+      return [timestamp, type, name, identifier, status, url];
     });
-    
+
     const csvContent = [headers, ...rows]
       .map(row => row.map(field => `"${String(field).replace(/"/g, '""')}"`).join(','))
       .join('\n');
@@ -74,15 +112,19 @@ export function Toolbar({
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `live-debugger-ga-hits-${new Date().toISOString().slice(0, 19)}.csv`;
+    a.download = `live-debugger-network-hits-${new Date().toISOString().slice(0, 19)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
     setShowExportMenu(false);
   };
 
   const eventCount = events.length;
-  const gaEventCount = events.filter(e => e.kind === 'ga4.hit' || e.kind === 'ua.hit').length;
+  const googleHits = events.filter(e => e.kind === 'ga4.hit' || e.kind === 'ua.hit').length;
+  const metaHits = events.filter(e => e.kind === 'meta.hit').length;
+  const linkedinHits = events.filter(e => e.kind === 'linkedin.hit').length;
+  const adobeHits = events.filter(e => e.kind === 'adobe.hit').length;
   const dlEventCount = events.filter(e => e.kind === 'datalayer.push').length;
+  const pageViewCount = events.filter(e => e.kind === 'page.view').length;
 
   return (
     <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm ring-1 ring-black/5">
@@ -94,11 +136,27 @@ export function Toolbar({
           </span>
           <span className="inline-flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1.5 text-blue-700">
             <BarChart3 className="h-4 w-4" />
-            {gaEventCount} GA hits
+            {googleHits} Google hits
+          </span>
+          <span className="inline-flex items-center gap-2 rounded-full bg-indigo-50 px-3 py-1.5 text-indigo-700">
+            <BarChart3 className="h-4 w-4" />
+            {metaHits} Meta
+          </span>
+          <span className="inline-flex items-center gap-2 rounded-full bg-sky-50 px-3 py-1.5 text-sky-700">
+            <BarChart3 className="h-4 w-4" />
+            {linkedinHits} LinkedIn
+          </span>
+          <span className="inline-flex items-center gap-2 rounded-full bg-amber-50 px-3 py-1.5 text-amber-700">
+            <BarChart3 className="h-4 w-4" />
+            {adobeHits} Adobe
           </span>
           <span className="inline-flex items-center gap-2 rounded-full bg-purple-50 px-3 py-1.5 text-purple-700">
             <Layers className="h-4 w-4" />
             {dlEventCount} DL pushes
+          </span>
+          <span className="inline-flex items-center gap-2 rounded-full bg-teal-50 px-3 py-1.5 text-teal-700">
+            <Globe className="h-4 w-4" />
+            {pageViewCount} Page view
           </span>
         </div>
 
@@ -149,7 +207,7 @@ export function Toolbar({
                   className="flex w-full items-center gap-2 px-4 py-3 text-sm text-slate-600 transition hover:bg-slate-50"
                 >
                   <Table className="h-4 w-4" />
-                  Export CSV (solo GA hits)
+                  Export CSV (network hits)
                 </button>
               </div>
             )}

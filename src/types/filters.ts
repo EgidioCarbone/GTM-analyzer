@@ -8,6 +8,10 @@ export interface FilterState {
     datalayer: boolean;
     ga4: boolean;
     ua: boolean;
+    meta: boolean;
+    linkedin: boolean;
+    adobe: boolean;
+    pageview: boolean;
     console: boolean;
     env: boolean;
   };

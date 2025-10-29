@@ -1,5 +1,5 @@
 import React, { useEffect, useReducer, useRef, useMemo } from 'react';
-import type { NormalizedEvent, EnvInfo } from '../types/live-debugger';
+import type { NormalizedEvent, EnvInfo, PushMode } from '../types/live-debugger';
 import type { FilterState } from '../types/filters';
 import * as api from '../services/live-debugger-api';
 import { HeaderBar } from '../components/live-debugger/HeaderBar';
@@ -12,6 +12,7 @@ import { PushTimeline, type PushTimelineEntry } from '../components/live-debugge
 import { SessionSummary } from '../components/live-debugger/SessionSummary';
 import { EventStream } from '../components/live-debugger/EventStream';
 import { EnvPanel } from '../components/live-debugger/EnvPanel';
+import { NetworkTable } from '../components/live-debugger/NetworkTable';
 import { AnimatedBackdrop } from '../components/AnimatedBackdrop';
 import { EventAnalyzer } from '../../shared/analyzer';
 import type { AnalyzerState } from '../../shared/analyzer';
@@ -42,7 +43,17 @@ const MAX_EVENTS = 5000;
 
 const defaultFilters: FilterState = {
   timeRange: '5m',
-  types: { datalayer: true, ga4: true, ua: true, console: false, env: false },
+  types: {
+    datalayer: true,
+    pageview: true,
+    ga4: true,
+    ua: true,
+    meta: true,
+    linkedin: true,
+    adobe: true,
+    console: false,
+    env: false,
+  },
   gaOnly: false,
   eventNames: [],
   measurementIds: [],
@@ -52,7 +63,7 @@ const defaultFilters: FilterState = {
   customHostRegex: '',
   searchText: '',
   isPaused: false,
-  showInspector: false
+  showInspector: false,
 };
 
 function reducer(state: State, action: Action): State {
@@ -121,6 +132,18 @@ function applyFilters(events: NormalizedEvent[], filters: FilterState): Normaliz
   if (!filters.types.ua) {
     filtered = filtered.filter(event => event.kind !== 'ua.hit');
   }
+  if (!filters.types.meta) {
+    filtered = filtered.filter(event => event.kind !== 'meta.hit');
+  }
+  if (!filters.types.linkedin) {
+    filtered = filtered.filter(event => event.kind !== 'linkedin.hit');
+  }
+  if (!filters.types.adobe) {
+    filtered = filtered.filter(event => event.kind !== 'adobe.hit');
+  }
+  if (!filters.types.pageview) {
+    filtered = filtered.filter(event => event.kind !== 'page.view');
+  }
   if (!filters.types.console) {
     filtered = filtered.filter(event => event.kind !== 'console');
   }
@@ -144,6 +167,18 @@ function applyFilters(events: NormalizedEvent[], filters: FilterState): Normaliz
       }
       if (event.kind === 'datalayer.push' && event.payload?.event) {
         return filters.eventNames.includes(event.payload.event);
+      }
+      if (event.kind === 'meta.hit' && event.eventName) {
+        return filters.eventNames.includes(event.eventName);
+      }
+      if (event.kind === 'linkedin.hit' && event.eventName) {
+        return filters.eventNames.includes(event.eventName);
+      }
+      if (event.kind === 'adobe.hit' && event.eventType) {
+        return filters.eventNames.includes(event.eventType);
+      }
+      if (event.kind === 'page.view') {
+        return filters.eventNames.includes('page.view');
       }
       return false;
     });
@@ -178,7 +213,13 @@ function applyFilters(events: NormalizedEvent[], filters: FilterState): Normaliz
   // Status code filter
   if (filters.statusCodes.length > 0) {
     filtered = filtered.filter(event => {
-      if (event.kind === 'ga4.hit' || event.kind === 'ua.hit') {
+      if (
+        event.kind === 'ga4.hit' ||
+        event.kind === 'ua.hit' ||
+        event.kind === 'meta.hit' ||
+        event.kind === 'linkedin.hit' ||
+        event.kind === 'adobe.hit'
+      ) {
         return event.status && filters.statusCodes.includes(event.status as any);
       }
       return false;
@@ -223,33 +264,24 @@ function applyFilters(events: NormalizedEvent[], filters: FilterState): Normaliz
       if (event.kind === 'ga4.hit' && event.event) {
         return JSON.stringify(event.event).toLowerCase().includes(searchLower);
       }
-      if (event.kind === 'ua.hit' && event.params) {
+      if ((event.kind === 'ua.hit' || event.kind === 'meta.hit' || event.kind === 'linkedin.hit' || event.kind === 'adobe.hit') && event.params) {
         return JSON.stringify(event.params).toLowerCase().includes(searchLower);
+      }
+      if (event.kind === 'page.view') {
+        const payload = { url: event.url, title: event.title, source: event.source };
+        return JSON.stringify(payload).toLowerCase().includes(searchLower);
+      }
+      if (event.kind === 'note') {
+        return event.message.toLowerCase().includes(searchLower);
+      }
+      if (event.kind === 'console') {
+        return event.text.toLowerCase().includes(searchLower);
       }
       return false;
     });
   }
 
   return filtered;
-}
-
-function extractPushObject(payload: unknown): Record<string, any> | undefined {
-  if (!payload) return undefined;
-  if (Array.isArray(payload)) {
-    const first = payload[0];
-    return typeof first === 'object' && first !== null ? first as Record<string, any> : undefined;
-  }
-  if (typeof payload === 'object') {
-    return payload as Record<string, any>;
-  }
-  return undefined;
-}
-
-function extractPushEventName(payload: Record<string, any> | undefined): string | undefined {
-  if (!payload) return undefined;
-  const candidates = [payload.event, payload.event_name, payload['eventName']];
-  const name = candidates.find((value) => typeof value === 'string' && value.trim().length > 0);
-  return typeof name === 'string' ? name.trim() : undefined;
 }
 
 export default function LiveDebuggerPage() {
@@ -279,136 +311,134 @@ export default function LiveDebuggerPage() {
   const domain = state.env?.url ? new URL(state.env.url).origin : undefined;
 
   const pushTimelineEntries = useMemo<PushTimelineEntry[]>(() => {
+    type TimelineHitEvent =
+      | Extract<NormalizedEvent, { kind: 'ga4.hit' }>
+      | Extract<NormalizedEvent, { kind: 'ua.hit' }>
+      | Extract<NormalizedEvent, { kind: 'meta.hit' }>
+      | Extract<NormalizedEvent, { kind: 'linkedin.hit' }>
+      | Extract<NormalizedEvent, { kind: 'adobe.hit' }>;
+
     type AccEntry = {
       pushId: string;
-      pushEvent?: Extract<NormalizedEvent, { kind: 'datalayer.push' }>;
-      pushIndex?: number;
-      pushName?: string;
-      pushPayload?: Record<string, any>;
-      origin?: 'console' | 'library' | 'usecase' | 'api';
-      gaEvents: Array<{
-        event: Extract<NormalizedEvent, { kind: 'ga4.hit' }>;
+      command?: Extract<NormalizedEvent, { kind: 'push.command' }>;
+      commandIndex?: number;
+      datalayer?: Extract<NormalizedEvent, { kind: 'datalayer.push' }>;
+      datalayerIndex?: number;
+      hits: Array<{
+        kind: TimelineHitEvent['kind'];
+        event: TimelineHitEvent;
         index: number;
-        delayMs?: number;
       }>;
       result?: Extract<NormalizedEvent, { kind: 'push.result' }>;
       resultIndex?: number;
+      origin?: 'console' | 'library' | 'usecase' | 'api';
+      mode?: PushMode;
     };
 
-    const allowedOrigins = new Set(['console', 'library']);
-    const accList: AccEntry[] = [];
     const accMap = new Map<string, AccEntry>();
 
+    const ensureEntry = (pushId: string): AccEntry => {
+      let acc = accMap.get(pushId);
+      if (!acc) {
+        acc = { pushId, hits: [] };
+        accMap.set(pushId, acc);
+      }
+      return acc;
+    };
+
     state.events.forEach((event, idx) => {
-      if (event.kind === 'datalayer.push') {
-        const meta = event.meta;
-        if (!meta?.origin || !allowedOrigins.has(meta.origin)) {
-          return;
+      switch (event.kind) {
+        case 'push.command': {
+          const acc = ensureEntry(event.id);
+          acc.command = event;
+          acc.commandIndex = idx;
+          acc.origin = event.origin ?? acc.origin;
+          acc.mode = event.mode ?? acc.mode;
+          break;
         }
-        if (meta.mode && meta.mode !== 'datalayer') {
-          return;
-        }
-        const pushId = meta.pushId ?? `push-${event.ts}-${idx}`;
-        const payloadObj = extractPushObject(event.payload);
-        const pushName = extractPushEventName(payloadObj);
-
-        let acc = accMap.get(pushId);
-        if (!acc) {
-          acc = { pushId, gaEvents: [] };
-          accList.push(acc);
-          accMap.set(pushId, acc);
-        }
-
-        acc.pushEvent = event;
-        acc.pushIndex = idx;
-        acc.pushName = pushName;
-        acc.pushPayload = payloadObj;
-        acc.origin = meta.origin;
-      } else if (event.kind === 'ga4.hit') {
-        if (accList.length === 0) return;
-        let candidate: AccEntry | undefined;
-        const eventName = event.event?.name;
-
-        if (eventName) {
-          for (let i = accList.length - 1; i >= 0; i--) {
-            const acc = accList[i];
-            if (!acc.pushEvent) continue;
-            if (acc.pushEvent.ts > event.ts) continue;
-            if (acc.pushName && acc.pushName !== eventName) continue;
-            const already = acc.gaEvents.some(
-              ({ event: ga }) =>
-                (ga.mi && ga.mi === event.mi) &&
-                (ga.event?.name === eventName),
-            );
-            if (already) continue;
-            candidate = acc;
-            break;
+        case 'datalayer.push': {
+          if (!event.meta?.pushId) {
+            return;
           }
+          const acc = ensureEntry(event.meta.pushId);
+          acc.datalayer = event;
+          acc.datalayerIndex = idx;
+          acc.origin = event.meta.origin ?? acc.origin;
+          acc.mode = event.meta.mode ?? acc.mode;
+          break;
         }
-
-        if (!candidate) {
-          for (let i = accList.length - 1; i >= 0; i--) {
-            const acc = accList[i];
-            if (!acc.pushEvent) continue;
-            if (acc.pushEvent.ts > event.ts) continue;
-            if (acc.pushName) continue;
-            const already = acc.gaEvents.some(
-              ({ event: ga }) =>
-                (ga.mi && ga.mi === event.mi) &&
-                (ga.event?.name === event.event?.name),
-            );
-            if (already) continue;
-            candidate = acc;
-            break;
+        case 'ga4.hit':
+        case 'ua.hit':
+        case 'meta.hit':
+        case 'linkedin.hit':
+        case 'adobe.hit': {
+          if (!event.pushId) {
+            return;
           }
+          const acc = ensureEntry(event.pushId);
+          acc.hits.push({ kind: event.kind, event, index: idx });
+          acc.origin = event.origin ?? acc.origin;
+          if (!acc.mode) {
+            if (acc.command) {
+              acc.mode = acc.command.mode;
+            } else if (event.kind === 'meta.hit') {
+              acc.mode = 'meta';
+            } else if (event.kind === 'linkedin.hit') {
+              acc.mode = 'linkedin';
+            } else if (event.kind === 'adobe.hit') {
+              acc.mode = 'adobe';
+            }
+          }
+          break;
         }
-
-        if (candidate && candidate.pushEvent) {
-          const delayMs = event.ts - candidate.pushEvent.ts;
-          candidate.gaEvents.push({
-            event,
-            index: idx,
-            delayMs: delayMs >= 0 ? delayMs : undefined,
-          });
-        }
-      } else if (event.kind === 'push.result') {
-        const acc = accMap.get(event.id);
-        if (acc) {
+        case 'push.result': {
+          const acc = ensureEntry(event.id);
           acc.result = event;
           acc.resultIndex = idx;
+          break;
         }
+        default:
+          break;
       }
     });
 
-    const toEntry = (acc: AccEntry): PushTimelineEntry | null => {
-      if (!acc.pushEvent || typeof acc.pushIndex !== 'number') {
-        return null;
-      }
+    const entries: Array<PushTimelineEntry & { timestamp: number }> = Array.from(accMap.values()).map((acc) => {
+      const sourceTs = acc.datalayer?.ts ?? acc.command?.ts;
+      const hits = acc.hits
+        .map((hit) => ({
+          ...hit,
+          delayMs: sourceTs ? hit.event.ts - sourceTs : undefined,
+        }))
+        .sort((a, b) => a.index - b.index);
+
+      const tsCandidates = [
+        acc.command?.ts ?? null,
+        acc.datalayer?.ts ?? null,
+        hits[0]?.event.ts ?? null,
+        acc.result?.ts ?? null,
+      ].filter((value): value is number => value !== null);
+
+      const timestamp = tsCandidates.length > 0 ? Math.max(...tsCandidates) : 0;
 
       return {
         id: `push-${acc.pushId}`,
         pushId: acc.pushId,
         origin: acc.origin,
-        pushEvent: acc.pushEvent,
-        pushIndex: acc.pushIndex,
-        pushName: acc.pushName,
-        pushPayload: acc.pushPayload,
-        gaEvents: [...acc.gaEvents].sort((a, b) => a.index - b.index),
+        mode: acc.command?.mode ?? acc.mode,
+        command: acc.command,
+        commandIndex: acc.commandIndex,
+        datalayer: acc.datalayer,
+        datalayerIndex: acc.datalayerIndex,
+        hits,
         result: acc.result,
         resultIndex: acc.resultIndex,
+        timestamp,
       };
-    };
+    });
 
-    const finalEntries = accList
-      .map(toEntry)
-      .filter((entry): entry is PushTimelineEntry => entry !== null)
-      .sort((a, b) => b.pushEvent.ts - a.pushEvent.ts);
+    entries.sort((a, b) => b.timestamp - a.timestamp);
 
-    const MAX_ITEMS = 200;
-    if (finalEntries.length > MAX_ITEMS) {
-      return finalEntries.slice(0, MAX_ITEMS);
-    }
-    return finalEntries;
+    return entries.slice(0, 200).map(({ timestamp, ...rest }) => rest);
   }, [state.events]);
 
   // WebSocket connection
@@ -604,6 +634,14 @@ export default function LiveDebuggerPage() {
 
               <div className="order-2 lg:order-3 lg:col-span-2">
                 <PushTimeline entries={pushTimelineEntries} />
+              </div>
+
+              <div className="order-4 lg:order-4 lg:col-span-2">
+                <NetworkTable
+                  events={filteredEvents}
+                  filters={state.filters}
+                  onEventSelect={handleEventSelect}
+                />
               </div>
             </div>
           </div>

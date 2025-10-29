@@ -1,5 +1,14 @@
 import React, { useMemo } from 'react';
-import { Activity, BarChart2, Layers, TerminalSquare } from 'lucide-react';
+import {
+  Activity,
+  BarChart2,
+  Layers,
+  TerminalSquare,
+  Globe,
+  Share2,
+  Building2,
+  BadgeCheck,
+} from 'lucide-react';
 import type { NormalizedEvent } from '../../types/live-debugger';
 
 interface SessionSummaryProps {
@@ -21,12 +30,20 @@ export function SessionSummary({ events, filteredEvents, running, startTime }: S
   const stats = useMemo(() => {
     let ga4 = 0;
     let ua = 0;
+    let meta = 0;
+    let linkedin = 0;
+    let adobe = 0;
     let datalayer = 0;
+    let pageviews = 0;
     let consoleEvents = 0;
 
     filteredEvents.forEach((event) => {
       if (event.kind === 'ga4.hit') ga4++;
       if (event.kind === 'ua.hit') ua++;
+      if (event.kind === 'meta.hit') meta++;
+      if (event.kind === 'linkedin.hit') linkedin++;
+      if (event.kind === 'adobe.hit') adobe++;
+      if (event.kind === 'page.view') pageviews++;
       if (event.kind === 'datalayer.push') datalayer++;
       if (event.kind === 'console') consoleEvents++;
     });
@@ -35,6 +52,10 @@ export function SessionSummary({ events, filteredEvents, running, startTime }: S
       total: filteredEvents.length,
       ga4,
       ua,
+      meta,
+      linkedin,
+      adobe,
+      pageviews,
       datalayer,
       console: consoleEvents,
       overallTotal: events.length,
@@ -52,11 +73,35 @@ export function SessionSummary({ events, filteredEvents, running, startTime }: S
     },
     {
       id: 'ga',
-      label: 'GA hits',
+      label: 'Google hits',
       value: stats.ga4 + stats.ua,
       hint: `${stats.ga4} GA4 • ${stats.ua} UA`,
       icon: BarChart2,
       accent: 'bg-blue-50 text-blue-700 border-blue-200',
+    },
+    {
+      id: 'meta',
+      label: 'Meta Pixel',
+      value: stats.meta,
+      hint: 'facebook.com/tr',
+      icon: Share2,
+      accent: 'bg-indigo-50 text-indigo-700 border-indigo-200',
+    },
+    {
+      id: 'linkedin',
+      label: 'LinkedIn',
+      value: stats.linkedin,
+      hint: 'px.ads.linkedin.com',
+      icon: Building2,
+      accent: 'bg-sky-50 text-sky-700 border-sky-200',
+    },
+    {
+      id: 'adobe',
+      label: 'Adobe hits',
+      value: stats.adobe,
+      hint: 'omtrdc / 2o7',
+      icon: BadgeCheck,
+      accent: 'bg-amber-50 text-amber-700 border-amber-200',
     },
     {
       id: 'dl',
@@ -65,6 +110,14 @@ export function SessionSummary({ events, filteredEvents, running, startTime }: S
       hint: 'hook & snapshot',
       icon: Layers,
       accent: 'bg-purple-50 text-purple-700 border-purple-200',
+    },
+    {
+      id: 'pv',
+      label: 'Page Views',
+      value: stats.pageviews,
+      hint: 'navigation & GA4',
+      icon: Globe,
+      accent: 'bg-teal-50 text-teal-700 border-teal-200',
     },
     {
       id: 'console',
@@ -97,7 +150,7 @@ export function SessionSummary({ events, filteredEvents, running, startTime }: S
         </div>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-6">
         {cards.map(({ id, label, value, hint, icon: Icon, accent }) => (
           <div
             key={id}

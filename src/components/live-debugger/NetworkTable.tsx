@@ -1,8 +1,19 @@
-import React, { useState, useMemo } from 'react';
-import { List } from 'react-window';
-import { ExternalLink, ChevronDown, ChevronRight, Copy, Eye } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import {
+  ExternalLink,
+  ChevronDown,
+  ChevronRight,
+  Copy,
+  Eye,
+  Activity,
+} from 'lucide-react';
 import type { NormalizedEvent } from '../../types/live-debugger';
 import type { FilterState } from '../../types/filters';
+
+type NetworkEvent = Extract<
+  NormalizedEvent,
+  { kind: 'ga4.hit' | 'ua.hit' | 'meta.hit' | 'linkedin.hit' | 'adobe.hit' }
+>;
 
 interface NetworkTableProps {
   events: NormalizedEvent[];
@@ -10,213 +21,280 @@ interface NetworkTableProps {
   onEventSelect: (event: NormalizedEvent) => void;
 }
 
-interface NetworkRowProps {
-  index: number;
-  style: React.CSSProperties;
-  data: {
-    events: Array<Extract<NormalizedEvent, { kind: 'ga4.hit' | 'ua.hit' }>>;
-    expanded: Set<number>;
-    onToggleExpand: (idx: number) => void;
-    onEventSelect: (event: NormalizedEvent) => void;
-  };
-}
+const formatTime = (ts: number) =>
+  new Date(ts).toLocaleTimeString('it-IT', {
+    hour12: false,
+    minute: '2-digit',
+    second: '2-digit',
+    fractionalSecondDigits: 3,
+  });
 
-function NetworkRow({ index, style, data }: NetworkRowProps) {
-  const { events, expanded, onToggleExpand, onEventSelect } = data;
-  const event = events[index];
+const statusTone = (status?: number) => {
+  if (!status) return 'text-gray-500';
+  if (status >= 200 && status < 300) return 'text-emerald-600';
+  if (status >= 300 && status < 400) return 'text-blue-600';
+  if (status >= 400 && status < 500) return 'text-amber-600';
+  return 'text-red-600';
+};
 
-  const formatTime = (ts: number) => {
-    return new Date(ts).toLocaleTimeString('it-IT', { 
-      hour12: false, 
-      fractionalSecondDigits: 3 
+const badgeForEvent = (event: NetworkEvent) => {
+  switch (event.kind) {
+    case 'ga4.hit':
+      return { label: 'GA4', tone: 'bg-blue-100 text-blue-800' };
+    case 'ua.hit':
+      return { label: 'UA', tone: 'bg-green-100 text-green-800' };
+    case 'meta.hit':
+      return { label: 'Meta', tone: 'bg-indigo-100 text-indigo-800' };
+    case 'linkedin.hit':
+      return { label: 'LinkedIn', tone: 'bg-sky-100 text-sky-800' };
+    case 'adobe.hit':
+      return { label: 'Adobe', tone: 'bg-amber-100 text-amber-800' };
+    default:
+      return { label: event.kind, tone: 'bg-slate-100 text-slate-700' };
+  }
+};
+
+const describeEvent = (event: NetworkEvent) => {
+  switch (event.kind) {
+    case 'ga4.hit':
+      return event.event?.name || 'GA4 Hit';
+    case 'ua.hit':
+      return event.params.event_name || 'UA Hit';
+    case 'meta.hit':
+      return event.eventName || 'Meta Pixel';
+    case 'linkedin.hit':
+      return event.eventName || 'LinkedIn Insight';
+    case 'adobe.hit':
+      return event.eventType || 'Adobe Analytics';
+    default:
+      return event.kind;
+  }
+};
+
+const getParamEntries = (event: NetworkEvent): Array<[string, string]> => {
+  if (event.kind === 'ga4.hit') {
+    const params = event.event?.params ?? {};
+    const entries: Array<[string, string]> = Object.entries(params).map(([k, v]) => [
+      k,
+      typeof v === 'object' ? JSON.stringify(v) : String(v),
+    ]);
+    if (event.event?.items) {
+      entries.push(['items', JSON.stringify(event.event.items)]);
+    }
+    return entries;
+  }
+
+  const sourceParams =
+    event.kind === 'ua.hit' ||
+    event.kind === 'meta.hit' ||
+    event.kind === 'linkedin.hit' ||
+    event.kind === 'adobe.hit'
+      ? event.params
+      : {};
+
+  return Object.entries(sourceParams).map(([k, v]) => [k, String(v)]);
+};
+
+const copy = (text: string) => navigator.clipboard.writeText(text);
+
+export function NetworkTable({ events, onEventSelect }: NetworkTableProps) {
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  const networkEvents = useMemo(
+    () =>
+      (events.filter(
+        (event) =>
+          event.kind === 'ga4.hit' ||
+          event.kind === 'ua.hit' ||
+          event.kind === 'meta.hit' ||
+          event.kind === 'linkedin.hit' ||
+          event.kind === 'adobe.hit',
+      ) as NetworkEvent[]).sort((a, b) => b.ts - a.ts),
+    [events],
+  );
+
+  const toggle = (id: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
     });
   };
 
-  const getStatusColor = (status?: number) => {
-    if (!status) return 'text-gray-500';
-    if (status >= 200 && status < 300) return 'text-green-600';
-    if (status >= 300 && status < 400) return 'text-blue-600';
-    if (status >= 400 && status < 500) return 'text-yellow-600';
-    return 'text-red-600';
-  };
-
-  const getEventTypeColor = (kind: string) => {
-    return kind === 'ga4.hit' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800';
-  };
-
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
-  };
-
-  const isExpanded = expanded.has(index);
-
   return (
-    <div style={style} className="px-4 py-2 border-b border-gray-100 hover:bg-gray-50">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3 flex-1 min-w-0">
-          <button
-            onClick={() => onToggleExpand(index)}
-            className="p-1 hover:bg-gray-200 rounded flex-shrink-0"
-          >
-            {isExpanded ? (
-              <ChevronDown className="w-4 h-4 text-gray-500" />
-            ) : (
-              <ChevronRight className="w-4 h-4 text-gray-500" />
-            )}
-          </button>
-          
-          <span className={`text-xs px-2 py-1 rounded flex-shrink-0 ${getEventTypeColor(event.kind)}`}>
-            {event.kind === 'ga4.hit' ? 'GA4' : 'UA'}
-          </span>
-          
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="font-mono text-sm text-gray-900 flex-shrink-0">
-                {formatTime(event.ts)}
-              </span>
-              <span className={`text-sm font-medium ${getStatusColor(event.status)} flex-shrink-0`}>
-                {event.status || '—'}
-              </span>
-            </div>
-            
-            <div className="text-sm text-gray-600 truncate">
-              {event.kind === 'ga4.hit' ? event.event?.name || 'Unknown Event' : 'Universal Analytics'}
-            </div>
-          </div>
+    <section className="rounded-3xl border border-slate-200 bg-white shadow-sm ring-1 ring-black/5">
+      <header className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+            Network Hits
+          </p>
+          <h3 className="text-lg font-semibold text-slate-900">
+            Richieste tracciate ({networkEvents.length})
+          </h3>
         </div>
-        
-        <div className="flex items-center gap-2 flex-shrink-0">
-          {event.mi && (
-            <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">
-              {event.mi}
-            </span>
-          )}
-          {event.cid && (
-            <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">
-              {event.cid.slice(0, 8)}...
-            </span>
-          )}
-          
-          <button
-            onClick={() => onEventSelect(event)}
-            className="p-1 text-gray-400 hover:text-blue-600"
-            title="Inspect Event"
-          >
-            <Eye className="w-4 h-4" />
-          </button>
-          
-          <a
-            href={event.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="p-1 text-gray-400 hover:text-gray-600"
-            title="Open URL"
-          >
-            <ExternalLink className="w-4 h-4" />
-          </a>
-        </div>
-      </div>
+        <Activity className="h-5 w-5 text-slate-300" />
+      </header>
 
-      {isExpanded && (
-        <div className="mt-3 pl-8 space-y-3">
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <h4 className="text-sm font-medium text-gray-700">URL Completo</h4>
-              <button
-                onClick={() => copyToClipboard(event.url)}
-                className="p-1 text-gray-400 hover:text-gray-600"
-                title="Copy URL"
-              >
-                <Copy className="w-3 h-3" />
-              </button>
-            </div>
-            <div className="bg-gray-50 p-2 rounded text-sm font-mono break-all">
-              {event.url}
-            </div>
-          </div>
-          
-          <div>
-            <h4 className="text-sm font-medium text-gray-700 mb-2">Parametri</h4>
-            <div className="bg-gray-50 p-2 rounded max-h-48 overflow-y-auto">
-              <table className="w-full text-sm">
-                <tbody>
-                  {event.kind === 'ga4.hit' && event.event ? (
-                    Object.entries(event.event).map(([key, value]) => (
-                      <tr key={key} className="border-b border-gray-200 last:border-b-0">
-                        <td className="py-1 pr-2 font-medium text-gray-600">{key}</td>
-                        <td className="py-1 text-gray-900 font-mono">{String(value)}</td>
-                      </tr>
-                    ))
-                  ) : (
-                    Object.entries(event.params).map(([key, value]) => (
-                      <tr key={key} className="border-b border-gray-200 last:border-b-0">
-                        <td className="py-1 pr-2 font-medium text-gray-600">{key}</td>
-                        <td className="py-1 text-gray-900 font-mono">{String(value)}</td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-export function NetworkTable({ events, filters, onEventSelect }: NetworkTableProps) {
-  const [expanded, setExpanded] = useState<Set<number>>(new Set());
-
-  const gaEvents = useMemo(() => {
-    return (events
-      .filter((e) => e.kind === 'ga4.hit' || e.kind === 'ua.hit') as Array<
-      Extract<NormalizedEvent, { kind: 'ga4.hit' | 'ua.hit' }>
-    >)
-      .sort((a, b) => b.ts - a.ts); // Ordine cronologico decrescente
-  }, [events]);
-
-  const toggleExpand = (idx: number) => {
-    const newExpanded = new Set(expanded);
-    if (newExpanded.has(idx)) {
-      newExpanded.delete(idx);
-    } else {
-      newExpanded.add(idx);
-    }
-    setExpanded(newExpanded);
-  };
-
-  const listData = {
-    events: gaEvents,
-    expanded,
-    onToggleExpand: toggleExpand,
-    onEventSelect
-  };
-
-  return (
-    <div className="bg-white rounded-lg shadow-sm border border-gray-200 h-full flex flex-col">
-      <div className="bg-gray-50 px-4 py-3 border-b border-gray-200 flex-shrink-0">
-        <h3 className="font-semibold text-gray-700">GA Network Hits ({gaEvents.length})</h3>
-      </div>
-
-      <div className="flex-1 min-h-0">
-        {gaEvents.length === 0 ? (
-          <div className="p-8 text-center text-gray-500">
-            <p>Nessun hit GA rilevato</p>
-            <p className="text-sm mt-1">I dati appariranno qui quando verranno intercettate richieste GA</p>
+      <div className="max-h-[420px] overflow-y-auto px-2 py-3 space-y-3">
+        {networkEvents.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-12 text-center text-sm text-slate-500">
+            Nessuna richiesta tracciata. Avvia una sessione o interagisci con la pagina per vedere gli hit di rete (GA4, UA, Meta, LinkedIn, Adobe).
           </div>
         ) : (
-          <List
-            height={400}
-            itemCount={gaEvents.length}
-            itemSize={80}
-            itemData={listData}
-            className="scrollbar-thin scrollbar-thumb-gray-300"
-          >
-            {NetworkRow}
-          </List>
+          networkEvents.map((event, idx) => {
+            const badge = badgeForEvent(event);
+            const key = `${event.kind}-${event.ts}-${idx}`;
+            const isOpen = expanded.has(key);
+            const params = getParamEntries(event);
+
+            return (
+              <article
+                key={key}
+                className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm transition hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-md"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex flex-1 items-start gap-3">
+                    <button
+                      type="button"
+                      onClick={() => toggle(key)}
+                      className="rounded-full border border-slate-200 p-1 text-slate-500 transition hover:bg-slate-100"
+                    >
+                      {isOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                    </button>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${badge.tone}`}>
+                          {badge.label}
+                        </span>
+                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500">
+                          #{idx + 1}
+                        </span>
+                        <p className="text-sm font-semibold text-slate-900 truncate">
+                          {describeEvent(event)}
+                        </p>
+                      </div>
+                      <p className="mt-1 text-xs text-slate-500 break-all">{event.url}</p>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col items-end gap-1 text-xs text-slate-400">
+                    <span className="font-mono text-sm text-slate-600">{formatTime(event.ts)}</span>
+                    {typeof event.status === 'number' && (
+                      <span className={`inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 font-semibold ${statusTone(event.status)}`}>
+                        HTTP {event.status}
+                      </span>
+                    )}
+                    {event.kind === 'ga4.hit' && event.mi && (
+                      <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">
+                        {event.mi}
+                      </span>
+                    )}
+                    {event.kind === 'ga4.hit' && event.cid && (
+                      <span className="rounded-full bg-slate-50 px-2 py-0.5 text-xs font-medium text-slate-600">
+                        CID {event.cid.slice(0, 8)}…
+                      </span>
+                    )}
+                    {event.kind === 'meta.hit' && event.pixelId && (
+                      <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700">
+                        Pixel {event.pixelId}
+                      </span>
+                    )}
+                    {event.kind === 'linkedin.hit' && event.trackingId && (
+                      <span className="rounded-full bg-sky-50 px-2 py-0.5 text-xs font-medium text-sky-700">
+                        Account {event.trackingId}
+                      </span>
+                    )}
+                    {event.kind === 'adobe.hit' && event.reportSuite && (
+                      <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
+                        {event.reportSuite}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                  <button
+                    type="button"
+                    onClick={() => onEventSelect(event)}
+                    className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-3 py-1 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
+                  >
+                    <Eye className="h-4 w-4" />
+                    Ispeziona
+                  </button>
+                  <a
+                    href={event.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-3 py-1 transition hover:border-slate-300 hover:bg-slate-100"
+                  >
+                    <ExternalLink className="h-4 w-4" />
+                    Apri URL
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => copy(event.url)}
+                    className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-3 py-1 transition hover:border-slate-300 hover:bg-slate-100"
+                  >
+                    <Copy className="h-4 w-4" />
+                    Copia URL
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => copy(JSON.stringify(event, null, 2))}
+                    className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-3 py-1 transition hover:border-slate-300 hover:bg-slate-100"
+                  >
+                    <Copy className="h-4 w-4" />
+                    Copia JSON
+                  </button>
+                </div>
+
+                {isOpen && (
+                  <div className="mt-3 space-y-2 rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-3">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-sm font-semibold text-slate-700">Parametri</h4>
+                      <button
+                        type="button"
+                        onClick={() => copy(JSON.stringify(Object.fromEntries(params), null, 2))}
+                        className="inline-flex items-center gap-1 text-xs text-slate-500 transition hover:text-blue-700"
+                      >
+                        <Copy className="h-3.5 w-3.5" />
+                        Copia tutti
+                      </button>
+                    </div>
+                    {params.length === 0 ? (
+                      <p className="text-xs text-slate-500">Nessun parametro disponibile.</p>
+                    ) : (
+                      <table className="w-full text-xs">
+                        <tbody>
+                          {params.map(([key, value]) => (
+                            <tr key={key} className="border-b border-slate-200 last:border-b-0">
+                              <td className="py-1 pr-2 font-medium text-slate-600">{key}</td>
+                              <td className="py-1 font-mono text-slate-700 break-all">{value}</td>
+                              <td className="py-1 pl-2 text-right">
+                                <button
+                                  type="button"
+                                  onClick={() => copy(value)}
+                                  className="rounded bg-white px-2 py-0.5 text-[10px] text-slate-500 hover:text-blue-600"
+                                >
+                                  Copy
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                )}
+              </article>
+            );
+          })
         )}
       </div>
-    </div>
+    </section>
   );
 }
