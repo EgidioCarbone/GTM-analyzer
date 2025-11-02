@@ -25,9 +25,10 @@ const HTML_SECURITY_WEIGHTS = {
  * Estrae il codice HTML/JS da un tag
  */
 function extractHtmlOrJs(tag: GTMTag): string {
-  // Cerca nel campo html
-  if (tag.html) {
-    return String(tag.html);
+  // Cerca nel campo html (uso type assertion perché GTMTag potrebbe non definire html)
+  const htmlField = (tag as any).html;
+  if (htmlField) {
+    return String(htmlField);
   }
   
   // Cerca nei parametri
@@ -529,7 +530,7 @@ export function getHtmlSecurityMetricInfo(severity: 'critical' | 'major' | 'mino
       subtitle: "Tag HTML con problemi critici di sicurezza",
       impact: "Tag HTML con vulnerabilità critiche che possono compromettere la sicurezza.",
       risk: "Rischio: code injection, XSS, dati sensibili esposti.",
-      priority: "Critica",
+      priority: "Priorità: Critica",
       priorityColor: "bg-red-100 text-red-800",
       color: "bg-red-50 dark:bg-red-900/20",
       textColor: "text-red-600 dark:text-red-400"
@@ -540,7 +541,7 @@ export function getHtmlSecurityMetricInfo(severity: 'critical' | 'major' | 'mino
       subtitle: "Tag HTML con problemi di sicurezza",
       impact: "Tag HTML con problemi che possono impattare performance e sicurezza.",
       risk: "Rischio: performance degradate, possibili vulnerabilità.",
-      priority: "Maggiore",
+      priority: "Priorità: Maggiore",
       priorityColor: "bg-orange-100 text-orange-800",
       color: "bg-orange-50 dark:bg-orange-900/20",
       textColor: "text-orange-600 dark:text-orange-400"
@@ -551,7 +552,7 @@ export function getHtmlSecurityMetricInfo(severity: 'critical' | 'major' | 'mino
       subtitle: "Tag HTML con piccole ottimizzazioni possibili",
       impact: "Tag HTML configurati correttamente con margini di miglioramento.",
       risk: "Rischio: configurazione buona ma non ottimale.",
-      priority: "Bassa",
+      priority: "Priorità: Bassa",
       priorityColor: "bg-blue-100 text-blue-800",
       color: "bg-blue-50 dark:bg-blue-900/20",
       textColor: "text-blue-600 dark:text-blue-400"
@@ -562,7 +563,7 @@ export function getHtmlSecurityMetricInfo(severity: 'critical' | 'major' | 'mino
       subtitle: "Tag HTML configurati correttamente",
       impact: "Tutti i tag HTML sono configurati in modo sicuro.",
       risk: "Nessun rischio: configurazione eccellente.",
-      priority: "OK",
+      priority: "Priorità: OK",
       priorityColor: "bg-green-100 text-green-800",
       color: "bg-green-50 dark:bg-green-900/20",
       textColor: "text-green-600 dark:text-green-400"

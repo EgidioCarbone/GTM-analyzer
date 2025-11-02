@@ -1057,7 +1057,7 @@ export function getMetricInfo(type: string) {
       subtitle: "Tag presenti ma disattivati",
       impact: "Mantenerli appesantisce il container, valuta se eliminarli.",
       risk: "Rischio: appesantiscono il container, valutare rimozione.",
-      priority: "Alta",
+      priority: "Priorità: Alta",
       priorityColor: "bg-red-100 text-red-800",
       color: "bg-red-50 dark:bg-red-900/20",
       textColor: "text-red-600 dark:text-red-400"
@@ -1068,7 +1068,7 @@ export function getMetricInfo(type: string) {
       subtitle: "Trigger o variabili mai richiamati",
       impact: "Elementi inutili creano rumore e confusione.",
       risk: "Rischio: variabile mai richiamata, inutile.",
-      priority: "Media",
+      priority: "Priorità: Media",
       priorityColor: "bg-orange-100 text-orange-800",
       color: "bg-orange-50 dark:bg-orange-900/20",
       textColor: "text-orange-600 dark:text-orange-400"
@@ -1079,7 +1079,7 @@ export function getMetricInfo(type: string) {
       subtitle: "Tag Universal Analytics",
       impact: "UA è dismesso, serve migrare a GA4.",
       risk: "Rischio: non raccoglie più dati.",
-      priority: "Critica",
+      priority: "Priorità: Critica",
       priorityColor: "bg-red-100 text-red-800",
       color: "bg-yellow-50 dark:bg-yellow-900/20",
       textColor: "text-yellow-600 dark:text-yellow-400"
@@ -1123,7 +1123,7 @@ export function getMetricInfo(type: string) {
       subtitle: "Trigger con problemi di configurazione",
       impact: "Trigger mal configurati possono causare problemi di performance e tracking.",
       risk: "Rischio: tracking non affidabile, performance degradate.",
-      priority: "Maggiore",
+      priority: "Priorità: Maggiore",
       priorityColor: "bg-orange-100 text-orange-800",
       color: "bg-orange-50 dark:bg-orange-900/20",
       textColor: "text-orange-600 dark:text-orange-400"
@@ -1134,7 +1134,7 @@ export function getMetricInfo(type: string) {
       subtitle: "Variabili con problemi di configurazione",
       impact: "Variabili mal configurate possono causare errori di tracking e performance.",
       risk: "Rischio: tracking non affidabile, errori JavaScript.",
-      priority: "Maggiore",
+      priority: "Priorità: Maggiore",
       priorityColor: "bg-orange-100 text-orange-800",
       color: "bg-orange-50 dark:bg-orange-900/20",
       textColor: "text-orange-600 dark:text-orange-400"
@@ -1145,7 +1145,7 @@ export function getMetricInfo(type: string) {
       subtitle: "Tag HTML con problemi di sicurezza",
       impact: "Tag HTML con vulnerabilità che possono compromettere la sicurezza del sito.",
       risk: "Rischio: code injection, XSS, dati sensibili esposti.",
-      priority: "Critica",
+      priority: "Priorità: Critica",
       priorityColor: "bg-red-100 text-red-800",
       color: "bg-red-50 dark:bg-red-900/20",
       textColor: "text-red-600 dark:text-red-400"
