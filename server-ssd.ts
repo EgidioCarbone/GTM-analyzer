@@ -30,6 +30,9 @@ import { ConsentLLMService } from './src/ai-sentinel/llm/consent-llm-service.js'
 import ga4InsightsRouter from './src/services/ga4-insights.server.ts';
 import { modelSupportsCustomTemperature } from './src/utils/openaiCapabilities.ts';
 import { SSD_DEFAULTS, getConfigValue, parseArray } from './src/config/ssd-defaults.js';
+import { getModule } from './src/modules/index.js';
+import { buildTestSpecFromManifest } from './src/modules/dslBuilder.js';
+import type { ModuleId } from './src/modules/types.js';
 
 // Global type declarations
 declare global {
@@ -832,6 +835,16 @@ async function executeCookieConsentTestFromDSL(dsl: any, options: any): Promise<
     result.browserInstance = browser;
     
     const page = await browser.newPage();
+    try {
+      const desktopUserAgent =
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36';
+      await page.setUserAgent(desktopUserAgent);
+      await page.setExtraHTTPHeaders({
+        'accept-language': 'it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7',
+      });
+    } catch (uaError) {
+      console.warn('⚠️ Unable to set custom user agent/headers for consent test page:', (uaError as Error).message);
+    }
     
     // Force desktop viewport to avoid mobile layout
     await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 });
@@ -889,9 +902,14 @@ async function executeCookieConsentTestFromDSL(dsl: any, options: any): Promise<
           if (!located) {
             throw new Error(`Selector ${step.target.value} not found in page or frames`);
           }
-          const frameForClick = located.frame || page;
-          const isIframe = frameForClick !== page;
-          console.log(`✓ Cookie banner button found${isIframe ? ' inside iframe' : ''} and visible`);
+          const { elementHandle, context } = located;
+          const isIframe = context === 'frame';
+          const isShadow = context === 'shadow';
+          console.log(
+            `✓ Cookie banner button found${
+              isIframe ? ' inside iframe' : isShadow ? ' inside shadow DOM' : ''
+            } and visible`
+          );
           
           // Check dataLayer BEFORE click
           const dataLayerBefore = await page.evaluate(() => window.dataLayer || []);
@@ -904,7 +922,7 @@ async function executeCookieConsentTestFromDSL(dsl: any, options: any): Promise<
           
           // Get outerHTML of the button
           try {
-            result.cookieBtnOuterHTML = await frameForClick.$eval(step.target.value, (el: any) => el.outerHTML);
+            result.cookieBtnOuterHTML = await elementHandle.evaluate((el: any) => el.outerHTML);
             console.log(`Cookie button outerHTML captured: ${result.cookieBtnOuterHTML?.substring(0, 200)}...`);
           } catch (outerHTMLError) {
             console.log(`Warning: Could not capture outerHTML: ${(outerHTMLError as Error).message}`);
@@ -912,12 +930,23 @@ async function executeCookieConsentTestFromDSL(dsl: any, options: any): Promise<
           }
           
           // Click the button
-          if (isIframe) {
-            await frameForClick.click(step.target.value);
-          } else {
-            await page.click(step.target.value);
+          try {
+            await elementHandle.evaluate((el: any) => {
+              if (typeof el.scrollIntoView === 'function') {
+                el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
+              }
+            });
+          } catch (scrollError) {
+            console.log(`Warning: Could not scroll element into view: ${(scrollError as Error).message}`);
           }
-          console.log(`✓ Click successful on ${step.target.value}`);
+
+          await elementHandle.click({ delay: 40 });
+          console.log(
+            `✓ Click successful on ${step.target.value}${
+              isShadow ? ' (shadow DOM)' : isIframe ? ' (iframe)' : ''
+            }`
+          );
+          await elementHandle.dispose().catch(() => {});
           
           // Wait for consent to be processed
           console.log('Waiting 15 seconds for consent to be fully processed...');
@@ -1681,7 +1710,7 @@ async function executePdfTests(testSpec: any, options: any, browserInstance: any
       console.log(`===== PDF TEST STEP ${i + 1} =====`);
       console.log(`📝 Description: ${step.description || 'No description'}`);
       console.log(`🎯 Action: ${step.action}`);
-        console.log(`🎯 Target: ${step.target?.value}`);
+        console.log(`🎯 Target: ${step.target?.value ?? 'N/A'}`);
       
       const stepResult: any = {
         step: i + 1,
@@ -1689,11 +1718,77 @@ async function executePdfTests(testSpec: any, options: any, browserInstance: any
         action: step.action,
         status: 'FAIL',
         error: null as string | null,
-        eventDetails: null
+        eventDetails: null,
+        expectations: step.expect || [],
       };
 
       try {
-          if (step.action === 'click') {
+          if (step.action === 'custom') {
+            const dataLayerExpectations = (step.expect || []).filter((e: any) => e?.type === 'dataLayer');
+            if (dataLayerExpectations.length === 0) {
+              console.log('ℹ️ Custom step without dataLayer expectations → marking PASS by default');
+              stepResult.status = 'PASS';
+            } else {
+              const capturedEvents = (existingPage as any).__ssdCapturedEvents || [];
+              console.log(`🗂️ Captured events available: ${capturedEvents.length}`);
+
+            const allMatched = dataLayerExpectations.every((expectation: any, idx: number) => {
+              const expectedEvent = expectation.event;
+              const subset = expectation.params_subset || null;
+
+                if (!expectedEvent) {
+                  console.log(`⚠️ DataLayer expectation ${idx} has no event name, skipping`);
+                  return true;
+                }
+
+                const matchingEvent = capturedEvents.find((captured: any) => {
+                  const payload = captured?.payload;
+                  if (!payload || typeof payload !== 'object') return false;
+                  if (payload.event !== expectedEvent) return false;
+
+                  if (subset && typeof subset === 'object') {
+                    return Object.entries(subset).every(([key, value]) => {
+                      const actual = (payload as any)[key];
+                      if (value === '*') return actual != null && String(actual).length > 0;
+                      if (typeof value === 'string' && typeof actual === 'string') {
+                        return actual.toLowerCase() === value.toLowerCase();
+                      }
+                      return actual === value;
+                    });
+                  }
+
+                  return true;
+                });
+
+                if (!matchingEvent) {
+                  console.warn(`❌ Expected event "${expectedEvent}" not found in captured events`);
+                } else {
+                  console.log(`✅ Found expected event "${expectedEvent}"`, matchingEvent.payload);
+                  if (!stepResult.eventDetails) {
+                    stepResult.eventDetails = { events: [] };
+                  }
+                  if (!stepResult.eventDetails.events) {
+                    stepResult.eventDetails.events = [];
+                  }
+                  stepResult.eventDetails.events.push({
+                    event: matchingEvent.payload?.event,
+                    payload: matchingEvent.payload,
+                  });
+                  stepResult.matchedEvent = matchingEvent.payload;
+                }
+
+                return Boolean(matchingEvent);
+              });
+
+              if (allMatched) {
+                stepResult.status = 'PASS';
+                stepResult.capturedEvents = capturedEvents.slice(0, 10).map((e: any) => e.payload);
+              } else {
+                stepResult.error = 'Expected dataLayer event(s) not found';
+                stepResult.capturedEvents = capturedEvents.slice(0, 10).map((e: any) => e.payload);
+              }
+            }
+          } else if (step.action === 'click') {
             // Resolve selector if needed
             let selector = step.target?.value;
             if (!selector || selector === 'to-be-determined') {
@@ -1808,6 +1903,7 @@ async function executePdfTests(testSpec: any, options: any, browserInstance: any
                 payload: matchingEvent.payload, 
                 clickedElement: clickedElementInfo 
               };
+              stepResult.matchedEvent = matchingEvent.payload;
             } else {
               // No match → Check for soft PASS (gtm.click / navigation / submenu)
               const soft = await isSoftPass(existingPage, selector, allowedHosts);
@@ -1829,6 +1925,7 @@ async function executePdfTests(testSpec: any, options: any, browserInstance: any
                 });
                 
                 stepResult.error = `Expected event with subset ${JSON.stringify(subset)}, captured events: [${capturedEventNames.join(', ')}]`;
+                stepResult.capturedEvents = capturedEvents.slice(0, 10).map((e: any) => e.payload);
                 console.log(`❌ ${stepResult.error}`);
               }
             }
@@ -2569,7 +2666,13 @@ function detectCMPAcceptSelector(cookieBanner: any): string | null {
   return null;
 }
 
-async function waitForSelectorInPageOrFrames(page: any, selector: string, timeoutMs = 15000) {
+type LocatedSelector = {
+  elementHandle: any;
+  frame: any;
+  context: 'page' | 'frame' | 'shadow';
+};
+
+async function waitForSelectorInPageOrFrames(page: any, selector: string, timeoutMs = 15000): Promise<LocatedSelector | null> {
   const start = Date.now();
   const pollTimeout = 600;
 
@@ -2578,28 +2681,157 @@ async function waitForSelectorInPageOrFrames(page: any, selector: string, timeou
     const remaining = Math.max(timeoutMs - elapsed, 100);
     const attemptTimeout = Math.min(pollTimeout, remaining);
 
-    try {
-      await page.waitForSelector(selector, { timeout: attemptTimeout, visible: true });
-      return { frame: page };
-    } catch {
-      // Ignore and try frames
+    const pageHandle = await tryFindSelectorInFrame(page, selector, attemptTimeout);
+    if (pageHandle) {
+      return { frame: page, elementHandle: pageHandle, context: 'page' };
     }
 
     const frames = page.frames();
     for (const frame of frames) {
       if (frame === page.mainFrame()) continue;
-      try {
-        await frame.waitForSelector(selector, { timeout: attemptTimeout, visible: true });
-        return { frame };
-      } catch {
-        // Ignore and continue cycling
+      const frameHandle = await tryFindSelectorInFrame(frame, selector, attemptTimeout);
+      if (frameHandle) {
+        return { frame, elementHandle: frameHandle, context: 'frame' };
       }
+    }
+
+    const shadowHandle = await findSelectorInShadowRoots(page, selector);
+    if (shadowHandle) {
+      return { frame: page, elementHandle: shadowHandle, context: 'shadow' };
     }
 
     await new Promise(resolve => setTimeout(resolve, 150));
   }
 
   return null;
+}
+
+async function tryFindSelectorInFrame(frame: any, selector: string, timeout: number) {
+  try {
+    const visibleHandle = await frame.waitForSelector(selector, { timeout, visible: true });
+    if (visibleHandle) {
+      return visibleHandle;
+    }
+  } catch {
+    // Ignore and fall back to non-visible lookup
+  }
+
+  try {
+    const handle = await frame.waitForSelector(selector, { timeout });
+    if (!handle) return null;
+
+    const isVisible = await isElementVisible(handle);
+    if (isVisible) {
+      return handle;
+    }
+
+    const diagnostic = await handle.evaluate((el: any) => {
+      const style = window.getComputedStyle(el);
+      const rect = el.getBoundingClientRect();
+      return {
+        display: style?.display,
+        visibility: style?.visibility,
+        opacity: style?.opacity,
+        width: rect?.width,
+        height: rect?.height,
+      };
+    }).catch(() => null);
+
+    console.log(`[waitForSelectorInPageOrFrames] Selector ${selector} found but not visible yet:`, diagnostic);
+    await handle.dispose();
+  } catch {
+    // Ignore and continue
+  }
+
+  return null;
+}
+
+async function isElementVisible(handle: any): Promise<boolean> {
+  try {
+    return await handle.evaluate((el: any) => {
+      if (!el || !(el instanceof Element)) return false;
+      const style = window.getComputedStyle(el);
+      if (!style) return false;
+      if (style.visibility === 'hidden' || style.display === 'none') return false;
+      const opacity = parseFloat(style.opacity ?? '1');
+      if (Number.isNaN(opacity) || opacity <= 0) return false;
+      const rect = el.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0;
+    });
+  } catch (error) {
+    console.log('[waitForSelectorInPageOrFrames] Failed to evaluate visibility:', (error as Error).message);
+    return false;
+  }
+}
+
+async function findSelectorInShadowRoots(page: any, selector: string) {
+  const searchFn = new Function(
+    'sel',
+    `
+      const visited = new WeakSet();
+      const stack = [document];
+
+      while (stack.length > 0) {
+        const root = stack.pop();
+        if (!root || visited.has(root)) {
+          continue;
+        }
+        visited.add(root);
+
+        if (typeof root.querySelector === 'function') {
+          const direct = root.querySelector(sel);
+          if (direct) {
+            return direct;
+          }
+        }
+
+        if (typeof root.querySelectorAll === 'function') {
+          const elements = root.querySelectorAll('*');
+          for (let i = 0; i < elements.length; i++) {
+            const el = elements[i];
+            if (el && el.shadowRoot) {
+              stack.push(el.shadowRoot);
+            }
+          }
+        }
+      }
+
+      return null;
+    `
+  ) as (sel: string) => Element | null;
+
+  try {
+    const handle = await page.evaluateHandle(searchFn, selector);
+    const elementHandle = handle.asElement();
+    if (!elementHandle) {
+      await handle.dispose();
+      return null;
+    }
+    await handle.dispose();
+
+    const isVisible = await elementHandle.evaluate((el: HTMLElement) => {
+      if (!el) return false;
+      const style = window.getComputedStyle(el);
+      const rect = el.getBoundingClientRect();
+      return (
+        style &&
+        style.visibility !== 'hidden' &&
+        style.display !== 'none' &&
+        rect.width > 0 &&
+        rect.height > 0
+      );
+    });
+
+    if (!isVisible) {
+      await elementHandle.dispose();
+      return null;
+    }
+
+    return elementHandle;
+  } catch (error) {
+    console.log(`Shadow DOM selector lookup error for ${selector}:`, (error as Error).message);
+    return null;
+  }
 }
 
 // Original HTML fetch endpoint
@@ -2671,9 +2903,22 @@ app.post('/api/spec/generate', upload.single('pdf'), async (req, res) => {
       return sendError(res, 400, 'INVALID_URL', 'Target Website URL non valida. Includi http/https (es. https://example.com).');
     }
 
-    if (!config.openaiApiKey) {
-      return sendError(res, 500, 'OPENAI_NOT_CONFIGURED', 'OpenAI API key not configured. Please set OPENAI_API_KEY environment variable.');
+    const rawModuleId = typeof req.body?.moduleId === 'string' ? req.body.moduleId.trim() : '';
+    const moduleId = rawModuleId.length > 0 ? rawModuleId : null;
+    let moduleConfig: Record<string, unknown> = {};
+    if (typeof req.body?.moduleConfig === 'string' && req.body.moduleConfig.trim().length > 0) {
+      try {
+        moduleConfig = JSON.parse(req.body.moduleConfig);
+      } catch (parseError) {
+        console.warn(`[${correlationId}] Unable to parse moduleConfig JSON:`, parseError);
+      }
     }
+
+    const moduleDefinition = moduleId ? getModule(moduleId) : undefined;
+    console.log(`[${correlationId}] Module selection`, {
+      moduleId,
+      hasManifest: !!moduleDefinition?.manifest,
+    });
 
     // Magic number validation - check PDF signature
     if (!isPdfBuffer(pdf.buffer)) {
@@ -2707,41 +2952,73 @@ app.post('/api/spec/generate', upload.single('pdf'), async (req, res) => {
 
     console.log(`[${correlationId}] PDF text extracted successfully: ${extractionResult.text.length} characters`);
 
-    // Convert PDF text to TestSpec using OpenAI with timeout
-    if (!openaiService) {
-      return sendError(res, 503, 'SERVICE_UNAVAILABLE', 'OpenAI service is not configured. Please set VITE_OPENAI_API_KEY environment variable.');
-    }
-    
-    const openaiResponse = await Promise.race([
-      openaiService.convertPDFToTestSpec(extractionResult.text, targetOrigin),
-      new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('OpenAI request timeout')), 60000)
-      )
-    ]);
+    let generatedDsl: any | null = null;
+    let metaSource: 'manifest' | 'openai' = 'openai';
+    let openaiMeta: { model?: string; tokens?: any } | null = null;
 
-    // 1) leggi l'URL della form (accetta sia 'url' che 'site')
-    const rawInputUrl = String(req.body?.url ?? req.body?.site ?? "").trim();
-    if (!rawInputUrl) {
-      return res.status(400).json({ 
-        error: "Missing target URL", 
-        code: "INVALID_URL" 
+    if (moduleDefinition?.manifest) {
+      generatedDsl = buildTestSpecFromManifest(moduleDefinition, {
+        site: targetOrigin,
+        moduleConfig,
       });
+      if (generatedDsl) {
+        metaSource = 'manifest';
+        console.log(`[${correlationId}] Generated DSL from manifest for module ${moduleDefinition.meta.id}`);
+      } else {
+        console.warn(
+          `[${correlationId}] Manifest DSL generation returned null for module ${moduleDefinition.meta.id}, falling back to OpenAI`
+        );
+      }
     }
 
-    // 2) ottieni il DSL dall'LLM (stringa o oggetto)
-    const dslFromLLM = (openaiResponse as any).dsl ?? {};
-    
-    // 3) forzatura/merge: il site del DSL è sempre l'origin scelto dall'utente
-    const mergedDsl = { ...dslFromLLM, site: targetOrigin };
-    
-    // 4) LOG mirato: cosa stiamo per validare?
-    console.info("[SSD] validating DSL with site:", mergedDsl?.site);
-    
-    // 5) valida con lo schema che normalizza internamente
-    const validatedDSL = validateTestSpec(mergedDsl);
-    
-    // 6) usa **sempre** 'validatedDSL' per tutto il resto (salvataggio, run, response)
-    //    Evita di riusare 'dslFromLLM' o altre copie altrove.
+    if (!generatedDsl) {
+      if (!config.openaiApiKey) {
+        return sendError(res, 500, 'OPENAI_NOT_CONFIGURED', 'OpenAI API key not configured. Please set OPENAI_API_KEY environment variable.');
+      }
+
+      if (!openaiService) {
+        return sendError(res, 503, 'SERVICE_UNAVAILABLE', 'OpenAI service is not configured. Please set VITE_OPENAI_API_KEY environment variable.');
+      }
+
+      const openaiResponse = await Promise.race([
+        openaiService.convertPDFToTestSpec(extractionResult.text, targetOrigin),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('OpenAI request timeout')), 60000)
+        )
+      ]);
+
+      const rawInputUrl = String(req.body?.url ?? req.body?.site ?? '').trim();
+      if (!rawInputUrl) {
+        return res.status(400).json({
+          error: 'Missing target URL',
+          code: 'INVALID_URL'
+        });
+      }
+
+      const dslFromLLM = (openaiResponse as any).dsl ?? {};
+      generatedDsl = { ...dslFromLLM, site: targetOrigin };
+      openaiMeta = (openaiResponse as any).meta ?? null;
+      console.info('[SSD] validating DSL with site (LLM):', generatedDsl?.site);
+    } else {
+      console.info('[SSD] validating DSL with site (manifest):', generatedDsl?.site);
+    }
+
+    const validatedDSL = validateTestSpec(generatedDsl);
+    const existingMeta = validatedDSL.meta ?? {};
+    const metaModel =
+      metaSource === 'manifest'
+        ? `module-manifest${moduleId ? `:${moduleId}` : ''}`
+        : existingMeta.model ?? openaiMeta?.model ?? 'openai';
+    const metaTokens = existingMeta.tokens ?? openaiMeta?.tokens ?? { input: 0, output: 0 };
+
+    validatedDSL.meta = {
+      ...existingMeta,
+      model: metaModel,
+      tokens: metaTokens,
+    };
+    if (moduleId) {
+      validatedDSL.meta.moduleId = moduleId;
+    }
 
     // Save PDF buffer to temporary file for later use
     const tempDir = join(process.cwd(), 'temp-pdf');
@@ -2756,9 +3033,13 @@ app.post('/api/spec/generate', upload.single('pdf'), async (req, res) => {
       pdfContent: extractionResult.text,
       pdfBufferPath: pdfBufferPath, // Add path to saved PDF buffer
       meta: {
-        model: (openaiResponse as any).meta.model,
-        tokens: (openaiResponse as any).meta.tokens,
-      }
+        model: metaSource === 'manifest'
+          ? `module-manifest${moduleId ? `:${moduleId}` : ''}`
+          : openaiMeta?.model ?? 'openai',
+        tokens: openaiMeta?.tokens ?? { input: 0, output: 0 },
+      },
+      moduleId,
+      moduleSource: metaSource,
     };
 
     console.log(`[${correlationId}] Spec generation completed successfully`);
@@ -2783,6 +3064,46 @@ app.post('/api/ssd/run', async (req, res) => {
     console.log('📦 req.body full:', JSON.stringify(req.body, null, 2));
     
     const { dsl, runOptions = {}, pdfContent, pdfBufferPath } = req.body;
+
+    const rawModuleId = typeof req.body?.moduleId === 'string' ? req.body.moduleId.trim() : '';
+    const moduleId = rawModuleId.length > 0 ? rawModuleId : null;
+    const rawModuleSource = typeof req.body?.moduleSource === 'string' ? req.body.moduleSource.trim() : '';
+    const moduleSourceInitial =
+      rawModuleSource === 'manifest' || rawModuleSource === 'openai'
+        ? (rawModuleSource as 'manifest' | 'openai')
+        : null;
+
+    let inferredModuleId = moduleId;
+    let inferredModuleSource = moduleSourceInitial;
+
+    if (!inferredModuleId && typeof dsl?.meta?.moduleId === 'string') {
+      inferredModuleId = dsl.meta.moduleId as ModuleId;
+      console.log('🧠 Inferred moduleId from DSL meta.moduleId:', inferredModuleId);
+      if (!inferredModuleSource) {
+        inferredModuleSource = 'manifest';
+      }
+    }
+
+    if (!inferredModuleId && typeof dsl?.meta?.model === 'string') {
+      const match = /^module-manifest:([a-z0-9-_]+)/i.exec(dsl.meta.model);
+      if (match && match[1]) {
+        inferredModuleId = match[1] as ModuleId;
+        console.log('🧠 Inferred moduleId from DSL meta:', inferredModuleId);
+        if (!inferredModuleSource) {
+          inferredModuleSource = 'manifest';
+        }
+      }
+    }
+
+    const moduleDefinition = inferredModuleId ? getModule(inferredModuleId) : undefined;
+    const useManifestDsl = inferredModuleSource === 'manifest' && !!moduleDefinition?.manifest;
+
+    console.log('🧩 Module context:', {
+      moduleId: inferredModuleId,
+      moduleSource: inferredModuleSource,
+      hasManifest: !!moduleDefinition?.manifest,
+      useManifestDsl,
+    });
 
     if (!dsl) {
       const httpError = toHttpError(new ValidationError('DSL is required', 'MISSING_DSL'));
@@ -2816,6 +3137,8 @@ app.post('/api/ssd/run', async (req, res) => {
     // ============================================================================
     // STEP 2: Avvia runner → fai goto e genera snapshot HTML (P0). Ottieni htmlPath
     // ============================================================================
+    const cachedCookieSpec = getCookieTestSpec(validatedDSL.site);
+
     console.log('===== STEP 2: LAUNCHING RUNNER AND GENERATING HTML SNAPSHOT =====');
     
     let htmlPath: string | null = null;
@@ -2838,6 +3161,49 @@ app.post('/api/ssd/run', async (req, res) => {
       });
       
       page = await browser.newPage();
+      const desktopUserAgent =
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36';
+      try {
+        await page.setUserAgent(desktopUserAgent);
+        await page.setExtraHTTPHeaders({
+          'accept-language': 'it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7',
+        });
+      } catch (uaError) {
+        console.warn(`[${requestId}] Unable to set custom user agent/headers:`, (uaError as Error).message);
+      }
+      page.on('console', (msg: any) => {
+        try {
+          console.log(`[${requestId}] [page console] [${msg.type()}]`, msg.text());
+        } catch {
+          console.log(`[${requestId}] [page console] [${msg.type()}]`, '<<unserializable>>');
+        }
+      });
+      page.on('pageerror', (err: Error) => {
+        console.warn(`[${requestId}] [page error]`, err?.message || err);
+      });
+      page.on('response', (response: any) => {
+        const status = response.status();
+        if (status >= 400) {
+          const url = response.url();
+          console.warn(`[${requestId}] [page response ${status}] ${url}`);
+        }
+      });
+      page.on('requestfailed', (request: any) => {
+        try {
+          const failure = request.failure();
+          console.warn(
+            `[${requestId}] [request failed] ${request.url()} :: ${failure?.errorText || 'unknown'}`
+          );
+          try {
+            const headers = request.headers();
+            console.warn(`[${requestId}] [request headers]`, headers);
+          } catch {
+            // ignore header serialization errors
+          }
+        } catch {
+          console.warn(`[${requestId}] [request failed] <<unserializable>>`);
+        }
+      });
       
       // Force desktop viewport to avoid mobile layout
       await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 });
@@ -2846,11 +3212,79 @@ app.post('/api/ssd/run', async (req, res) => {
       console.log('✓ Browser launched and page created');
       
       // Navigate to the site and generate HTML snapshot
-      await page!.goto(validatedDSL.site, { waitUntil: 'networkidle2' });
-      await new Promise(resolve => setTimeout(resolve, 3000)); // Wait for dynamic content
-      
+      await page.goto(validatedDSL.site, { waitUntil: 'networkidle2' });
+
+      const acceptSelectorFromSpec =
+        cachedCookieSpec?.tests?.flatMap((test: any) => test.steps || [])
+          .find((step: any) => step.action === 'click' && step.target?.value)?.target?.value || null;
+      const bannerSelectorFromSpec =
+        cachedCookieSpec?.tests?.flatMap((test: any) => test.steps || [])
+          .find((step: any) => step.action === 'click')
+          ?.expect?.find((expectation: any) => expectation.type === 'invisible')?.selector || null;
+
+      const candidateSelectors = [
+        acceptSelectorFromSpec,
+        bannerSelectorFromSpec,
+        '#CybotCookiebotDialog',
+        '.CybotCookiebotDialogContentWrapper',
+        '#onetrust-banner-sdk'
+      ].filter((sel): sel is string => typeof sel === 'string' && sel.length > 0);
+
+      if (candidateSelectors.length > 0) {
+        console.log(`[${requestId}] Waiting for cookie banner selectors before snapshot:`, candidateSelectors);
+        let selectorSatisfied = false;
+        const waitTimeout = 30000;
+        for (const sel of candidateSelectors) {
+          try {
+            const elementHandle = await page.waitForSelector(sel, { timeout: waitTimeout });
+            if (elementHandle) {
+              const outer = await elementHandle.evaluate((el: any) => el.outerHTML).catch(() => null);
+              console.log(`[${requestId}] Selector ${sel} detected before snapshot`);
+              if (outer) {
+                console.log(`[${requestId}] First match outerHTML (${sel}): ${outer.substring(0, 200)}…`);
+              }
+            }
+            selectorSatisfied = true;
+            break;
+          } catch (err) {
+            console.warn(
+              `[${requestId}] Selector ${sel} not detected before snapshot: ${(err as Error).message}`
+            );
+            try {
+              const diag = await page.evaluate((selector: string) => {
+                const el = document.querySelector(selector);
+                if (!el) return null;
+                const style = window.getComputedStyle(el);
+                const rect = el.getBoundingClientRect();
+                return {
+                  exists: true,
+                  display: style.display,
+                  visibility: style.visibility,
+                  opacity: style.opacity,
+                  width: rect.width,
+                  height: rect.height,
+                };
+              }, sel);
+              console.warn(`[${requestId}] Diagnostic for ${sel}:`, diag);
+            } catch (diagError) {
+              console.warn(
+                `[${requestId}] Failed to gather diagnostics for ${sel}: ${(diagError as Error).message}`
+              );
+            }
+          }
+        }
+        if (!selectorSatisfied) {
+          console.warn(`[${requestId}] None of the cookie banner selectors became visible before snapshot`);
+        }
+      } else {
+        console.log(`[${requestId}] No cookie selectors available prior to snapshot; using generic delay`);
+        await new Promise(resolve => setTimeout(resolve, 3000));
+      }
+      const currentUrl = await page.url();
+      console.log(`[${requestId}] Current URL before snapshot: ${currentUrl}`);
+
       // Generate HTML snapshot
-      const html = await page!.content();
+      const html = await page.content();
       
       // Save HTML to file
       const tempHtmlDir = join(process.cwd(), 'temp-html');
@@ -2872,9 +3306,6 @@ app.post('/api/ssd/run', async (req, res) => {
     // FIX #7: Use cookie test spec from fetch-html cache (most reliable!)
     // ============================================================================
     console.log('===== STEP 3: EXECUTING COOKIE CONSENT TEST =====');
-    
-    // FIX #7: Try to get cookie test spec from cache (generated by fetch-html with actual banner info)
-    const cachedCookieSpec = getCookieTestSpec(validatedDSL.site);
     
     let cookieConsentDSL: any;
     
@@ -2957,86 +3388,148 @@ app.post('/api/ssd/run', async (req, res) => {
     let pdfSpec: any = null;
     let pdfTextFile: string | null = null;
 
-    // Use pdfContent from req.body directly (already extracted text)
-    const pdfText = typeof req.body.pdfContent === 'string' ? req.body.pdfContent.trim() : '';
-    
-    if (!pdfText) {
-      console.log('PDF content empty → skipping PDF spec');
-      pdfResult = {
-        status: 'skipped',
-        reason: 'PDF_EMPTY'
-      };
-    } else {
+    if (useManifestDsl) {
+      console.log('📘 Manifest module detected – using DSL tests directly (skipping LLM generation)');
+      const manifestSpec = JSON.parse(JSON.stringify({
+        site: validatedDSL.site,
+        allowed_hosts: validatedDSL.allowed_hosts,
+        tests: validatedDSL.tests,
+      }));
+
       try {
-        // Ensure temp-pdf directory exists
-        const tempPdfDir = join(process.cwd(), 'temp-pdf');
-        await fs.mkdir(tempPdfDir, { recursive: true });
-        
-        // Save pdfText to disk for diagnosis
-        pdfTextFile = join(tempPdfDir, `txt_${requestId}.txt`);
-        await fs.writeFile(pdfTextFile!, pdfText, 'utf8');
-        console.log(`✓ PDF text saved for diagnosis: ${pdfTextFile}`);
-        
-        // Generate PDF spec using LLM
-        console.log('🤖 Generating PDF spec using LLM...');
-        pdfSpec = await llmPdfSpec({
-          url: validatedDSL.site,
-          pdfText: pdfText,
-          htmlPath: htmlPath || undefined
-        });
-        
-        console.log('✓ PDF spec generated successfully');
-        
-        // Normalize PDF spec to runner format
-        let normalizedPdfSpec;
-        try {
-          normalizedPdfSpec = normalizePdfSpec(pdfSpec);
-          console.log('🔧 Normalized PDF spec (runner shape):', JSON.stringify(normalizedPdfSpec, null, 2));
-        } catch (error: any) {
-          console.error('❌ Error normalizing PDF spec:', (error as Error).message);
-          pdfResult = {
-            status: 'error',
-            code: 'INVALID_PDF_SPEC',
-            message: error.message
-          };
-          return;
-        }
-        
-        // Execute PDF spec with runner using the same page from cookie test
-        // FIX: Ensure site and allowed_hosts are included in the spec
-        const pdfSpecWithSite = {
-          site: validatedDSL.site,
-          allowed_hosts: validatedDSL.allowed_hosts,
-          ...normalizedPdfSpec
-        };
-        console.log('🚀 Executing PDF spec with runner...');
-        const pdfTestResult = await executePdfTests(pdfSpecWithSite, options, cookieConsentResult.browserInstance, cookieConsentResult.page);
-        
+        const pdfTestResult = await executePdfTests(manifestSpec, options, cookieConsentResult.browserInstance, cookieConsentResult.page);
         pdfResult = {
           status: pdfTestResult.status,
-          spec: pdfSpec,
+          spec: manifestSpec,
           result: pdfTestResult,
-          steps: pdfTestResult.steps || []
+          steps: pdfTestResult.steps || [],
+          source: 'manifest',
         };
-        
-        console.log(`✓ PDF tests executed: ${pdfTestResult.status}`);
-        
+        console.log(`✓ PDF tests executed from manifest: ${pdfTestResult.status}`);
       } catch (error: any) {
-        console.error('Error processing PDF:', error);
-        
-        // Check if it's a JSON parsing error
-        if (error instanceof Error && error.message.includes('JSON')) {
-          pdfResult = {
-            status: 'error',
-            code: 'INVALID_JSON',
-            message: 'Lo spec generato non è JSON valido'
-          };
-        } else {
-          pdfResult = {
-            status: 'error',
-            code: 'PDF_PROCESSING_ERROR',
-            message: error instanceof Error ? error.message : 'Unknown error'
-          };
+        console.error('Error executing manifest tests:', error);
+        pdfResult = {
+          status: 'error',
+          code: 'MANIFEST_RUNNER_ERROR',
+          message: error instanceof Error ? error.message : 'Unknown error',
+          source: 'manifest',
+          spec: manifestSpec,
+          steps: [],
+        };
+      }
+
+      if (
+        pdfResult &&
+        openaiService &&
+        typeof pdfContent === 'string' &&
+        pdfContent.trim().length > 0 &&
+        Array.isArray(pdfResult.steps) &&
+        pdfResult.steps.length > 0
+      ) {
+        try {
+          const evaluation = await openaiService.evaluateTestOutcome({
+            site: validatedDSL.site,
+            pdfText: pdfContent,
+            steps: pdfResult.steps.map((step: any) => ({
+              description: step.description,
+              status: step.status,
+              expectations: step.expectations,
+              matchedEvent: step.matchedEvent,
+              eventDetails: step.eventDetails,
+              capturedEvents: step.capturedEvents,
+              error: step.error,
+            })),
+          });
+          pdfResult.llm = evaluation;
+          if (evaluation?.overallStatus) {
+            pdfResult.status = evaluation.overallStatus;
+          }
+        } catch (llmError) {
+          console.error('LLM evaluation failed:', llmError);
+          pdfResult.llmError = llmError instanceof Error ? llmError.message : String(llmError);
+        }
+      }
+    } else {
+      // Use pdfContent from req.body directly (already extracted text)
+      const pdfText = typeof pdfContent === 'string' ? pdfContent.trim() : '';
+
+      if (!pdfText) {
+        console.log('PDF content empty → skipping PDF spec');
+        pdfResult = {
+          status: 'skipped',
+          reason: 'PDF_EMPTY',
+          source: 'openai'
+        };
+      } else {
+        try {
+          const tempPdfDir = join(process.cwd(), 'temp-pdf');
+          await fs.mkdir(tempPdfDir, { recursive: true });
+
+          pdfTextFile = join(tempPdfDir, `txt_${requestId}.txt`);
+          await fs.writeFile(pdfTextFile!, pdfText, 'utf8');
+          console.log(`✓ PDF text saved for diagnosis: ${pdfTextFile}`);
+
+          console.log('🤖 Generating PDF spec using LLM...');
+          pdfSpec = await llmPdfSpec({
+            url: validatedDSL.site,
+            pdfText,
+            htmlPath: htmlPath || undefined
+          });
+
+          console.log('✓ PDF spec generated successfully');
+
+          let normalizedPdfSpec;
+          try {
+            normalizedPdfSpec = normalizePdfSpec(pdfSpec);
+            console.log('🔧 Normalized PDF spec (runner shape):', JSON.stringify(normalizedPdfSpec, null, 2));
+          } catch (error: any) {
+            console.error('❌ Error normalizing PDF spec:', (error as Error).message);
+            pdfResult = {
+              status: 'error',
+              code: 'INVALID_PDF_SPEC',
+              message: error.message,
+              source: 'openai'
+            };
+          }
+
+          if (normalizedPdfSpec) {
+            const pdfSpecWithSite = {
+              site: validatedDSL.site,
+              allowed_hosts: validatedDSL.allowed_hosts,
+              ...normalizedPdfSpec
+            };
+            console.log('🚀 Executing PDF spec with runner...');
+            const pdfTestResult = await executePdfTests(pdfSpecWithSite, options, cookieConsentResult.browserInstance, cookieConsentResult.page);
+
+            pdfResult = {
+              status: pdfTestResult.status,
+              spec: pdfSpec,
+              result: pdfTestResult,
+              steps: pdfTestResult.steps || [],
+              source: 'openai'
+            };
+
+            console.log(`✓ PDF tests executed: ${pdfTestResult.status}`);
+          }
+
+        } catch (error: any) {
+          console.error('Error processing PDF:', error);
+
+          if (error instanceof Error && error.message.includes('JSON')) {
+            pdfResult = {
+              status: 'error',
+              code: 'INVALID_JSON',
+              message: 'Lo spec generato non è JSON valido',
+              source: 'openai'
+            };
+          } else if (!pdfResult) {
+            pdfResult = {
+              status: 'error',
+              code: 'PDF_PROCESSING_ERROR',
+              message: error instanceof Error ? error.message : 'Unknown error',
+              source: 'openai'
+            };
+          }
         }
       }
     }
@@ -3072,6 +3565,10 @@ app.post('/api/ssd/run', async (req, res) => {
     const finalResponse = {
       requestId,
       url: validatedDSL.site,
+      module: {
+        id: inferredModuleId,
+        source: inferredModuleSource,
+      },
       artifacts: {
         htmlFile: htmlPath,
         pdfTextFile: pdfTextFile,
@@ -3096,7 +3593,7 @@ app.post('/api/ssd/run', async (req, res) => {
     console.log(`Request ID: ${requestId}`);
     console.log(`URL: ${validatedDSL.site}`);
     console.log(`Cookie Test Status: ${cookieResult.status}`);
-    console.log(`PDF Test Status: ${(pdfResult as any)?.status || 'N/A'}`);
+    console.log(`PDF Test Status: ${(pdfResult as any)?.status || 'N/A'} (source: ${(pdfResult as any)?.source || 'unknown'})`);
     console.log(`HTML File: ${htmlPath}`);
     console.log(`PDF Text File: ${pdfTextFile}`);
     console.log('========================================');

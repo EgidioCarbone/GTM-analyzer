@@ -1,0 +1,31 @@
+{
+  "cmp": {
+    "vendor": "cookiebot",
+    "actions": {
+      "acceptAllButton": "#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll"
+    }
+  },
+  "selectors": {},
+  "useCases": [
+    {
+      "id": "view-item-list",
+      "label": "Ecommerce: view_item_list",
+      "description": "Verifica che l'evento view_item_list venga inviato sul dataLayer dopo il caricamento della pagina.",
+      "trackingEvents": [
+        "view_item_list"
+      ],
+      "steps": [
+        {
+          "action": "assertEvent",
+          "description": "Attendi il push view_item_list sul dataLayer",
+          "expectEvents": [
+            {
+              "event": "view_item_list"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "notes": "Manifest iniziale Actalis: completare con selectors specifici non appena disponibili."
+}

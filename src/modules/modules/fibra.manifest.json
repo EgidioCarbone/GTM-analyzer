@@ -1,0 +1,311 @@
+{
+  "cmp": {
+    "vendor": "cookiebot",
+    "actions": {
+      "acceptAllButton": "#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll"
+    }
+  },
+  "selectors": {
+    "headerMenu": {
+      "container": "#top-bar-header",
+      "items": "#top-bar-header .left-list.site-list a[data-trace-event='header_menu_click']",
+      "links": [
+        {
+          "selector": "#top-bar-header .left-list.site-list a[href*='hosting.aruba.it']",
+          "description": "Voce Hosting cross-site",
+          "expectedEvent": "header_menu_click",
+          "dataLayer": {
+            "link_text": "Hosting",
+            "link_url": "https://hosting.aruba.it/home.aspx",
+            "index": "0"
+          }
+        },
+        {
+          "selector": "#top-bar-header .left-list.site-list a[href*='www.pec.it']",
+          "description": "Voce PEC",
+          "expectedEvent": "header_menu_click",
+          "dataLayer": {
+            "link_text": "Pec",
+            "link_url": "https://www.pec.it/",
+            "index": "0"
+          }
+        },
+        {
+          "selector": "#top-bar-header .left-list.site-list a[href*='cloud.it/server-dedicati']",
+          "description": "Voce Server dedicati",
+          "expectedEvent": "header_menu_click",
+          "dataLayer": {
+            "link_text": "Server",
+            "link_url": "https://www.cloud.it/server-dedicati/?utm_campaign=barra-cross-sites&utm_source=fibra&utm_medium=internal-link",
+            "index": "0"
+          }
+        },
+        {
+          "selector": "#top-bar-header .left-list.site-list a[href*='cloud.it']",
+          "description": "Voce Cloud",
+          "expectedEvent": "header_menu_click",
+          "dataLayer": {
+            "link_text": "Cloud",
+            "link_url": "https://www.cloud.it/",
+            "index": "0"
+          }
+        },
+        {
+          "selector": "#top-bar-header .left-list.site-list a[href*='actalis.com']",
+          "description": "Voce SSL",
+          "expectedEvent": "header_menu_click",
+          "dataLayer": {
+            "link_text": "SSL",
+            "link_url": "https://shop.actalis.com/store/it/",
+            "index": "0"
+          }
+        },
+        {
+          "selector": "#top-bar-header .left-list.site-list a[href='/']",
+          "description": "Voce Fibra",
+          "expectedEvent": "header_menu_click",
+          "dataLayer": {
+            "link_text": "Fibra",
+            "link_url": "https://fibra.aruba.it/",
+            "index": "0"
+          }
+        },
+        {
+          "selector": "#top-bar-header .left-list.site-list a[href*='pratiche.it']",
+          "description": "Voce Pratiche",
+          "expectedEvent": "header_menu_click",
+          "dataLayer": {
+            "link_text": "Pratiche",
+            "link_url": "https://www.pratiche.it/",
+            "index": "0"
+          }
+        },
+        {
+          "selector": "#top-bar-header .left-list.site-list a[href*='business.aruba.it']",
+          "description": "Voce Partner",
+          "expectedEvent": "header_menu_click",
+          "dataLayer": {
+            "link_text": "Partner",
+            "link_url": "https://business.aruba.it/home.aspx",
+            "index": "0"
+    }
+  },
+  {
+      "id": "view-item-list",
+      "label": "Ecommerce: view_item_list",
+      "description": "Verifica che venga inviato il push view_item_list sul dataLayer.",
+      "trackingEvents": [
+        "view_item_list"
+      ],
+      "steps": [
+        {
+          "action": "assertEvent",
+          "description": "Verifica presenza evento dataLayer view_item_list",
+          "expectEvents": [
+            {
+              "event": "view_item_list"
+            }
+          ]
+        }
+      ]
+  }
+]
+    },
+    "utilityLinks": {
+      "container": "#top-links-right",
+      "items": "#top-links-right a[data-trace-event='header_menu_click']"
+    },
+    "mainNav": {
+      "container": "#the-nav",
+      "items": "#the-nav .navbar-nav > li > a",
+      "dropdownToggle": "#the-nav .navbar-nav > li.dropdown > a",
+      "dropdownMenu": "#the-nav .navbar-nav > li.dropdown .dropdown-menu",
+      "links": [
+        {
+          "selector": "#nav-privati-desktop",
+          "description": "Secondo livello: Privati",
+          "expectedEvent": "header_menu_click",
+          "dataLayer": {
+            "link_text": "Privati",
+            "link_url": "https://fibra.aruba.it/offerte-fibra-casa.aspx",
+            "index": "1"
+          }
+        },
+        {
+          "selector": "#nav-aziende-desktop",
+          "description": "Secondo livello: Aziende (dropdown)",
+          "expectedEvent": "header_menu_click",
+          "notes": "Richiede hover/click per aprire il dropdown"
+        },
+        {
+          "selector": "#nav-piva-aziende-desktop",
+          "description": "Secondo livello dropdown: P. IVA e aziende",
+          "expectedEvent": "header_menu_click",
+          "dataLayer": {
+            "link_text": "P. IVA e aziende",
+            "link_url": "https://fibra.aruba.it/offerte-fibra-aziende.aspx",
+            "index": "2"
+          }
+        },
+        {
+          "selector": "#nav-enterprise-desktop",
+          "description": "Secondo livello dropdown: Enterprise",
+          "expectedEvent": "header_menu_click",
+          "dataLayer": {
+            "link_text": "Enterprise",
+            "link_url": "https://fibra.aruba.it/soluzioni-enterprise.aspx",
+            "index": "2"
+          }
+        },
+        {
+          "selector": "#nav-rivenditori-desktop",
+          "description": "Secondo livello: Rivenditori",
+          "expectedEvent": "header_menu_click",
+          "dataLayer": {
+            "link_text": "Rivenditori",
+            "link_url": "https://fibra.aruba.it/programma-rivenditori.aspx",
+            "index": "1"
+          }
+        },
+        {
+          "selector": "#tecn-ftth-desktop",
+          "description": "Secondo livello: Tecnologia FTTH",
+          "expectedEvent": "header_menu_click",
+          "dataLayer": {
+            "link_text": "Tecnologia FTTH",
+            "link_url": "https://fibra.aruba.it/tecnologia-ftth-openfiber.aspx",
+            "index": "1"
+          }
+        },
+        {
+          "selector": "#faq-desktop",
+          "description": "Secondo livello: FAQ",
+          "expectedEvent": "header_menu_click",
+          "dataLayer": {
+            "link_text": "FAQ",
+            "link_url": "https://fibra.aruba.it/domande-frequenti.aspx",
+            "index": "1"
+          }
+        },
+        {
+          "selector": "#assist-desktop",
+          "description": "Secondo livello: Assistenza",
+          "expectedEvent": "header_menu_click",
+          "dataLayer": {
+            "link_text": "Assistenza",
+            "link_url": "https://fibra.aruba.it/assistenza.aspx",
+            "index": "1"
+          }
+        }
+      ]
+    }
+  },
+  "useCases": [
+    {
+      "id": "header-navigation",
+      "label": "Header: navigazione cross-site",
+      "description": "Verifica che le voci del menu superiore siano cliccabili e producano l'evento header_menu_click.",
+      "trackingEvents": [
+        "header_menu_click"
+      ],
+      "steps": [
+        {
+          "action": "click",
+          "description": "Clicca sulla voce Hosting",
+          "targetSelector": "#top-bar-header .left-list.site-list a[href*='hosting.aruba.it']",
+          "expectEvents": [
+            {
+              "event": "header_menu_click",
+              "payload": {
+                "link_text": "Hosting",
+                "link_url": "https://hosting.aruba.it/home.aspx",
+                "index": "0"
+              }
+            }
+          ],
+          "expectUrlContains": "hosting.aruba.it"
+        },
+        {
+          "action": "waitFor",
+          "description": "Attendi il caricamento della pagina Hosting",
+          "waitForSelector": "body"
+        }
+      ]
+    },
+    {
+      "id": "main-navigation",
+      "label": "Main navigation: voci principali",
+      "description": "Verifica che le voci del menu principale siano cliccabili e generino l'evento header_menu_click.",
+      "trackingEvents": [
+        "header_menu_click"
+      ],
+      "steps": [
+        {
+          "action": "click",
+          "description": "Clicca sulla voce Privati",
+          "targetSelector": "#nav-privati-desktop",
+          "expectEvents": [
+            {
+              "event": "header_menu_click",
+              "payload": {
+                "link_text": "Privati",
+                "link_url": "/offerte-fibra-casa.aspx",
+                "index": "1"
+              }
+            }
+          ],
+          "expectUrlContains": "offerte-fibra-casa"
+        },
+        {
+          "action": "click",
+          "description": "Torna alla home cliccando il logo",
+          "targetSelector": "#logo-header a",
+          "waitForSelector": "body"
+        },
+        {
+          "action": "click",
+          "description": "Apri il dropdown Aziende",
+          "targetSelector": "#nav-aziende-desktop",
+          "notes": "Richiede interazione per aprire il menu a tendina"
+        },
+        {
+          "action": "click",
+          "description": "Seleziona la voce P. IVA e aziende",
+          "targetSelector": "#nav-piva-aziende-desktop",
+          "expectEvents": [
+            {
+              "event": "header_menu_click",
+              "payload": {
+                "link_text": "P. IVA e aziende",
+                "link_url": "/offerte-fibra-aziende.aspx",
+                "index": "2"
+              }
+            }
+          ],
+          "expectUrlContains": "offerte-fibra-aziende"
+        }
+      ]
+    }
+    ,
+    {
+      "id": "view-item-list",
+      "label": "Ecommerce: view_item_list",
+      "description": "Verifica che la pagina generi l'evento view_item_list sul dataLayer dopo il caricamento della lista prodotti.",
+      "trackingEvents": [
+        "view_item_list"
+      ],
+      "steps": [
+        {
+          "action": "assertEvent",
+          "description": "Attendi il push view_item_list sul dataLayer",
+          "expectEvents": [
+            {
+              "event": "view_item_list"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "notes": "Manifest iniziale per il dominio Fibra: completare con ulteriori use case (lead form, CTA, ecc.)."
+}

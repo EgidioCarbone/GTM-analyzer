@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import fsSync from 'fs';
+import { SSD_DEFAULTS, getConfigValue } from '../config/ssd-defaults';
 
 export interface OpenAISpecResponse {
   dsl: any;
@@ -20,6 +21,33 @@ export class OpenAIError extends Error {
     super(message);
     this.name = 'OpenAIError';
   }
+}
+
+export interface TestEvaluationStep {
+  description?: string;
+  status?: string;
+  expectations?: any[];
+  matchedEvent?: any;
+  eventDetails?: any;
+  capturedEvents?: any[];
+  error?: string | null;
+}
+
+export interface TestEvaluationRequest {
+  site: string;
+  pdfText: string;
+  steps: TestEvaluationStep[];
+}
+
+export interface TestEvaluationResponse {
+  overallStatus: 'PASS' | 'FAIL';
+  reasoning: string;
+  stepFindings: Array<{
+    description: string;
+    status: 'PASS' | 'FAIL';
+    message: string;
+  }>;
+  suggestedFixes?: string[];
 }
 
 export class OpenAISpecService {
@@ -140,6 +168,57 @@ export class OpenAISpecService {
     }
   }
 
+  async evaluateTestOutcome(request: TestEvaluationRequest): Promise<TestEvaluationResponse> {
+    const { site, pdfText, steps } = request;
+
+    if (!pdfText || pdfText.trim().length === 0) {
+      throw new OpenAIError('PDF text is empty', 'INVALID_RESPONSE');
+    }
+
+    if (!Array.isArray(steps) || steps.length === 0) {
+      throw new OpenAIError('Steps array is empty', 'INVALID_RESPONSE');
+    }
+
+    const truncatedPdf = this.truncateText(
+      pdfText,
+      getConfigValue('PDF_MAX_LENGTH', SSD_DEFAULTS.content.maxPdfLength, val => Number.parseInt(val, 10))
+    );
+
+    const stepsSummary = steps.map(step => ({
+      description: step.description || 'No description',
+      status: step.status || 'UNKNOWN',
+      expectations: step.expectations || [],
+      matchedEvent: step.matchedEvent || step.eventDetails?.payload || null,
+      capturedEvents: step.capturedEvents || [],
+      error: step.error || null,
+    }));
+
+    const response = await this.client.chat.completions.create({
+      model: this.model,
+      messages: [
+        { role: 'system', content: this.getEvaluationSystemPrompt() },
+        { role: 'user', content: this.buildEvaluationPrompt(site, truncatedPdf, stepsSummary) },
+      ],
+      response_format: { type: 'json_object' },
+      temperature: SSD_DEFAULTS.llm.temperature.evaluation ?? 0,
+      max_tokens: SSD_DEFAULTS.llm.maxTokens.evaluation ?? 1200,
+    });
+
+    const content = response.choices[0]?.message?.content;
+    if (!content) {
+      throw new OpenAIError('Empty response from OpenAI during evaluation', 'INVALID_RESPONSE');
+    }
+
+    try {
+      return JSON.parse(content) as TestEvaluationResponse;
+    } catch (error) {
+      throw new OpenAIError(
+        `Invalid JSON response from OpenAI evaluation: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        'INVALID_RESPONSE'
+      );
+    }
+  }
+
   /**
    * Get the universal system prompt for DSL generation
    */
@@ -240,6 +319,60 @@ YOUR TASK:
 - IMPORTANT: The "consent" field must be an array of strings like ["accept", "reject"] or ["accept"] - never a single string.
 - EXAMPLE: "consent": ["accept"] or "consent": ["accept", "reject"] - NOT "consent": "accept"
 - Return ONLY JSON. No comments.`;
+  }
+
+  private getEvaluationSystemPrompt(): string {
+    return `You are an analytics quality auditor. Compare captured dataLayer payloads with the expected behaviour described in a PDF specification and determine whether the implementation is correct.
+
+IMPORTANT DOMAIN RULES:
+- La colonna "Value example" del PDF rappresenta esempi di valori, NON obblighi testuali. Trattala come placeholder: il campo passa se esiste e contiene un valore plausibile/compatibile con il tipo richiesto.
+- Usa la colonna "Value status" (quando presente) per capire se il campo è "required" o opzionale. Se non trovi indicazioni, considera obbligatori i campi elencati nella tabella.
+- I valori numerici possono arrivare come stringhe parsabili ("61.00") oppure come numeri. Accetta entrambi purché il parsing riesca e i constraint (es. > 0) siano rispettati.
+- Per i tipi dichiarati come "float" o "int" consenti piccole approssimazioni decimali; confronta usando il valore numerico.
+- Verifica la presenza dei parametri richiesti e che rispettino il tipo (string, float, int). Controlla anche elementi fondamentali come prezzi > 0, quantity >= 1 quando rilevante.
+- Se il PDF specifica un valore fisso o una regola esplicita (es. "deve essere uguale a X"), allora esigi la corrispondenza esatta.
+- Considera FAIL solo quando manca un campo obbligatorio, il tipo è errato, il valore è vuoto o palesemente fuori specifica, oppure l'evento stesso non è presente.
+- Accetta eventuali campi extra nel payload: non sono un errore.
+
+Return ONLY valid JSON with this structure:
+{
+  "overallStatus": "PASS" | "FAIL",
+  "reasoning": "string",
+  "stepFindings": [
+    { "description": "string", "status": "PASS" | "FAIL", "message": "string" }
+  ],
+  "suggestedFixes": ["string"]
+}
+
+Guidelines:
+- Mark overallStatus as PASS only if every mandatory requirement described in the PDF is satisfied by the captured payloads.
+- Evaluate field-by-field (item_name, item_id, item_brand, price, quantity, etc.).
+- Highlight missing or incorrect values in stepFindings.
+- suggestedFixes can be omitted or empty if not needed.`;
+  }
+
+  private buildEvaluationPrompt(site: string, pdfText: string, steps: any[]): string {
+    const stepsJson = JSON.stringify(steps, null, 2);
+    return `SITO: ${site}
+
+SPECIFICA PDF (estratto):
+${pdfText}
+
+EVENTI CATTURATI:
+${stepsJson}
+
+Istruzioni:
+- Confronta le aspettative del PDF con gli eventi registrati.
+- Valuta se ogni parametro richiesto è presente e coerente.
+- Considera PASS solo se l'evento contiene tutti i campi obbligatori con valori plausibili.
+- Riporta eventuali anomalie o campi mancanti nelle stepFindings.
+- Concludi con overallStatus PASS/FAIL e un reasoning sintetico.`;
+  }
+
+  private truncateText(text: string, maxLength: number): string {
+    if (!text) return '';
+    if (text.length <= maxLength) return text;
+    return `${text.substring(0, maxLength)}${SSD_DEFAULTS.content.truncationMarker}`;
   }
 
   /**

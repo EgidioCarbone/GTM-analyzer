@@ -240,7 +240,7 @@ export default function ResultsStep({
             Export Report
           </Button>
           <Button 
-            onClick={() => onRunTestsWithData(originalDsl, state.pdfContent || '', undefined)} 
+            onClick={() => onRunTestsWithData(originalDsl, state.pdfContent || '', undefined, state.moduleSource ?? null)} 
             className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold py-3 px-8 rounded-lg shadow-lg hover:shadow-xl transition-all duration-200 transform hover:scale-105 w-full sm:w-auto"
           >
             <RefreshCw className="w-4 h-4 mr-2" />

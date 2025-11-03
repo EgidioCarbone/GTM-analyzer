@@ -9,14 +9,16 @@ import {
   FileText,
   FolderOpen,
   LayoutDashboard,
+  ListChecks,
   RefreshCw,
   ShieldAlert,
+  Sparkles,
   Timer
 } from 'lucide-react';
 import { Card } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/Badge';
-import { TestReport } from '../../types/ssd';
+import { TestReport, ModuleSource } from '../../types/ssd';
 import { buildReportSummary } from '../../utils/report';
 
 interface DetailedResultsStepProps {
@@ -26,10 +28,11 @@ interface DetailedResultsStepProps {
     dsl: any;
     url: string;
     pdfContent?: string | null;
+    moduleSource?: ModuleSource | null;
   };
   onReset: () => void;
   onExportReport: () => void;
-  onRunTestsWithData: (dsl: any, pdfContent: string, pdfBufferPath?: string) => void;
+  onRunTestsWithData: (dsl: any, pdfContent: string, pdfBufferPath?: string, moduleSource?: ModuleSource | null) => void;
 }
 
 type StatusTone = 'success' | 'warning' | 'error';
@@ -468,6 +471,13 @@ export default function DetailedResultsStep({
 
   if (report.pdf) {
     const pdfTone = statusToTone(report.pdf.status);
+    const evaluation = report.pdf.llm;
+    const evaluationTone = evaluation ? statusToTone(evaluation.overallStatus) : null;
+    const evaluationToneClasses: Record<StatusTone, string> = {
+      success: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+      warning: 'border-amber-200 bg-amber-50 text-amber-800',
+      error: 'border-rose-200 bg-rose-50 text-rose-800',
+    };
     const pdfMetrics: TimelineMetric[] = [
       { label: 'Durata', value: formatDuration(report.pdf.duration || pdfSummary?.duration), tone: 'info' },
       { label: 'Step eseguiti', value: String(report.pdf.steps?.length ?? pdfSummary?.steps ?? 0) },
@@ -485,6 +495,63 @@ export default function DetailedResultsStep({
           <p className="text-sm text-gray-600">{report.pdf.details}</p>
         )}
         {renderPdfStepHighlights(report.pdf.steps)}
+        {evaluation && evaluationTone && (
+          <div className={`rounded-xl border p-4 text-sm shadow-sm ${evaluationToneClasses[evaluationTone]}`}>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2 font-semibold">
+                <Sparkles className="h-4 w-4" />
+                <span>Valutazione LLM</span>
+              </div>
+              <Badge variant={evaluationTone}>{evaluation.overallStatus}</Badge>
+            </div>
+            {evaluation.reasoning && (
+              <p className="mt-2 text-sm opacity-90">{evaluation.reasoning}</p>
+            )}
+            {evaluation.stepFindings && evaluation.stepFindings.length > 0 && (
+              <div className="mt-3 space-y-2">
+                {evaluation.stepFindings.map((finding, index) => {
+                  const findingTone = statusToTone(finding.status);
+                  return (
+                    <div
+                      key={`${finding.description || index}-${index}`}
+                      className="rounded-lg border border-white/50 bg-white/70 p-3 text-sm text-gray-800 shadow-sm"
+                    >
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div className="flex items-center gap-2 font-medium text-gray-900">
+                          <ListChecks className="h-4 w-4" />
+                          <span>{finding.description || `Step ${index + 1}`}</span>
+                        </div>
+                        <Badge variant={findingTone}>{finding.status}</Badge>
+                      </div>
+                      {finding.message && (
+                        <p className="mt-1 text-gray-700">{finding.message}</p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {evaluation.suggestedFixes && evaluation.suggestedFixes.length > 0 && (
+              <div className="mt-3 rounded-lg border border-white/40 bg-white/60 p-3 text-sm text-gray-800">
+                <p className="font-semibold text-gray-900">Suggerimenti</p>
+                <ul className="mt-2 list-disc space-y-1 pl-4 text-gray-700">
+                  {evaluation.suggestedFixes.map((fix, index) => (
+                    <li key={`${fix}-${index}`}>{fix}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
+        {report.pdf.llmError && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+            <div className="flex items-center gap-2 font-semibold">
+              <AlertTriangle className="h-4 w-4" />
+              <span>Valutazione LLM non disponibile</span>
+            </div>
+            <p className="mt-1 text-amber-700">{report.pdf.llmError}</p>
+          </div>
+        )}
       </div>
     );
 
@@ -677,35 +744,44 @@ export default function DetailedResultsStep({
         </Card>
       )}
 
-      <Card className="p-6">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div className="text-sm text-gray-600">
-            Richiedi nuovamente il test o esporta il risultato corrente.
-          </div>
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <Button onClick={onReset} variant="outline" className="flex items-center gap-2 px-6 py-3">
-              <RefreshCw className="h-4 w-4" />
-              Esegui nuovo test
-            </Button>
-            <Button onClick={onExportReport} variant="outline" className="flex items-center gap-2 px-6 py-3">
+      <div className="sticky bottom-8 flex flex-col gap-4 rounded-3xl border border-white/60 bg-white/75 px-6 py-5 shadow-2xl backdrop-blur">
+        <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-gray-600">
+          <span>Richiedi nuovamente il test, esporta il report o riparti da zero.</span>
+          <span className="text-xs uppercase tracking-[0.3em] text-gray-400">Azioni rapide</span>
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <Button
+            onClick={onReset}
+            variant="outline"
+            className="inline-flex items-center gap-2 rounded-full border border-gray-300 px-6 py-3 text-sm font-semibold text-gray-600 hover:border-gray-400 hover:bg-gray-50"
+          >
+            <RefreshCw className="h-4 w-4" />
+            Nuovo test
+          </Button>
+          <div className="flex flex-wrap gap-3">
+            <Button
+              onClick={onExportReport}
+              variant="outline"
+              className="inline-flex items-center gap-2 rounded-full border border-gray-300 px-6 py-3 text-sm font-semibold text-gray-600 hover:border-gray-400 hover:bg-gray-50"
+            >
               <Download className="h-4 w-4" />
               Esporta report
             </Button>
             <Button
               onClick={() => {
                 if (state.dsl && state.pdfContent) {
-                  onRunTestsWithData(state.dsl, state.pdfContent, undefined);
+                  onRunTestsWithData(state.dsl, state.pdfContent, undefined, state.moduleSource ?? null);
                 }
               }}
               disabled={!canReRun}
-              className="flex items-center gap-2 px-6 py-3"
+              className="group inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 px-8 py-3 text-sm font-semibold text-white shadow-lg transition-all duration-200 hover:shadow-2xl focus:ring-4 focus:ring-purple-300/40 disabled:cursor-not-allowed disabled:from-gray-200 disabled:to-gray-300 disabled:text-gray-500"
             >
               <RefreshCw className="h-4 w-4" />
-              Riavvia test
+              Riavvia con gli stessi dati
             </Button>
           </div>
         </div>
-      </Card>
+      </div>
 
       <DebugPanel report={report} />
     </div>

@@ -1,0 +1,82 @@
+SPEC-EE-10 - Purchase
+EVENTO CHIAVE
+purchase
+PARAMETRI DI PUSH
+GA4 Event NameParameterAncestorValue exampleVariable typeValue statusScope
+purchasecurrency-EURstringrequiredAll
+value-27.5floatrequiredAll
+tax-4.81floatoptionalAll
+shipping-3.79stringoptional?
+transaction_id-2004184338stringrequiredAll
+coupon-PROMO-BFstringoptional?
+shipping_tier-UPSstringoptional?
+payment_type-PayPalstringrequiredAll
+user_type-utente nuovostringrequired?
+transaction_type-ordinestringrequired?
+bundle_code-MCIstringrequiredserver dedicati
+item_nameitemsFibra Aruba ProstringrequiredAll
+item_iditems12345-SKU-IDstringrequiredAll
+item_branditemsfibrastringrequired?
+priceitems29.5floatrequiredAll
+discountitems2.0floatoptionalAll
+quantityitems1intrequiredAll
+monthly_rentalitems12intrequired?
+CONDIZIONI
+L’utente ha concluso un acquisto. Assicurarsi di configurare il sito web in modo che i dati di acquisto vengano inviati una sola volta.
+Assicurarsi di trasferire un valore dinamico per . Se il tag invia a Google Analytics lo stesso ID per diverse transazioni, potrebbe essere transaction_id
+conteggiato un numero notevolmente inferiore di conversioni.
+Non inviare una stringa vuota come transaction_id. Google Analytics deduplica tutti gli eventi di acquisto provvisti di =’ ’.transaction_id
+SCRIPT
+
+<script>
+window.dataLayer = window.dataLayer || [];
+window.dataLayer.push({
+  event: 'purchase',
+  ecommerce: {
+    currency: '[CURRENCY]',
+    value: [VALORE TRANSAZIONE],
+    tax: [VALORE TASSE],
+    shipping: [VALORE SPEDIZIONE],
+    transaction_id: '[TRANSACTION ID]',
+    coupon: '[COUPON]',
+    shipping_tier: '[VETTORE SPEDIZIONE]',
+    payment_type: '[METODO DI PAGAMENTO]',
+    user_type: '[TIPOLOGIA UTENTE]',
+    transaction_type: '[TIPOLOGIA TRANSAZIONE]'
+    bundle_code: '[CODICE BUDNLE]',
+    items: [{      
+      item_name: '[NOME PRODOTTO]',
+      item_id: '[ID PRODOTTO]',
+      item_brand: '[BL PRODOTTO]',        
+      price: [PREZZO PRODOTTO],
+      quantity: 1,
+      monthly_rental: [MENSILITÀ ACQUISTATE]
+    }]
+  }
+});
+</script>
+DOVE
+currency sarà riempito con il codice a 3 lettere della valuta locale
+value sarà riempito con il valore totale della transazione calcolato  sulla somma di (price * quantity)per tutti gli elementi in  items.Non includere s
+hippingo  tax.
+tax sarà riempito con il valore degli oneri fiscali associati a una transazione
+shipping sarà riempito con valore del costo di spedizione associato a una transazione
+transaction_id sarà riempito con l'ID univoco della transazione
+coupon sarà riempito con il nome/codice del coupon di sconto, se disponibile; in caso contrario lasciare vuoto
+shipping_tier sarà riempito con il nome del vettore scelto per la spedizione. Se il dato è indisponibile o univoco per ogni transazione, eliminare il 
+parametro
+payment_type sarà riempito con il nome del metodo di pagamento usato dall’utente per pagare l’ordine. Se il dato è indisponibile o univoco per ogni 
+transazione, eliminare il parametro
+user_type sarà riempito con uno dei valori specificati nella tabella user_type
+transaction_type sarà riempito con uno dei valori specificati nella tabella transaction_type
+bundle_code sarà riempito con il codice di un singolo bundle venduto all’interno di una transazione
+item_name sarà riempito con il nome del prodotto così come appare in pagina
+item_id sarà riempito con il codice del prodotto (ID, SKU, codice interno Aruba)
+item_brand sarà riempito con uno dei valori specificati nella tabella item_brand
+price sarà riempito con il prezzo del prodotto così come appare in pagina. Se all'articolo si applica uno sconto, impostare pricesul prezzo unitario  
+scontato e specificare lo sconto sul prezzo unitario nel parametro discount.
+sarà riempito con il valore dello sconto monetario unitario associato al prodottodiscount 
+quantity sarà riempito con il numero di unità transazionali venduteSe viene venduto un in termini di prodotti, pacchetti o offerte.  pacchetto di 500 SMS 
+, il valore di  sarà impostato a, in quanto si tratta di, a prescindere dal fatto che il al prezzo di 10€quantity 1 una singola unità di prodotto venduta
+pacchetto contenga 500 SMS. Il valore totale () rifletterà correttamente il prezzo di acquisto, ossia 10€.non è mai <= 0.price × quantity quantity 
+monthly_rental sarà riempito con il numero di mesi acquistati

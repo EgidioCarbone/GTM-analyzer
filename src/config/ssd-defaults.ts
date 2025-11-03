@@ -21,6 +21,7 @@ export const LLM_DEFAULTS = {
     consentAnalysis: 0.2,     // Slightly higher for CMP detection
     documentGeneration: 0.2,  // For measurement doc generation
     insights: 0.2,            // For GA4 insights
+    evaluation: 0,            // Deterministic evaluation of captured events
   },
   
   // Max tokens per task type
@@ -29,6 +30,7 @@ export const LLM_DEFAULTS = {
     targetEnhancement: 800,
     documentGeneration: 4000,
     insights: 4000,
+    evaluation: 1200,
   },
   
   // Timeouts
@@ -417,4 +419,3 @@ export const SSD_DEFAULTS = {
 } as const;
 
 export default SSD_DEFAULTS;
-

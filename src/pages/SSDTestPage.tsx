@@ -1,6 +1,6 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { Upload, Play, Loader2, Eye, Tag, Code2, PackageSearch, Box, FileText, CheckCircle, RefreshCw } from 'lucide-react';
-import { TestSpec, SSDTestState } from '../types/ssd';
+import { TestSpec, SSDTestState, ModuleConfig, ModuleSource } from '../types/ssd';
 import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { useSSDConfig } from '../hooks/useSSDConfig';
@@ -10,22 +10,157 @@ import { notifyError } from '../utils/errorNotification';
 import toast from 'react-hot-toast';
 import UploadStep from '../components/ssd/UploadStep';
 import ReviewStep from '../components/ssd/ReviewStep';
-import ResultsStep from '../components/ssd/ResultsStep';
 import DetailedResultsStep from '../components/ssd/DetailedResultsStep';
 import { SSDProgressModal } from '../components/ssd/SSDProgressModal';
+import ModuleSelectionStep from '../components/ssd/ModuleSelectionStep';
+import ModuleConfigForm from '../components/ssd/ModuleConfigForm';
+import { getModule } from '../modules';
+import type { ModuleId } from '../modules/types';
+import type { SSDModule } from '../modules/types';
+import { isModuleFieldEmpty } from '../modules/utils';
+
+const ensureAbsoluteUrl = (url: string): string => {
+  if (!url) return url;
+  if (/^https?:\/\//i.test(url)) return url;
+  const trimmed = url.replace(/^\/+/, '');
+  return `https://${trimmed}`;
+};
+
+const normalizeModuleUrls = (module?: SSDModule | null): string[] => {
+  if (!module) return [];
+  const sourceList =
+    module.defaultUrls && module.defaultUrls.length > 0
+      ? module.defaultUrls
+      : module.supportedHosts || [];
+  const normalized = sourceList.map(ensureAbsoluteUrl).filter(Boolean) as string[];
+  return Array.from(new Set(normalized));
+};
+
+const createInitialState = (
+  moduleId: ModuleId | null = null,
+  moduleConfig: ModuleConfig = {},
+  defaultUrls: string[] = []
+): SSDTestState => ({
+  currentStep: moduleId ? 'upload' : 'module',
+  moduleId,
+  moduleConfig: { ...moduleConfig },
+  moduleSource: null,
+  url: defaultUrls[0] || '',
+  pdfFile: null,
+  dsl: null,
+  pdfContent: null,
+  report: null,
+  isLoading: false,
+  error: null,
+});
+
+const shallowConfigEqual = (a: ModuleConfig, b: ModuleConfig): boolean => {
+  const aKeys = Object.keys(a);
+  const bKeys = Object.keys(b);
+  if (aKeys.length !== bKeys.length) return false;
+  for (const key of aKeys) {
+    const aValue = a[key];
+    const bValue = b[key];
+    if (Array.isArray(aValue) || Array.isArray(bValue)) {
+      if (JSON.stringify(aValue) !== JSON.stringify(bValue)) {
+        return false;
+      }
+    } else if (aValue !== bValue) {
+      return false;
+    }
+  }
+  return true;
+};
 
 
 export default function SSDTestPage() {
-  const [state, setState] = useState<SSDTestState>({
-    currentStep: 'upload',
-    url: '',
-    pdfFile: null,
-    dsl: null,
-    pdfContent: null,
-    report: null,
-    isLoading: false,
-    error: null,
-  });
+  const [state, setState] = useState<SSDTestState>(() => createInitialState());
+
+  const selectedModule = state.moduleId ? getModule(state.moduleId) : undefined;
+  const moduleUrlOptions = useMemo(() => normalizeModuleUrls(selectedModule), [selectedModule]);
+
+  useEffect(() => {
+    if (!selectedModule) return;
+
+    setState(prev => {
+      if (!prev.moduleId || prev.moduleId !== selectedModule.meta.id) {
+        // Module changed, initial state will be handled by module selection logic
+        return prev;
+      }
+
+      const defaults = selectedModule.defaultConfig ?? {};
+      let merged: ModuleConfig = {
+        ...defaults,
+        ...prev.moduleConfig,
+      };
+
+      let changed = !shallowConfigEqual(merged, prev.moduleConfig);
+
+      for (const field of selectedModule.configFields) {
+        if (merged[field.id] === undefined && field.defaultValue !== undefined) {
+          merged = {
+            ...merged,
+            [field.id]: field.defaultValue,
+          };
+          changed = true;
+        }
+      }
+
+      if (!changed) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        moduleConfig: merged,
+      };
+    });
+  }, [selectedModule]);
+
+  const getMissingRequiredConfig = useCallback((): string[] => {
+    if (!selectedModule) return [];
+    const config = state.moduleConfig ?? {};
+
+    return selectedModule.configFields
+      .filter(field => field.required && isModuleFieldEmpty(field, config[field.id]))
+      .map(field => field.label);
+  }, [selectedModule, state.moduleConfig]);
+
+  const handleModuleSelect = (moduleId: ModuleId) => {
+    const moduleDefinition = getModule(moduleId);
+    const defaultConfig = moduleDefinition?.defaultConfig ?? {};
+    const moduleUrls = normalizeModuleUrls(moduleDefinition);
+    const initialState = createInitialState(moduleId, defaultConfig, moduleUrls);
+    setState({
+      ...initialState,
+      currentStep: 'module',
+    });
+  };
+
+  const handleModuleProceed = () => {
+    if (!state.moduleId) {
+      toast.error('Seleziona un modulo per continuare');
+      return;
+    }
+    setState(prev => ({ ...prev, currentStep: 'upload' }));
+  };
+
+  const handleChangeModule = () => {
+    setState(createInitialState());
+    setLoadingType(null);
+    setEditableDsl('');
+    setIsEditingDsl(false);
+    setDslValidationError(null);
+    setOriginalDsl(null);
+    hideAnalysis();
+  };
+
+  const handleModuleConfigChange = useCallback((nextConfig: ModuleConfig) => {
+    setState(prev => ({
+      ...prev,
+      moduleConfig: nextConfig,
+    }));
+  }, []);
 
   const [loadingType, setLoadingType] = useState<'pdf' | 'test' | null>(null);
   const [editableDsl, setEditableDsl] = useState<string>('');
@@ -160,6 +295,23 @@ export default function SSDTestPage() {
   };
 
   const handleIngest = async () => {
+    if (!state.moduleId) {
+      toast.error('Seleziona un modulo prima di avviare il test');
+      return;
+    }
+
+    const missingConfigFields = getMissingRequiredConfig();
+    if (missingConfigFields.length > 0) {
+      toast.error(
+        <div className="space-y-1">
+          <div className="font-semibold">Configura tutti i campi obbligatori</div>
+          <div className="text-sm">Completa: {missingConfigFields.join(', ')}</div>
+        </div>,
+        { duration: 5000 }
+      );
+      return;
+    }
+
     if (!state.url || !state.pdfFile) {
       toast.error('Please provide both URL and PDF file');
       return;
@@ -203,6 +355,8 @@ export default function SSDTestPage() {
       const formData = new FormData();
       formData.append('url', normalizedUrl);
       formData.append('pdf', state.pdfFile);
+      formData.append('moduleId', state.moduleId);
+      formData.append('moduleConfig', JSON.stringify(state.moduleConfig || {}));
 
       updateStep('pdf_upload', 'completed', 'PDF uploaded successfully');
       updateStep('pdf_analysis', 'running', 'Analyzing PDF content...');
@@ -230,6 +384,7 @@ export default function SSDTestPage() {
         ...prev,
         dsl: result.dsl,
         pdfContent: result.pdfContent,
+        moduleSource: result.moduleSource ?? prev.moduleSource ?? null,
         currentStep: 'upload', // Keep on upload, we'll auto-run
         isLoading: false,
       }));
@@ -246,7 +401,13 @@ export default function SSDTestPage() {
       
       // Avvia immediatamente i test senza pause artificiali
       console.log('About to call handleRunTests with stored data...');
-      handleRunTestsWithData(result.dsl, result.pdfContent, result.pdfBufferPath);
+      handleRunTestsWithData(
+        result.dsl,
+        result.pdfContent,
+        result.pdfBufferPath,
+        result.moduleSource ?? null,
+        result.moduleId ?? selectedModule?.meta.id ?? state.moduleId ?? null
+      );
 
     } catch (error) {
       // Gestisci errore di abort
@@ -269,12 +430,36 @@ export default function SSDTestPage() {
 
   // Step 2: Review (universal mode - no disambiguation needed)
 
-  const handleRunTestsWithData = async (dsl: any, pdfContent: string, pdfBufferPath?: string) => {
+  const handleRunTestsWithData = async (
+    dsl: any,
+    pdfContent: string,
+    pdfBufferPath?: string,
+    sourceOverride?: ModuleSource | null,
+    moduleIdOverride?: ModuleId | null
+  ) => {
     console.log('handleRunTestsWithData called');
     console.log('dsl:', dsl);
     console.log('pdfContent:', pdfContent);
     console.log('pdfBufferPath:', pdfBufferPath);
-    
+    const moduleIdForRun = moduleIdOverride ?? state.moduleId ?? selectedModule?.meta.id ?? null;
+
+    if (!moduleIdForRun) {
+      toast.error('Modulo non selezionato, impossibile eseguire i test');
+      return;
+    }
+
+    const missingConfigFields = getMissingRequiredConfig();
+    if (missingConfigFields.length > 0) {
+      toast.error(
+        <div className="space-y-1">
+          <div className="font-semibold">Configura tutti i campi obbligatori</div>
+          <div className="text-sm">Completa: {missingConfigFields.join(', ')}</div>
+        </div>,
+        { duration: 5000 }
+      );
+      return;
+    }
+
     if (!dsl) {
       console.log('No DSL provided, returning');
       return;
@@ -292,6 +477,8 @@ export default function SSDTestPage() {
     // Update state with the provided data
     setState(prev => ({ 
       ...prev, 
+      moduleId: moduleIdForRun ?? prev.moduleId ?? null,
+      moduleSource: sourceOverride ?? prev.moduleSource ?? null,
       dsl: dsl,
       pdfContent: pdfContent,
       isLoading: true, 
@@ -300,8 +487,14 @@ export default function SSDTestPage() {
 
     try {
       updateStep('browser_launch', 'running', 'Launching Puppeteer browser...');
+
+      const moduleSourceToUse: ModuleSource | null =
+        sourceOverride ?? state.moduleSource ?? (moduleIdForRun && selectedModule?.manifest ? 'manifest' : null);
       
       const requestBody = {
+        moduleId: moduleIdForRun,
+        moduleConfig: state.moduleConfig,
+        moduleSource: moduleSourceToUse,
         dsl: dsl,
         pdfContent: pdfContent,
         pdfBufferPath: pdfBufferPath,
@@ -312,10 +505,13 @@ export default function SSDTestPage() {
       };
       
       console.log('Frontend sending request body:', {
+        moduleId: requestBody.moduleId,
+        moduleSource: requestBody.moduleSource,
         dsl: !!requestBody.dsl,
         pdfContent: !!requestBody.pdfContent,
         pdfContentLength: requestBody.pdfContent?.length || 0,
         pdfContentPreview: requestBody.pdfContent?.substring(0, 100) + '...',
+        moduleConfigKeys: Object.keys(requestBody.moduleConfig || {}),
         runOptions: requestBody.runOptions
       });
       
@@ -528,7 +724,25 @@ export default function SSDTestPage() {
     console.log('handleRunTests called');
     console.log('state.dsl:', state.dsl);
     console.log('state.pdfContent:', state.pdfContent);
-    
+    const moduleIdForRun = state.moduleId ?? selectedModule?.meta.id ?? null;
+
+    if (!moduleIdForRun) {
+      toast.error('Seleziona un modulo prima di eseguire i test');
+      return;
+    }
+
+    const missingConfigFields = getMissingRequiredConfig();
+    if (missingConfigFields.length > 0) {
+      toast.error(
+        <div className="space-y-1">
+          <div className="font-semibold">Configura tutti i campi obbligatori</div>
+          <div className="text-sm">Completa: {missingConfigFields.join(', ')}</div>
+        </div>,
+        { duration: 5000 }
+      );
+      return;
+    }
+
     if (!state.dsl) {
       console.log('No DSL found, returning');
       return;
@@ -542,11 +756,14 @@ export default function SSDTestPage() {
     
     setState(prev => ({ 
       ...prev, 
+      moduleId: moduleIdForRun ?? prev.moduleId ?? null,
       isLoading: true, 
       error: null 
     }));
 
     try {
+      const moduleSourceToUse: ModuleSource | null =
+        state.moduleSource ?? (selectedModule?.manifest ? 'manifest' : null);
       const response = await fetch(`${apiBaseUrl}/api/ssd/run`, {
         method: 'POST',
         headers: {
@@ -554,6 +771,9 @@ export default function SSDTestPage() {
         },
         signal: abortController.signal,
         body: JSON.stringify({
+          moduleId: moduleIdForRun,
+          moduleConfig: state.moduleConfig,
+          moduleSource: moduleSourceToUse,
           dsl: state.dsl,
           pdfContent: state.pdfContent,
           runOptions: {
@@ -661,16 +881,8 @@ export default function SSDTestPage() {
   };
 
   const handleReset = () => {
-    setState({
-      currentStep: 'upload',
-      url: '',
-      pdfFile: null,
-      dsl: null,
-      pdfContent: null,
-      report: null,
-      isLoading: false,
-      error: null,
-    });
+    const defaultConfig = selectedModule?.defaultConfig ?? {};
+    setState(prev => createInitialState(prev.moduleId, defaultConfig, moduleUrlOptions));
     setLoadingType(null);
     setEditableDsl('');
     setIsEditingDsl(false);
@@ -678,6 +890,18 @@ export default function SSDTestPage() {
     setOriginalDsl(null);
     hideAnalysis();
   };
+
+  const progressStepsDefinition = [
+    { key: 'module', label: 'Modulo', icon: PackageSearch },
+    { key: 'upload', label: 'Upload & Process', icon: Upload },
+    { key: 'run', label: 'Results', icon: Play },
+  ] as const;
+
+  const activeStepKey =
+    state.currentStep === 'review' ? 'upload' : state.currentStep;
+  const activeStepIndex = progressStepsDefinition.findIndex(
+    step => step.key === activeStepKey
+  );
 
   const handleExportReport = () => {
     if (!state.report) return;
@@ -740,34 +964,48 @@ export default function SSDTestPage() {
         {/* Progress Steps */}
         <div className="mb-8">
           <div className="flex items-center justify-center space-x-8">
-            {[
-              { key: 'upload', label: 'Upload & Process', icon: Upload },
-              { key: 'run', label: 'Results', icon: Play },
-            ].map(({ key, label, icon: Icon }, index) => (
-              <div key={key} className="flex items-center">
-                <div className={`flex items-center justify-center w-10 h-10 rounded-full ${
-                  state.currentStep === key
-                    ? 'bg-blue-600 text-white'
-                    : (key === 'upload' && state.currentStep === 'run')
-                    ? 'bg-green-600 text-white'
-                    : 'bg-gray-300 text-gray-600'
-                }`}>
-                  <Icon className="w-5 h-5" />
+            {progressStepsDefinition.map((step, index) => {
+              const Icon = step.icon;
+              const status =
+                activeStepIndex === -1
+                  ? 'pending'
+                  : index < activeStepIndex
+                  ? 'completed'
+                  : index === activeStepIndex
+                  ? 'active'
+                  : 'pending';
+              const circleClass =
+                status === 'active'
+                  ? 'bg-blue-600 text-white'
+                  : status === 'completed'
+                  ? 'bg-green-600 text-white'
+                  : 'bg-gray-300 text-gray-600';
+              const labelClass =
+                status === 'active'
+                  ? 'text-blue-600'
+                  : status === 'completed'
+                  ? 'text-green-600'
+                  : 'text-gray-600';
+              return (
+                <div key={step.key} className="flex items-center">
+                  <div
+                    className={`flex items-center justify-center w-10 h-10 rounded-full ${circleClass}`}
+                  >
+                    <Icon className="w-5 h-5" />
+                  </div>
+                  <span className={`ml-2 font-medium ${labelClass}`}>
+                    {step.label}
+                  </span>
+                  {index < progressStepsDefinition.length - 1 && (
+                    <div
+                      className={`w-8 h-0.5 mx-4 ${
+                        index < activeStepIndex ? 'bg-green-600' : 'bg-gray-300'
+                      }`}
+                    />
+                  )}
                 </div>
-                <span className={`ml-2 font-medium ${
-                  state.currentStep === key ? 'text-blue-600' : 'text-gray-600'
-                }`}>
-                  {label}
-                </span>
-                {index < 1 && (
-                  <div className={`w-8 h-0.5 mx-4 ${
-                    state.currentStep === 'run'
-                      ? 'bg-green-600'
-                      : 'bg-gray-300'
-                  }`} />
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
@@ -786,6 +1024,53 @@ export default function SSDTestPage() {
           }}
         />
 
+        {state.currentStep === 'module' && (
+          <ModuleSelectionStep
+            selectedModuleId={state.moduleId}
+            onSelect={handleModuleSelect}
+            onProceed={handleModuleProceed}
+          />
+        )}
+
+        {state.currentStep !== 'module' && selectedModule && (
+          <Card className="mb-6 p-5 border border-blue-100 bg-white/80 backdrop-blur">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+              <div>
+                <p className="text-xs uppercase tracking-wide text-blue-500 mb-1">
+                  Modulo selezionato
+                </p>
+                <h2 className="text-2xl font-semibold text-gray-900">
+                  {selectedModule.meta.title}
+                </h2>
+                <p className="text-gray-600 mt-1 max-w-2xl">
+                  {selectedModule.meta.description}
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                {selectedModule.meta.tags?.map(tag => (
+                  <span
+                    key={tag}
+                    className="px-3 py-1 text-xs font-medium bg-blue-50 text-blue-600 rounded-full"
+                  >
+                    {tag}
+                  </span>
+                ))}
+                <Button variant="outline" onClick={handleChangeModule}>
+                  Cambia modulo
+                </Button>
+              </div>
+            </div>
+          </Card>
+        )}
+
+        {state.currentStep !== 'module' && selectedModule && (
+          <ModuleConfigForm
+            module={selectedModule}
+            values={state.moduleConfig}
+            onChange={handleModuleConfigChange}
+          />
+        )}
+
         {/* Step 1: Upload */}
         {state.currentStep === 'upload' && (
           <UploadStep
@@ -793,6 +1078,7 @@ export default function SSDTestPage() {
             ssdConfig={ssdConfig}
             configLoading={configLoading}
             configError={configError}
+            moduleUrls={moduleUrlOptions}
             onFileUpload={handleFileUpload}
             onUrlChange={handleUrlChange}
             onIngest={handleIngest}

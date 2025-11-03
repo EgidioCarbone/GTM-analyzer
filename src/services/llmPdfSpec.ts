@@ -17,6 +17,31 @@ export interface LLMPdfSpecResult {
   warnings?: string[];
 }
 
+export interface LLMTestEvaluationOptions {
+  site: string;
+  pdfText: string;
+  steps: Array<{
+    description?: string;
+    status?: string;
+    expectations?: any[];
+    matchedEvent?: any;
+    eventDetails?: any;
+    capturedEvents?: any[];
+    error?: string | null;
+  }>;
+}
+
+export interface LLMTestEvaluationResult {
+  overallStatus: 'PASS' | 'FAIL';
+  reasoning: string;
+  stepFindings: Array<{
+    description: string;
+    status: 'PASS' | 'FAIL';
+    message: string;
+  }>;
+  suggestedFixes?: string[];
+}
+
 export class LLMPdfSpecService {
   private openai: OpenAI;
   private model: string;
@@ -33,6 +58,59 @@ export class LLMPdfSpecService {
     this.model = model || getConfigValue('OPENAI_MODEL', SSD_DEFAULTS.llm.models.default);
     this.temperature = temperature ?? SSD_DEFAULTS.llm.temperature.specGeneration;
     this.maxTokens = maxTokens ?? SSD_DEFAULTS.llm.maxTokens.specGeneration;
+  }
+
+  async evaluateTestOutcome(options: LLMTestEvaluationOptions): Promise<LLMTestEvaluationResult> {
+    const { pdfText, site, steps } = options;
+
+    if (!pdfText || pdfText.trim().length === 0) {
+      throw new Error('PDF_EMPTY: pdfText is empty');
+    }
+
+    if (!Array.isArray(steps) || steps.length === 0) {
+      throw new Error('EVALUATION_STEPS_EMPTY: steps array is empty');
+    }
+
+    const truncatedPdf = this.truncateText(pdfText, getConfigValue('PDF_MAX_LENGTH', SSD_DEFAULTS.content.maxPdfLength, val => Number.parseInt(val, 10)));
+    const stepsSummary = steps.map(step => ({
+      description: step.description || 'No description',
+      status: step.status || 'UNKNOWN',
+      expectations: step.expectations || [],
+      matchedEvent: step.matchedEvent || step.eventDetails?.payload || null,
+      capturedEvents: step.capturedEvents || [],
+      error: step.error || null,
+    }));
+
+    const prompt = this.buildEvaluationPrompt(site, truncatedPdf, stepsSummary);
+
+    const response = await this.openai.chat.completions.create({
+      model: this.model,
+      messages: [
+        {
+          role: 'system',
+          content: this.getEvaluationSystemPrompt(),
+        },
+        {
+          role: 'user',
+          content: prompt,
+        },
+      ],
+      response_format: { type: 'json_object' },
+      temperature: SSD_DEFAULTS.llm.temperature.evaluation ?? 0,
+      max_tokens: SSD_DEFAULTS.llm.maxTokens.evaluation ?? 600,
+    });
+
+    const content = response.choices[0]?.message?.content;
+    if (!content) {
+      throw new Error('No content received from OpenAI during evaluation');
+    }
+
+    try {
+      const parsed = JSON.parse(content) as LLMTestEvaluationResult;
+      return parsed;
+    } catch (error) {
+      throw new Error(`Failed to parse evaluation response as JSON: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   }
 
   async generatePdfSpec(options: LLMPdfSpecOptions): Promise<LLMPdfSpecResult> {
@@ -103,6 +181,50 @@ export class LLMPdfSpecService {
       }
       throw new Error(`LLM PDF spec generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
+  }
+
+  private getEvaluationSystemPrompt(): string {
+    return `You are an analytics quality auditor. Compare captured dataLayer payloads with the expected behaviour described in a PDF specification and determine whether the implementation is correct.
+
+Return ONLY valid JSON with this structure:
+{
+  "overallStatus": "PASS" | "FAIL",
+  "reasoning": "string",
+  "stepFindings": [
+    { "description": "string", "status": "PASS" | "FAIL", "message": "string" }
+  ],
+  "suggestedFixes": ["string"]
+}
+
+Guidelines:
+- Mark overallStatus as PASS only if every mandatory requirement described in the PDF is satisfied by the captured payloads.
+- Evaluate field-by-field (item_name, item_id, item_brand, price, quantity, etc.).
+- Highlight missing or incorrect values in stepFindings.
+- suggestedFixes can be omitted or empty if not needed.`;
+  }
+
+  private buildEvaluationPrompt(site: string, pdfText: string, steps: any[]): string {
+    const stepsJson = JSON.stringify(steps, null, 2);
+    return `SITO: ${site}
+
+SPECIFICA PDF (estratto):
+${pdfText}
+
+EVENTI CATTURATI:
+${stepsJson}
+
+Istruzioni:
+- Confronta le aspettative del PDF con gli eventi registrati.
+- Valuta se ogni parametro richiesto è presente e coerente.
+- Considera PASS solo se l'evento contiene tutti i campi obbligatori con valori plausibili.
+- Riporta eventuali anomalie o campi mancanti nelle stepFindings.
+- Concludi con overallStatus PASS/FAIL e un reasoning sintetico.`;
+  }
+
+  private truncateText(text: string, maxLength: number): string {
+    if (!text) return '';
+    if (text.length <= maxLength) return text;
+    return `${text.substring(0, maxLength)}${SSD_DEFAULTS.content.truncationMarker}`;
   }
 
   private getSystemPrompt(): string {

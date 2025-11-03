@@ -1,3 +1,5 @@
+import type { ModuleId } from '../modules/types';
+
 // SSD Test Types
 // ============================================================================
 
@@ -8,12 +10,16 @@ export interface TestSpec {
   tests: Test[];
   meta?: {                           // optional metadata from generation
     model: string;
+    moduleId?: ModuleId;
     tokens: {
       input: number;
       output: number;
     };
   };
 }
+
+export type ModuleConfig = Record<string, unknown>;
+export type ModuleSource = 'manifest' | 'openai';
 
 export interface Test {
   section: string;                    // e.g., "Header", "Checkout"
@@ -56,12 +62,18 @@ export interface Expectation {
 // ============================================================================
 
 export interface SSDIngestRequest {
+  moduleId: ModuleId;
+  moduleConfig: ModuleConfig;
   url: string;
   pdf: File;
 }
 
 export interface SSDIngestResponse {
   dsl: TestSpec;
+  pdfContent: string;
+  pdfBufferPath: string;
+  moduleId?: ModuleId;
+  moduleSource?: ModuleSource;
   meta: {
     model: string;
     tokens: {
@@ -78,6 +90,9 @@ export interface Ambiguity {
 }
 
 export interface SSDRunRequest {
+  moduleId: ModuleId;
+  moduleConfig: ModuleConfig;
+  moduleSource?: ModuleSource;
   dsl: TestSpec;
   runOptions?: {
     headless?: boolean;
@@ -113,6 +128,7 @@ export interface TestReport {
   };
   pdf?: {
     status: 'PASS' | 'FAIL' | 'ERROR';
+    source?: ModuleSource | 'llm';
     spec?: any;
     result?: {
       summary?: {
@@ -124,6 +140,18 @@ export interface TestReport {
     };
     steps?: any[];
     duration?: number;
+    details?: string;
+    llm?: {
+      overallStatus: 'PASS' | 'FAIL';
+      reasoning: string;
+      stepFindings: Array<{
+        description: string;
+        status: 'PASS' | 'FAIL';
+        message: string;
+      }>;
+      suggestedFixes?: string[];
+    };
+    llmError?: string;
   };
   artifacts?: {
     htmlFile?: string;
@@ -190,7 +218,10 @@ export interface TrackingHit {
 // ============================================================================
 
 export interface SSDTestState {
-  currentStep: 'upload' | 'review' | 'run';
+  currentStep: 'module' | 'upload' | 'review' | 'run';
+  moduleId: ModuleId | null;
+  moduleConfig: ModuleConfig;
+  moduleSource: ModuleSource | null;
   url: string;
   pdfFile: File | null;
   dsl: TestSpec | null;
@@ -215,6 +246,7 @@ export interface UploadStepProps {
   ssdConfig: any;
   configLoading: boolean;
   configError: string | null;
+  moduleUrls?: string[];
   onFileUpload: (file: File) => void;
   onUrlChange: (url: string) => void;
   onIngest: () => void;
@@ -237,7 +269,7 @@ export interface ResultsStepProps {
   originalDsl: TestSpec | null;
   onReset: () => void;
   onExportReport: () => void;
-  onRunTestsWithData: (dsl: any, pdfContent: string, pdfBufferPath?: string) => void;
+  onRunTestsWithData: (dsl: any, pdfContent: string, pdfBufferPath?: string, moduleSource?: ModuleSource | null) => void;
 }
 
 export interface LoadingOverlayProps {
