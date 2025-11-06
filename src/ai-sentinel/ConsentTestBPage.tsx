@@ -351,81 +351,186 @@ export default function ConsentTestBPage() {
     });
   };
 
-
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-pink-50 relative overflow-hidden flex flex-col">
-      {/* Sfondo dinamico con particelle - stesso della HomePage */}
-      <div className="absolute inset-0 overflow-hidden">
-        {/* Cerchi animati */}
-        <div className="absolute -top-40 -left-40 w-80 h-80 bg-purple-300 rounded-full mix-blend-multiply filter blur-xl opacity-70 animate-blob"></div>
-        <div className="absolute -top-40 -right-40 w-80 h-80 bg-yellow-300 rounded-full mix-blend-multiply filter blur-xl opacity-70 animate-blob animation-delay-2000"></div>
-        <div className="absolute -bottom-40 left-20 w-80 h-80 bg-pink-300 rounded-full mix-blend-multiply filter blur-xl opacity-70 animate-blob animation-delay-4000"></div>
-        <div className="absolute -bottom-40 right-20 w-80 h-80 bg-blue-300 rounded-full mix-blend-multiply filter blur-xl opacity-70 animate-blob animation-delay-6000"></div>
-        
-        {/* Particelle fluttuanti */}
-        <div className="absolute inset-0">
-          {[...Array(20)].map((_, i) => (
-            <div
-              key={i}
-              className="absolute w-2 h-2 bg-purple-400 rounded-full opacity-60 animate-float"
-              style={{
-                left: `${Math.random() * 100}%`,
-                top: `${Math.random() * 100}%`,
-                animationDelay: `${Math.random() * 10}s`,
-                animationDuration: `${3 + Math.random() * 4}s`
-              }}
-            />
-          ))}
-        </div>
+    <div className="relative flex min-h-screen flex-col justify-center overflow-hidden bg-gradient-to-br from-slate-50 via-white to-slate-100">
+      <div className="pointer-events-none absolute inset-0">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.18),_transparent_55%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_bottom,_rgba(168,85,247,0.12),_transparent_60%)]" />
+        <div className="absolute -top-40 left-1/2 h-80 w-80 -translate-x-1/2 rounded-full bg-blue-200/50 blur-3xl" />
+        <div className="absolute bottom-0 right-12 h-72 w-72 rounded-full bg-purple-200/50 blur-3xl" />
       </div>
 
-      {/* Main Content */}
-      <main className="flex-1 px-4 sm:px-8 lg:px-12 py-12 relative z-10">
-        <div className="w-full mx-auto max-w-none">
+      <main className="relative z-10 flex-1 px-4 py-12 sm:px-8 lg:px-12">
+        <div className="mx-auto flex h-full w-full max-w-6xl flex-col justify-center space-y-12">
           {/* Mostra la schermata iniziale solo se non ci sono risultati */}
           {!result && (
             <>
-          {/* Header */}
-          <div className="text-center mb-8">
-                <h1 className="text-5xl font-bold bg-gradient-to-r from-blue-600 via-purple-600 to-cyan-600 bg-clip-text text-transparent mb-4 drop-shadow-sm">
-                  AI Sentinel
-                </h1>
-                <p className="text-lg text-gray-600 font-medium">
-              Test automatico di conformità GDPR per la gestione del consenso cookie
-            </p>
-            
-          </div>
+              <header className="space-y-8 text-center">
+                <div className="flex flex-col items-center gap-6">
+                  <div className="flex items-center justify-center gap-3">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-600 via-blue-600 to-cyan-500 text-white shadow-lg shadow-indigo-300/60">
+                      <Shield className="h-6 w-6" />
+                    </div>
+                    <div className="text-left">
+                      <p className="text-xs font-semibold uppercase tracking-[0.22em] text-blue-500">
+                        AI Sentinel
+                      </p>
+                      <h1 className="text-4xl font-semibold text-slate-900 sm:text-5xl">
+                        Audit cookie &amp; tracking con IA
+                      </h1>
+                    </div>
+                  </div>
+                  <p className="mx-auto max-w-2xl text-base text-slate-600 sm:text-lg">
+                    Avvia un controllo guidato su CMP, blocco cookie e chiamate advertising. Esegui gli scenari reject/accept e genera un report pronto per stakeholder e compliance.
+                  </p>
+                </div>
 
-        {/* Input Form */}
-        <div className="bg-white/80 backdrop-blur-sm rounded-lg shadow-md p-6 mb-8">
-          <div className="space-y-4">
-            <div>
-              <label htmlFor="url" className="block text-sm font-medium text-gray-700 mb-2">
-                URL del sito da testare
-              </label>
-              <input
-                type="url"
-                id="url"
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                placeholder="https://example.com"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                disabled={loading}
-              />
-            </div>
+                <div className="mx-auto flex w-full max-w-sm items-center justify-center rounded-2xl border border-slate-200 bg-white/80 px-6 py-5 shadow-sm backdrop-blur">
+                  <div className="grid w-full grid-cols-2 gap-6 text-left">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        Engine
+                      </p>
+                      <p className="mt-1 text-sm font-medium text-slate-900">
+                        Puppeteer · Playwright
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        Ultimo aggiornamento
+                      </p>
+                      <p className="mt-1 text-sm font-medium text-slate-900">
+                        {new Date().toLocaleDateString('it-IT')}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </header>
 
+              <section className="mx-auto grid w-full max-w-5xl gap-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+                <form
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    handleRunTest();
+                  }}
+                  className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white/90 p-6 shadow-xl shadow-slate-200/40 backdrop-blur"
+                >
+                  <div className="absolute -right-24 -top-24 h-60 w-60 rounded-full bg-gradient-to-br from-blue-100 via-purple-100 to-transparent blur-3xl" />
+                  <div className="relative space-y-6">
+                    <div className="space-y-2 text-left">
+                      <label htmlFor="url" className="text-sm font-semibold text-slate-700">
+                        URL del sito da analizzare
+                      </label>
+                      <div className="relative">
+                        <div className="pointer-events-none absolute inset-y-0 left-4 flex items-center text-slate-400">
+                          <Globe className="h-5 w-5" />
+                        </div>
+                        <input
+                          type="url"
+                          id="url"
+                          value={url}
+                          onChange={(e) => setUrl(e.target.value)}
+                          placeholder="https://www.esempio.it"
+                          className="w-full rounded-xl border border-slate-200 bg-white px-12 py-3 text-base text-slate-900 shadow-inner focus:border-blue-400 focus:outline-none focus:ring-4 focus:ring-blue-200/60 disabled:cursor-not-allowed disabled:bg-slate-100"
+                          disabled={loading}
+                        />
+                      </div>
+                      <p className="text-xs text-slate-500">
+                        Supportiamo domini pubblici in HTTPS con CMP compatibili. Lo scenario reject è obbligatorio; l&apos;accept viene simulato in sequenza.
+                      </p>
+                    </div>
 
-                  <div className="flex justify-center">
-            <button
-              onClick={handleRunTest}
-              disabled={loading || !url}
-                      className="px-8 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors font-medium"
-            >
-              {loading ? 'Test in corso...' : 'Avvia Test Consenso'}
-            </button>
-          </div>
-        </div>
-              </div>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-4 text-left">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Timeout
+                        </p>
+                        <p className="mt-1 text-sm text-slate-700">
+                          Soft {options.timeoutSoftMs / 1000}s · Hard {options.timeoutHardMs / 1000}s
+                        </p>
+                      </div>
+                      <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-4 text-left">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Output
+                        </p>
+                        <p className="mt-1 text-sm text-slate-700">
+                          Screenshot CMP, payload dataLayer, richieste GA/Ads
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex flex-wrap gap-2 text-xs text-slate-500">
+                        <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-3 py-1 font-medium text-blue-600">
+                          <Lock className="h-4 w-4" />
+                          GDPR-first
+                        </span>
+                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-3 py-1 font-medium text-emerald-600">
+                          <Check className="h-4 w-4" />
+                          Dual scenario
+                        </span>
+                        <span className="inline-flex items-center gap-1 rounded-full bg-purple-50 px-3 py-1 font-medium text-purple-600">
+                          <Megaphone className="h-4 w-4" />
+                          Marketing signals
+                        </span>
+                      </div>
+                      <button
+                        type="submit"
+                        disabled={loading || !url}
+                        className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 px-6 py-3 text-sm font-semibold text-white shadow-xl shadow-indigo-400/50 transition-transform hover:-translate-y-0.5 hover:brightness-110 hover:shadow-2xl focus:outline-none focus:ring-4 focus:ring-indigo-300/60 disabled:translate-y-0 disabled:bg-slate-300 disabled:text-slate-500 disabled:shadow-none"
+                      >
+                        {loading ? (
+                          <>
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            Test in corso...
+                          </>
+                        ) : (
+                          <>
+                            <Shield className="h-4 w-4 text-white" />
+                            <span className="text-white">Avvia test consenso</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                </form>
+
+                <aside className="rounded-2xl border border-slate-200 bg-white/85 p-6 shadow-lg shadow-slate-200/50 backdrop-blur">
+                  <h3 className="text-sm font-semibold text-slate-900">Cosa verifichiamo</h3>
+                  <ul className="mt-4 space-y-4 text-sm text-slate-600">
+                    <li className="flex items-start gap-3">
+                      <div className="mt-1 flex h-9 w-9 items-center justify-center rounded-full bg-blue-50 text-blue-500">
+                        <Shield className="h-4 w-4" />
+                      </div>
+                      <div>
+                        <p className="font-medium text-slate-900">Stato CMP e pulsanti critici</p>
+                        <p className="text-xs text-slate-500">Rileviamo banner, iframe e fallback LLM per garantire l&apos;interazione.</p>
+                      </div>
+                    </li>
+                    <li className="flex items-start gap-3">
+                      <div className="mt-1 flex h-9 w-9 items-center justify-center rounded-full bg-emerald-50 text-emerald-500">
+                        <Cookie className="h-4 w-4" />
+                      </div>
+                      <div>
+                        <p className="font-medium text-slate-900">Cookie &amp; storage per categoria</p>
+                        <p className="text-xs text-slate-500">Classifichiamo la consent string e i cookie bloccati/attivi per profilo.</p>
+                      </div>
+                    </li>
+                    <li className="flex items-start gap-3">
+                      <div className="mt-1 flex h-9 w-9 items-center justify-center rounded-full bg-purple-50 text-purple-500">
+                        <Megaphone className="h-4 w-4" />
+                      </div>
+                      <div>
+                        <p className="font-medium text-slate-900">Chiamate GA/Ads &amp; dataLayer</p>
+                        <p className="text-xs text-slate-500">Monitoriamo richieste marketing e push dataLayer durante i due scenari.</p>
+                      </div>
+                    </li>
+                  </ul>
+                  <div className="mt-6 rounded-xl border border-dashed border-slate-300 bg-slate-50/80 p-4 text-xs text-slate-500">
+                    Report esportabile in PDF con timeline, insight IA e screenshot ad alta risoluzione.
+                  </div>
+                </aside>
+              </section>
             </>
           )}
 

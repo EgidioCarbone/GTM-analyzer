@@ -22,6 +22,10 @@ export interface RunOptions {
   allowedHosts?: string[];
   allowedTracking?: string[];
   allowedCDNs?: string[];
+  reuseBrowser?: Browser | null;
+  reusePage?: Page | null;
+  skipInitialNavigation?: boolean;
+  skipConsentHandler?: boolean;
 }
 
 export interface RunResult {
@@ -59,6 +63,7 @@ export class SSDPuppeteerRunner {
   private fuzzy: boolean;
   private targetEnhancer: SSDLlmTargetEnhancer | null | undefined;
   private currentSiteUrl?: string;
+  private skipInitialNavigationStep: boolean = false;
 
   constructor(options: { screenshotDir?: string; timeout?: number; navTimeoutMs?: number; requestTimeoutMs?: number; spaRouteTimeoutMs?: number; fuzzy?: boolean } = {}) {
     this.screenshotDir = options.screenshotDir || getConfigValue('SCREENSHOTS_DIR', SSD_DEFAULTS.path.screenshots);
@@ -77,6 +82,9 @@ export class SSDPuppeteerRunner {
     let results: TestResult[] = [];
     let consentProfiles: string[] = [];
     this.currentSiteUrl = testSpec.site;
+    const reuseBrowser = options.reuseBrowser;
+    const reusePage = options.reusePage;
+    const shouldReuseBrowser = Boolean(reuseBrowser && reusePage);
 
     // Update timeouts from options
     if (options.navTimeoutMs) {
@@ -93,8 +101,24 @@ export class SSDPuppeteerRunner {
     }
 
     try {
+      this.skipInitialNavigationStep = Boolean(options.skipInitialNavigation);
       // Initialize browser and page
-      await this.initializeBrowser(options);
+      if (shouldReuseBrowser && reuseBrowser && reusePage) {
+        this.browser = reuseBrowser;
+        this.page = reusePage;
+
+        // Reapply tracking hooks on the existing page
+        await this.setupDataLayerTracking();
+        await this.setupNetworkMonitoring(options);
+        await this.setupSPADetection();
+        try {
+          await this.page.setViewport({ width: 1280, height: 720 });
+        } catch (viewportError) {
+          console.warn('[runner] Unable to reset viewport on reused page:', viewportError instanceof Error ? viewportError.message : viewportError);
+        }
+      } else {
+        await this.initializeBrowser(options);
+      }
 
       // Determine consent profiles to run
       if (options.consent === 'both') {
@@ -131,7 +155,15 @@ export class SSDPuppeteerRunner {
 
     } finally {
       this.currentSiteUrl = undefined;
-      await this.cleanup();
+      if (shouldReuseBrowser) {
+        // Do not close the reused browser; just reset internal state
+        this.dataLayerEvents = [];
+        this.trackingHits = [];
+        this.page = null;
+        this.browser = null;
+      } else {
+        await this.cleanup();
+      }
     }
   }
 
@@ -394,15 +426,22 @@ export class SSDPuppeteerRunner {
     if (!this.page) throw new SSDRunnerError('Page not initialized');
 
     console.log('[ssd][runner] runTestSection start');
+    console.log('[ssd][runner] options:', {
+      skipInitialNavigation: options.skipInitialNavigation,
+      skipConsentHandler: options.skipConsentHandler,
+      consentProfile,
+    });
 
     const results: TestResult[] = [];
 
     try {
-      // Navigate to the site
-      await this.page.goto(testSpec.site, { waitUntil: 'networkidle2', timeout: this.navTimeout });
+      // Navigate to the site unless navigation already handled upstream
+      if (!options.skipInitialNavigation) {
+        await this.page.goto(testSpec.site, { waitUntil: 'networkidle2', timeout: this.navTimeout });
+      }
 
       // Apply consent profile
-      if (consentProfile === 'accept' || consentProfile === 'reject') {
+      if (!options.skipConsentHandler && (consentProfile === 'accept' || consentProfile === 'reject')) {
         const consentHandler = new SSDConsentHandler(this.page);
         await consentHandler.applyConsentProfile(consentProfile);
       }
@@ -499,8 +538,10 @@ export class SSDPuppeteerRunner {
           }
         }
 
+        console.log(`[ssd][runner] capturing screenshot for step ${stepIndex}`);
         // Take screenshot
         const screenshot = await this.takeScreenshot(stepIndex, test.section);
+        console.log(`[ssd][runner] screenshot captured for step ${stepIndex}`);
 
         // Create result
         const result: TestResult = {
@@ -526,6 +567,9 @@ export class SSDPuppeteerRunner {
         };
 
         results.push(result);
+        console.log(
+          `[ssd][runner] step completed index=${stepIndex} action=${step.action} status=${result.status}`
+        );
 
       } catch (error) {
         console.error('[ssd][runner] step error', error);
@@ -553,6 +597,9 @@ export class SSDPuppeteerRunner {
         };
 
         results.push(result);
+        console.log(
+          `[ssd][runner] step failed index=${stepIndex} action=${step.action} reason=${result.reasons?.[0] ?? 'unknown'}`
+        );
       }
     }
 
@@ -644,6 +691,12 @@ export class SSDPuppeteerRunner {
     } catch (error) {
       console.warn(`[Click Step] SPA wait failed, continuing:`, error);
     }
+
+    const postClickDelay = typeof step.delayAfterMs === 'number' ? step.delayAfterMs : 0;
+    if (postClickDelay > 0) {
+      console.log(`[Click Step] ⏳ Waiting ${postClickDelay}ms after click to observe dataLayer`);
+      await this.page!.waitForTimeout(postClickDelay);
+    }
   }
 
   private async isLikelyNavigationClick(_: ElementHandle<Element>, step: any): Promise<boolean> {
@@ -700,7 +753,12 @@ export class SSDPuppeteerRunner {
     }
 
     const url = step.target.value;
-    
+    if (this.skipInitialNavigationStep) {
+      this.skipInitialNavigationStep = false;
+      console.log(`[Navigate Step] Skipping navigation (already handled upstream) to ${url}`);
+      return;
+    }
+
     try {
       // Handle relative URLs
       if (url.startsWith('/') || url.startsWith('./') || url.startsWith('../')) {
@@ -809,6 +867,7 @@ export class SSDPuppeteerRunner {
     if (!this.page) return '';
 
     try {
+      console.log(`[ssd][runner] takeScreenshot start section=${section} index=${stepIndex}`);
       const filename = `${section.replace(/\s+/g, '_')}_step_${stepIndex}_${Date.now()}.png`;
       const filepath = `${this.screenshotDir}/${filename}`;
       
@@ -816,6 +875,7 @@ export class SSDPuppeteerRunner {
       
       // Also return base64 for immediate use
       const base64 = await this.page.screenshot({ encoding: 'base64' });
+      console.log(`[ssd][runner] takeScreenshot success section=${section} index=${stepIndex}`);
       return base64;
     } catch (error) {
       console.error('Failed to take screenshot:', error);

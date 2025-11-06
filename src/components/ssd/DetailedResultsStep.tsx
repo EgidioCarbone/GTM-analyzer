@@ -7,7 +7,6 @@ import {
   Download,
   Eye,
   FileText,
-  FolderOpen,
   LayoutDashboard,
   ListChecks,
   RefreshCw,
@@ -18,7 +17,7 @@ import {
 import { Card } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/Badge';
-import { TestReport, ModuleSource } from '../../types/ssd';
+import { TestReport, ModuleSource, ScenarioValidationOutcome } from '../../types/ssd';
 import { buildReportSummary } from '../../utils/report';
 
 interface DetailedResultsStepProps {
@@ -60,7 +59,7 @@ const statusToTone = (status?: string): StatusTone => {
   const normalized = status.toUpperCase();
   if (normalized === 'PASS') return 'success';
   if (normalized === 'FAIL' || normalized === 'ERROR') return 'error';
-  if (normalized === 'BLOCKED') return 'warning';
+  if (normalized === 'WARNING' || normalized === 'BLOCKED') return 'warning';
   return 'warning';
 };
 
@@ -75,6 +74,12 @@ const metricToneClasses: Record<'success' | 'warning' | 'error' | 'info', string
   warning: 'bg-amber-50 text-amber-700 border border-amber-100',
   error: 'bg-rose-50 text-rose-700 border border-rose-100',
   info: 'bg-blue-50 text-blue-700 border border-blue-100',
+};
+
+const validationToneClasses: Record<StatusTone, string> = {
+  success: 'border border-emerald-200 bg-emerald-50 text-emerald-900',
+  warning: 'border border-amber-200 bg-amber-50 text-amber-900',
+  error: 'border border-rose-200 bg-rose-50 text-rose-900',
 };
 
 const formatDuration = (ms?: number | null) => {
@@ -122,12 +127,18 @@ const renderDataLayerDetails = (events?: any[]) => {
   );
 };
 
-const renderPdfStepHighlights = (steps?: any[]) => {
+const renderScenarioStepHighlights = (steps?: any[], specSteps?: any[]) => {
   if (!Array.isArray(steps) || steps.length === 0) return null;
 
   return (
     <div className="mt-4 space-y-4">
-      {steps.map((step, index) => (
+      {steps.map((step, index) => {
+        const specStep = Array.isArray(specSteps) ? specSteps[index] : undefined;
+        const action = step.action || specStep?.action;
+        const targetValue = step.target?.value || specStep?.target?.value;
+        const expectations = step.expect || specStep?.expect;
+
+        return (
         <div key={index} className="rounded-xl border border-emerald-100 bg-emerald-50 p-4 text-sm">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="font-semibold text-emerald-800">
@@ -138,17 +149,17 @@ const renderPdfStepHighlights = (steps?: any[]) => {
             </Badge>
           </div>
           <div className="mt-2 grid gap-3 md:grid-cols-2">
-            {step.action && (
+            {action && (
               <div className="flex items-center gap-2 text-emerald-700">
                 <Activity className="h-4 w-4" />
-                <span>Azione: {step.action}</span>
+                <span>Azione: {action}</span>
               </div>
             )}
-            {step.target?.value && (
+            {targetValue && (
               <div className="flex items-center gap-2 text-emerald-700">
                 <FileText className="h-4 w-4" />
                 <code className="rounded bg-white px-2 py-1 text-xs text-emerald-700">
-                  {step.target.value}
+                  {targetValue}
                 </code>
               </div>
             )}
@@ -183,9 +194,123 @@ const renderPdfStepHighlights = (steps?: any[]) => {
                 )}
               </dl>
             </div>
+            )}
+            {Array.isArray(expectations) && expectations.length > 0 && (
+              <div className="mt-3 text-xs text-emerald-800">
+                <p className="font-semibold text-emerald-700">Expectations</p>
+                <pre className="mt-2 max-h-48 overflow-auto rounded bg-white p-3 text-[11px] leading-relaxed">
+                  {JSON.stringify(expectations, null, 2)}
+                </pre>
+              </div>
+            )}
+            {Array.isArray(step.reasons) && step.reasons.length > 0 && (
+              <div className="mt-3 text-xs text-rose-700">
+                <p className="font-semibold text-rose-600">Motivazioni</p>
+                <ul className="mt-2 list-disc space-y-1 pl-4">
+                  {step.reasons.map((reason: string, idx: number) => (
+                    <li key={`${reason}-${idx}`}>{reason}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+        </div>
+        );
+      })}
+    </div>
+  );
+};
+
+const renderScenarioValidation = (
+  validation?: ScenarioValidationOutcome | null,
+  expectedPayload?: any
+) => {
+  if (!validation) return null;
+
+  const tone = statusToTone(validation.status);
+  const containerClasses = validationToneClasses[tone] ?? validationToneClasses.warning;
+  const fallbackTitles: Record<string, string> = {
+    PASS: 'Payload atteso rilevato',
+    WARNING: 'Payload rilevato con differenze',
+    FAIL: 'Payload atteso non rilevato',
+    ERROR: 'Errore durante la validazione del payload',
+    SKIPPED: 'Validazione payload non eseguita',
+  };
+  const title = fallbackTitles[validation.status] ?? 'Risultato validazione payload';
+  const payloadToShow = expectedPayload ?? validation.expectedPayload ?? validation.normalizedExpectedPayload;
+
+  const llmTone: StatusTone =
+    validation.llm?.status === 'MATCH'
+      ? 'success'
+      : validation.llm?.status === 'NO_MATCH'
+      ? 'error'
+      : 'warning';
+
+  return (
+    <div className={`mt-4 rounded-xl p-4 text-sm shadow-sm ${containerClasses}`}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className="font-semibold text-base">{title}</p>
+          {validation.eventName && (
+            <p className="mt-1 text-xs text-gray-700">
+              Evento atteso: <span className="font-semibold">{validation.eventName}</span>
+            </p>
           )}
         </div>
-      ))}
+        <Badge variant={tone}>{validation.status}</Badge>
+      </div>
+
+      {validation.reasoning && (
+        <p className="mt-3 text-sm text-gray-800">{validation.reasoning}</p>
+      )}
+
+      {payloadToShow && (
+        <details className="mt-3 rounded-lg bg-white/80 p-3 text-xs text-gray-900">
+          <summary className="cursor-pointer font-semibold text-gray-700">Payload atteso</summary>
+          <pre className="mt-2 max-h-56 overflow-auto rounded bg-gray-50 p-3">
+            {JSON.stringify(payloadToShow, null, 2)}
+          </pre>
+        </details>
+      )}
+
+      {validation.matchedEvent && (
+        <details className="mt-3 rounded-lg bg-white/80 p-3 text-xs text-gray-900">
+          <summary className="cursor-pointer font-semibold text-gray-700">
+            Evento corrispondente
+            {validation.matchedEventIndex != null ? ` (indice ${validation.matchedEventIndex})` : ''}
+          </summary>
+          <pre className="mt-2 max-h-56 overflow-auto rounded bg-gray-50 p-3">
+            {JSON.stringify(validation.matchedEvent, null, 2)}
+          </pre>
+        </details>
+      )}
+
+      {Array.isArray(validation.differences) && validation.differences.length > 0 && (
+        <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-900">
+          <p className="font-semibold text-rose-700">Differenze rilevate</p>
+          <ul className="mt-2 list-disc space-y-1 pl-4">
+            {validation.differences.map((diff, index) => (
+              <li key={`${diff}-${index}`}>{diff}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {validation.llm && (
+        <div className="mt-3 rounded-lg border border-white/60 bg-white/80 p-3 text-xs text-gray-900">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="font-semibold">Valutazione LLM</span>
+            <Badge variant={llmTone}>{validation.llm.status}</Badge>
+          </div>
+          {validation.llm.reasoning && (
+            <p className="mt-2 text-gray-800">{validation.llm.reasoning}</p>
+          )}
+          {typeof validation.llm.confidence === 'number' && (
+            <p className="mt-2 text-gray-600">
+              Confidenza: {(validation.llm.confidence * 100).toFixed(0)}%
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 };
@@ -266,61 +391,6 @@ const Timeline = ({ items }: { items: TimelineItem[] }) => {
   );
 };
 
-const ArtifactCard = ({
-  type,
-  label,
-  description,
-  tone,
-  onClick
-}: {
-  type: string;
-  label: string;
-  description: string;
-  tone: 'blue' | 'red' | 'green' | 'amber';
-  onClick: () => void;
-}) => {
-  const toneClassesMap: Record<typeof tone, string> = {
-    blue: 'bg-blue-50 text-blue-700 border-blue-100',
-    red: 'bg-rose-50 text-rose-700 border-rose-100',
-    green: 'bg-emerald-50 text-emerald-700 border-emerald-100',
-    amber: 'bg-amber-50 text-amber-700 border-amber-100',
-  };
-
-  return (
-    <div className="flex flex-col justify-between rounded-2xl border border-gray-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md">
-      <div className="flex items-center gap-3">
-        <div className={`flex h-10 w-10 items-center justify-center rounded-xl font-semibold ${toneClassesMap[tone]}`}>
-          {type}
-        </div>
-        <div>
-          <p className="text-sm font-semibold text-gray-900">{label}</p>
-          <p className="text-xs text-gray-500">{description}</p>
-        </div>
-      </div>
-      <Button onClick={onClick} className="mt-4 self-start px-4 py-2 text-xs font-semibold">
-        Visualizza
-      </Button>
-    </div>
-  );
-};
-
-const DebugPanel = ({ report }: { report: TestReport | null }) => {
-  if (!report) return null;
-  const keys = Object.keys(report ?? {});
-
-  return (
-    <details className="rounded-xl border border-yellow-200 bg-yellow-50 p-5 text-sm text-yellow-800">
-      <summary className="cursor-pointer font-semibold">Debug info</summary>
-      <div className="mt-3 space-y-1 font-mono text-xs text-yellow-900">
-        <div>Report keys: {keys.join(', ') || 'none'}</div>
-        {report.requestId && <div>requestId: {report.requestId}</div>}
-        {report.url && <div>url: {report.url}</div>}
-        {report.timestamp && <div>timestamp: {report.timestamp}</div>}
-      </div>
-    </details>
-  );
-};
-
 export default function DetailedResultsStep({
   state,
   onReset,
@@ -394,7 +464,8 @@ export default function DetailedResultsStep({
       : [];
 
   const cookieEvents = extractEventNames(report.cookie?.dataLayerEvents);
-  const pdfSummary = report.pdf?.result?.summary || report.pdf?.result || null;
+  const scenarioReport = report.scenario ?? report.pdf ?? null;
+  const scenarioSummary = scenarioReport?.result?.summary || scenarioReport?.summary || null;
 
   const timelineItems: TimelineItem[] = [];
 
@@ -469,32 +540,58 @@ export default function DetailedResultsStep({
     });
   }
 
-  if (report.pdf) {
-    const pdfTone = statusToTone(report.pdf.status);
-    const evaluation = report.pdf.llm;
+  if (scenarioReport) {
+    const pdfTone = statusToTone(scenarioReport.status);
+    const evaluation = scenarioReport.llm;
     const evaluationTone = evaluation ? statusToTone(evaluation.overallStatus) : null;
     const evaluationToneClasses: Record<StatusTone, string> = {
       success: 'border-emerald-200 bg-emerald-50 text-emerald-800',
       warning: 'border-amber-200 bg-amber-50 text-amber-800',
       error: 'border-rose-200 bg-rose-50 text-rose-800',
     };
+    const isScenarioRun =
+      scenarioReport.source === 'scenario' ||
+      scenarioReport.source === 'scenario-llm' ||
+      scenarioReport.source === 'manifest';
     const pdfMetrics: TimelineMetric[] = [
-      { label: 'Durata', value: formatDuration(report.pdf.duration || pdfSummary?.duration), tone: 'info' },
-      { label: 'Step eseguiti', value: String(report.pdf.steps?.length ?? pdfSummary?.steps ?? 0) },
-      { label: 'Passi superati', value: String(pdfSummary?.passed ?? (report.pdf.steps ? report.pdf.steps.filter((s: any) => s.status === 'PASS').length : 0)), tone: 'success' }
+      { label: 'Durata', value: formatDuration(scenarioReport.duration || scenarioSummary?.duration), tone: 'info' },
+      { label: 'Step eseguiti', value: String(scenarioReport.steps?.length ?? scenarioSummary?.steps ?? 0) },
+      { label: 'Passi superati', value: String(scenarioSummary?.passed ?? (scenarioReport.steps ? scenarioReport.steps.filter((s: any) => s.status === 'PASS').length : 0)), tone: 'success' }
     ];
 
     const badges: string[] = [];
-    if (report.pdf.spec?.tests) {
-      badges.push(`${report.pdf.spec.tests.length} test generati`);
+    if (scenarioReport.spec?.tests) {
+      badges.push(`${scenarioReport.spec.tests.length} test generati`);
+    }
+    if (isScenarioRun) {
+      badges.push('Scenario salvato');
+    }
+    if (scenarioReport.source) {
+      badges.push(`Fonte: ${scenarioReport.source}`);
+    }
+    if (scenarioReport.validation) {
+      badges.push(`Payload: ${scenarioReport.validation.status}`);
     }
 
     const body = (
       <div className="space-y-3">
-        {report.pdf.details && (
-          <p className="text-sm text-gray-600">{report.pdf.details}</p>
+        {scenarioReport.details && (
+          <p className="text-sm text-gray-600">{scenarioReport.details}</p>
         )}
-        {renderPdfStepHighlights(report.pdf.steps)}
+        {renderScenarioStepHighlights(
+          scenarioReport.steps,
+          Array.isArray(scenarioReport.spec?.tests)
+            ? scenarioReport.spec.tests.flatMap((test: any) => test.steps || [])
+            : undefined
+        )}
+        {renderScenarioValidation(scenarioReport.validation, scenarioReport.expectedPayload)}
+        {renderDataLayerDetails(
+          Array.isArray(scenarioReport.steps)
+            ? scenarioReport.steps.flatMap(
+                (step: any) => step?.evidence?.dataLayerEvents || []
+              )
+            : []
+        )}
         {evaluation && evaluationTone && (
           <div className={`rounded-xl border p-4 text-sm shadow-sm ${evaluationToneClasses[evaluationTone]}`}>
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -543,13 +640,13 @@ export default function DetailedResultsStep({
             )}
           </div>
         )}
-        {report.pdf.llmError && (
+        {scenarioReport.llmError && (
           <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
             <div className="flex items-center gap-2 font-semibold">
               <AlertTriangle className="h-4 w-4" />
               <span>Valutazione LLM non disponibile</span>
             </div>
-            <p className="mt-1 text-amber-700">{report.pdf.llmError}</p>
+            <p className="mt-1 text-amber-700">{scenarioReport.llmError}</p>
           </div>
         )}
       </div>
@@ -557,10 +654,12 @@ export default function DetailedResultsStep({
 
     timelineItems.push({
       id: 'pdf',
-      title: 'Test da specifica PDF',
-      intro: 'Esecuzione automatica degli step derivati dalla specifica',
+      title: isScenarioRun ? 'Scenario DSL' : 'Test da specifica PDF',
+      intro: isScenarioRun
+        ? 'Esecuzione della DSL generata dallo scenario salvato'
+        : 'Esecuzione automatica degli step derivati dalla specifica',
       icon: <FileText className="h-4 w-4" />,
-      status: report.pdf.status || 'INFO',
+      status: scenarioReport.status || 'INFO',
       tone: pdfTone,
       metrics: pdfMetrics,
       badges,
@@ -568,7 +667,7 @@ export default function DetailedResultsStep({
     });
   }
 
-  const canReRun = Boolean(state.dsl && state.pdfContent);
+  const canReRun = Boolean(state.dsl);
 
   return (
     <div className="space-y-6">
@@ -662,88 +761,6 @@ export default function DetailedResultsStep({
         <Timeline items={timelineItems} />
       </Card>
 
-      {report.artifacts && (
-        <Card className="p-6">
-          <div className="mb-5 flex items-center gap-2">
-            <FolderOpen className="h-5 w-5 text-indigo-600" />
-            <h3 className="text-lg font-semibold text-gray-900">Artifact generati</h3>
-          </div>
-          <div className="grid gap-4 md:grid-cols-2">
-            {report.artifacts.htmlFile && (
-              <ArtifactCard
-                type="HTML"
-                label="HTML Snapshot"
-                description="Pagina salvata durante il test"
-                tone="blue"
-                onClick={async () => {
-                  try {
-                    const apiBaseUrl = import.meta.env.VITE_API_BASE || (window.location.origin === 'http://localhost:5173' ? 'http://localhost:3001' : '');
-                    const response = await fetch(`${apiBaseUrl}/api/ssd/artifact?file=${encodeURIComponent(report.artifacts!.htmlFile!)}`);
-                    if (response.ok) {
-                      const blob = await response.blob();
-                      const url = window.URL.createObjectURL(blob);
-                      window.open(url, '_blank');
-                    } else {
-                      alert('File non disponibile');
-                    }
-                  } catch (error) {
-                    alert('Errore nel caricamento del file');
-                  }
-                }}
-              />
-            )}
-            {report.artifacts.pdfTextFile && (
-              <ArtifactCard
-                type="PDF"
-                label="PDF Text Extract"
-                description="Contenuto estratto dalla specifica"
-                tone="red"
-                onClick={async () => {
-                  try {
-                    const apiBaseUrl = import.meta.env.VITE_API_BASE || (window.location.origin === 'http://localhost:5173' ? 'http://localhost:3001' : '');
-                    const response = await fetch(`${apiBaseUrl}/api/ssd/artifact?file=${encodeURIComponent(report.artifacts!.pdfTextFile!)}`);
-                    if (response.ok) {
-                      const text = await response.text();
-                      const blob = new Blob([text], { type: 'text/plain' });
-                      const url = window.URL.createObjectURL(blob);
-                      window.open(url, '_blank');
-                    } else {
-                      alert('File non disponibile');
-                    }
-                  } catch (error) {
-                    alert('Errore nel caricamento del file');
-                  }
-                }}
-              />
-            )}
-            {report.artifacts.screenshotsFolder && (
-              <ArtifactCard
-                type="IMG"
-                label="Screenshot"
-                description="Evidenze visive raccolte dal runner"
-                tone="green"
-                onClick={() => {
-                  const apiBaseUrl = import.meta.env.VITE_API_BASE || (window.location.origin === 'http://localhost:5173' ? 'http://localhost:3001' : '');
-                  window.open(`${apiBaseUrl}/api/ssd/artifact?folder=${encodeURIComponent(report.artifacts!.screenshotsFolder!)}`, '_blank');
-                }}
-              />
-            )}
-            {report.artifacts.rawLogsPath && (
-              <ArtifactCard
-                type="LOG"
-                label="Log esecuzione"
-                description="Traccia completa delle operazioni"
-                tone="amber"
-                onClick={() => {
-                  const apiBaseUrl = import.meta.env.VITE_API_BASE || (window.location.origin === 'http://localhost:5173' ? 'http://localhost:3001' : '');
-                  window.open(`${apiBaseUrl}/api/ssd/artifact?file=${encodeURIComponent(report.artifacts!.rawLogsPath!)}`, '_blank');
-                }}
-              />
-            )}
-          </div>
-        </Card>
-      )}
-
       <div className="sticky bottom-8 flex flex-col gap-4 rounded-3xl border border-white/60 bg-white/75 px-6 py-5 shadow-2xl backdrop-blur">
         <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-gray-600">
           <span>Richiedi nuovamente il test, esporta il report o riparti da zero.</span>
@@ -769,8 +786,8 @@ export default function DetailedResultsStep({
             </Button>
             <Button
               onClick={() => {
-                if (state.dsl && state.pdfContent) {
-                  onRunTestsWithData(state.dsl, state.pdfContent, undefined, state.moduleSource ?? null);
+                if (state.dsl) {
+                  onRunTestsWithData(state.dsl, state.pdfContent ?? '', undefined, state.moduleSource ?? null);
                 }
               }}
               disabled={!canReRun}
@@ -783,7 +800,6 @@ export default function DetailedResultsStep({
         </div>
       </div>
 
-      <DebugPanel report={report} />
     </div>
   );
 }

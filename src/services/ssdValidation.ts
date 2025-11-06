@@ -139,9 +139,14 @@ export function detectAmbiguities(testSpec: any, minConfidence: number = 0.6): A
   testSpec.tests?.forEach((test: any, testIndex: number) => {
     test.steps?.forEach((step: any, stepIndex: number) => {
       const stepPath = `tests[${testIndex}].steps[${stepIndex}]`;
+      const description = typeof step.description === 'string' ? step.description : '';
+      const targetValue = typeof step.target?.value === 'string' ? step.target.value : '';
+      const isCookieStep =
+        /cookie/i.test(description) ||
+        /cookie|cybot|onetrust/i.test(targetValue);
       
       // Check for low confidence
-      if (step.confidence !== undefined && step.confidence < minConfidence) {
+      if (!isCookieStep && step.confidence !== undefined && step.confidence < minConfidence) {
         ambiguities.push({
           stepPath,
           reason: `Low confidence (${step.confidence}) - target may be ambiguous (threshold: ${minConfidence})`,
@@ -152,7 +157,8 @@ export function detectAmbiguities(testSpec: any, minConfidence: number = 0.6): A
       // Check for vague targets
       if (step.target?.value) {
         const value = step.target.value.toLowerCase();
-        if (value.includes('button') && !value.includes('specific') && !value.includes('exact')) {
+        const isSpecificSelector = value.trim().startsWith('#') || value.trim().startsWith('.');
+        if (!isCookieStep && value.includes('button') && !value.includes('specific') && !value.includes('exact') && !isSpecificSelector) {
           ambiguities.push({
             stepPath,
             reason: 'Vague target description - multiple buttons may match',
@@ -166,7 +172,7 @@ export function detectAmbiguities(testSpec: any, minConfidence: number = 0.6): A
       }
       
       // Check for missing expectations
-      if (step.action !== 'wait_for_selector' && step.action !== 'wait_for_text' && (!step.expect || step.expect.length === 0)) {
+      if (!isCookieStep && step.action !== 'wait_for_selector' && step.action !== 'wait_for_text' && (!step.expect || step.expect.length === 0)) {
         ambiguities.push({
           stepPath,
           reason: 'No expectations defined - unclear what should happen after this action'

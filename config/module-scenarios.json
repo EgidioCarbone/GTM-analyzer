@@ -1,0 +1,90 @@
+{
+  "version": 1,
+  "modules": {
+    "actalis": [
+      {
+        "id": "fc42a03b-a408-48d3-800b-be7ea401a127",
+        "moduleId": "actalis",
+        "name": "view_item_list",
+        "eventId": "manual",
+        "url": "https://www.actalis.com/",
+        "config": {},
+        "steps": [],
+        "expectedPayload": {
+          "event": "view_item_list",
+          "ecommerce": {
+            "items": [
+              {
+                "item_name": "[NOME PRODOTTO]",
+                "item_id": "[ID PRODOTTO]",
+                "item_brand": "[BL PRODOTTO]",
+                "price": "[PREZZO PRODOTTO]",
+                "quantity": 1
+              },
+              {
+                "item_name": "[NOME PRODOTTO]",
+                "item_id": "[ID PRODOTTO]",
+                "item_brand": "[BL PRODOTTO]",
+                "price": "[PREZZO PRODOTTO]",
+                "quantity": 1
+              }
+            ]
+          }
+        },
+        "testSpec": {
+          "site": "https://www.actalis.com",
+          "allowed_hosts": [
+            "actalis.com",
+            "www.actalis.com"
+          ],
+          "consent": [
+            "accept"
+          ],
+          "tests": [
+            {
+              "section": "main",
+              "steps": [
+                {
+                  "description": "Vai al sito indicato",
+                  "action": "navigate",
+                  "target": {
+                    "kind": "href",
+                    "value": "https://www.actalis.com/"
+                  },
+                  "expect": [
+                    {
+                      "type": "navigation",
+                      "url_contains": "www.actalis.com"
+                    }
+                  ],
+                  "severity": "critical"
+                },
+                {
+                  "description": "Accetta tutti i cookie",
+                  "action": "click",
+                  "target": {
+                    "region": "any",
+                    "kind": "selector",
+                    "value": "#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll"
+                  },
+                  "severity": "critical"
+                }
+              ]
+            }
+          ]
+        },
+        "testSpecMeta": {
+          "generatedAt": "2025-11-06T15:06:56.215Z",
+          "model": "gpt-4o-mini-2024-07-18",
+          "tokens": {
+            "input": 802,
+            "output": 203
+          },
+          "source": "scenario-llm"
+        },
+        "createdAt": "2025-11-06T15:06:56.215Z",
+        "updatedAt": "2025-11-06T15:06:56.215Z"
+      }
+    ]
+  }
+}

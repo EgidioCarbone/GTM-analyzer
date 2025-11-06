@@ -1,28 +1,52 @@
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
-import { Upload, Play, Loader2, Eye, Tag, Code2, PackageSearch, Box, FileText, CheckCircle, RefreshCw } from 'lucide-react';
+import {
+  Play,
+  Tag,
+  PackageSearch,
+  CheckCircle,
+  RefreshCw,
+  Trash2,
+  Plus,
+  Loader2,
+  ListChecks,
+  Braces,
+  RotateCcw,
+  PencilLine,
+  X,
+} from 'lucide-react';
 import { TestSpec, SSDTestState, ModuleConfig, ModuleSource } from '../types/ssd';
 import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
+import { Input } from '../components/ui/input';
 import { useSSDConfig } from '../hooks/useSSDConfig';
 import { useAbortController } from '../hooks/useAbortController';
 import { useAnalysisProgress } from '../hooks/useAnalysisProgress';
 import { notifyError } from '../utils/errorNotification';
 import toast from 'react-hot-toast';
-import UploadStep from '../components/ssd/UploadStep';
 import ReviewStep from '../components/ssd/ReviewStep';
 import DetailedResultsStep from '../components/ssd/DetailedResultsStep';
 import { SSDProgressModal } from '../components/ssd/SSDProgressModal';
 import ModuleSelectionStep from '../components/ssd/ModuleSelectionStep';
 import ModuleConfigForm from '../components/ssd/ModuleConfigForm';
 import { getModule } from '../modules';
-import type { ModuleId } from '../modules/types';
+import type { ModuleId, ModuleScenario, ModuleEventDefinition, ScenarioStep, EventStepType } from '../modules/types';
 import type { SSDModule } from '../modules/types';
 import { isModuleFieldEmpty } from '../modules/utils';
+import { extractExpectedPayloadExpression } from '../../shared/expectedPayload';
+
+const scenarioRunSteps = [
+  { id: 'browser_launch', title: 'Avvio Browser', description: 'Inizializzazione del browser Puppeteer...', phase: 'test' },
+  { id: 'navigation', title: 'Navigazione', description: 'Caricamento della pagina web...', phase: 'test' },
+  { id: 'cookie_consent', title: 'Gestione Cookie', description: 'Accettazione banner e allineamento del consenso...', phase: 'test' },
+  { id: 'test_execution', title: 'Esecuzione Test', description: 'Esecuzione delle azioni e verifica delle aspettative...', phase: 'test' },
+  { id: 'data_collection', title: 'Raccolta Dati', description: 'Cattura di screenshot e eventi dataLayer...', phase: 'test' },
+  { id: 'report_generation', title: 'Generazione Report', description: 'Creazione del report finale...', phase: 'test' },
+] as const;
 
 const ensureAbsoluteUrl = (url: string): string => {
   if (!url) return url;
   if (/^https?:\/\//i.test(url)) return url;
-  const trimmed = url.replace(/^\/+/, '');
+  const trimmed = url.replace(/^\/+/g, '');
   return `https://${trimmed}`;
 };
 
@@ -36,12 +60,166 @@ const normalizeModuleUrls = (module?: SSDModule | null): string[] => {
   return Array.from(new Set(normalized));
 };
 
+const parseLooseExpectedPayload = (input: string): any | null => {
+  const expression = extractExpectedPayloadExpression(input);
+  if (!expression) return null;
+  const trimmed = expression.trim();
+  if (!trimmed) return null;
+
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    /* fall back to Function evaluation */
+  }
+
+  try {
+    // eslint-disable-next-line no-new-func
+    const fn = new Function(`return (${trimmed});`);
+    return fn();
+  } catch {
+    return null;
+  }
+};
+
+const validateExpectedPayloadInput = (
+  input: string
+): { parsed: any | null; error: string | null } => {
+  const trimmed = input.trim();
+  if (trimmed.length === 0) {
+    return { parsed: null, error: null };
+  }
+
+  const parsed = parseLooseExpectedPayload(trimmed);
+  if (parsed == null) {
+    return {
+      parsed: null,
+      error: 'Payload non valido. Inserisci un oggetto JSON oppure lo snippet dataLayer.push completo.',
+    };
+  }
+
+  return { parsed, error: null };
+};
+
+const coerceExpectedPayloadValue = (payload: any): any => {
+  if (payload == null) return null;
+  if (typeof payload === 'object') return payload;
+  if (typeof payload !== 'string') return null;
+  return parseLooseExpectedPayload(payload);
+};
+
+const findEventDefinition = (
+  eventDefinitions: ModuleEventDefinition[],
+  eventId: string | null
+): ModuleEventDefinition | null => {
+  if (!eventId) return null;
+  return eventDefinitions.find(event => event.id === eventId) ?? null;
+};
+
+const buildScenarioStepsFromDefinition = (
+  eventDefinition: ModuleEventDefinition | null,
+  config: Record<string, unknown>,
+  existingSteps: ScenarioStep[] = []
+): ScenarioStep[] => {
+  if (!eventDefinition) {
+    return (existingSteps ?? []).map((step, index) => ({
+      id: step.id || `manual_${index}`,
+      type: step.type || 'click',
+      label: step.label && step.label.trim().length > 0 ? step.label : `Step ${index + 1}`,
+      description: step.description ?? '',
+      selector: typeof step.selector === 'string' ? step.selector : '',
+      value: typeof step.value === 'string' ? step.value : undefined,
+      delayAfterMs: typeof step.delayAfterMs === 'number' ? step.delayAfterMs : 10000,
+    }));
+  }
+  const configClone = { ...(config ?? {}) };
+  const existingMap = new Map(existingSteps.map(step => [step.id, step]));
+
+  return eventDefinition.steps.map(stepDef => {
+    const existing = existingMap.get(stepDef.id);
+    let selector = existing?.selector;
+    let value = existing?.value;
+
+    if (stepDef.input?.id) {
+      const configuredValue = configClone[stepDef.input.id];
+
+      if (stepDef.input.type === 'selector') {
+        if (!selector && typeof configuredValue === 'string') {
+          selector = configuredValue;
+        }
+      } else if (!value && typeof configuredValue === 'string') {
+        value = configuredValue;
+      }
+    }
+
+    const delayAfterMs = typeof (existing as ScenarioStep | undefined)?.delayAfterMs === 'number' ? (existing as ScenarioStep).delayAfterMs : undefined;
+
+    return {
+      id: stepDef.id,
+      type: stepDef.type,
+      label: stepDef.label,
+      description: existing?.description ?? stepDef.description ?? '',
+      selector,
+      value,
+      delayAfterMs,
+    };
+  });
+};
+
+const stringifyPayload = (payload: unknown): string => {
+  if (payload == null) return '';
+  try {
+    return JSON.stringify(payload, null, 2);
+  } catch {
+    return '';
+  }
+};
+
+const buildExpectedPayloadString = (
+  eventDefinition: ModuleEventDefinition | null,
+  payload: unknown
+): string => {
+  if (payload != null) {
+    const str = stringifyPayload(payload);
+    if (str) return str;
+  }
+  if (!eventDefinition?.expectationTemplate?.payloadTemplate) {
+    return '';
+  }
+  return stringifyPayload(eventDefinition.expectationTemplate.payloadTemplate);
+};
+
+const extractEventNameFromPayload = (payload: any): string => {
+  const value = coerceExpectedPayloadValue(payload);
+  if (value && typeof value === 'object' && typeof (value as any).event === 'string') {
+    const eventValue = (value as any).event.trim();
+    return eventValue;
+  }
+  return '';
+};
+
+const STEP_TYPE_META: Record<EventStepType, { label: string; badgeClass: string }> = {
+  navigate: { label: 'Navigazione', badgeClass: 'bg-sky-100 text-sky-700' },
+  click: { label: 'Interazione', badgeClass: 'bg-emerald-100 text-emerald-700' },
+  custom: { label: 'Verifica', badgeClass: 'bg-purple-100 text-purple-700' },
+};
+
+type ScenarioDraft = {
+  id: string | null;
+  name: string;
+  eventId: string | null;
+  url: string;
+  config: Record<string, unknown>;
+  steps: ScenarioStep[];
+  expectedPayload: string;
+  expectedPayloadError: string | null;
+};
+
 const createInitialState = (
   moduleId: ModuleId | null = null,
   moduleConfig: ModuleConfig = {},
   defaultUrls: string[] = []
 ): SSDTestState => ({
-  currentStep: moduleId ? 'upload' : 'module',
+  currentStep: 'module',
   moduleId,
   moduleConfig: { ...moduleConfig },
   moduleSource: null,
@@ -52,39 +230,75 @@ const createInitialState = (
   report: null,
   isLoading: false,
   error: null,
+  scenarios: [],
+  eventDefinitions: [],
+  scenarioId: null,
+  scenarioName: '',
+  scenarioEventId: null,
+  scenarioUrl: defaultUrls[0] || '',
+  scenarioConfig: {},
+  scenarioSteps: [],
+  scenarioExpectedPayload: '',
+  scenarioExpectedPayloadError: null,
 });
 
-const shallowConfigEqual = (a: ModuleConfig, b: ModuleConfig): boolean => {
-  const aKeys = Object.keys(a);
-  const bKeys = Object.keys(b);
-  if (aKeys.length !== bKeys.length) return false;
-  for (const key of aKeys) {
-    const aValue = a[key];
-    const bValue = b[key];
-    if (Array.isArray(aValue) || Array.isArray(bValue)) {
-      if (JSON.stringify(aValue) !== JSON.stringify(bValue)) {
-        return false;
-      }
-    } else if (aValue !== bValue) {
-      return false;
-    }
-  }
-  return true;
-};
+const normalizeUrl = (input: string): string => {
+  if (!input || typeof input !== 'string') return input;
 
+  let candidate = input.trim();
+  if (!/^https?:\/\//i.test(candidate)) {
+    candidate = `https://${candidate}`;
+  }
+
+  try {
+    const url = new URL(candidate);
+    return url.toString();
+  } catch {
+    return input;
+  }
+};
 
 export default function SSDTestPage() {
   const [state, setState] = useState<SSDTestState>(() => createInitialState());
+  const [loadingType, setLoadingType] = useState<'pdf' | 'test' | null>(null);
+  const [editableDsl, setEditableDsl] = useState<string>('');
+  const [isEditingDsl, setIsEditingDsl] = useState(false);
+  const [dslValidationError, setDslValidationError] = useState<string | null>(null);
+  const [originalDsl, setOriginalDsl] = useState<TestSpec | null>(null);
+  const [isScenarioModalOpen, setScenarioModalOpen] = useState(false);
+  const [scenarioModalMode, setScenarioModalMode] = useState<'create' | 'edit'>('create');
+  const [scenarioDraft, setScenarioDraft] = useState<ScenarioDraft | null>(null);
+  const [scenarioModalSaving, setScenarioModalSaving] = useState(false);
+  const draftExpectedEventName = useMemo(() => {
+    if (!scenarioDraft) return '';
+    try {
+      return extractEventNameFromPayload(scenarioDraft.expectedPayload);
+    } catch {
+      return '';
+    }
+  }, [scenarioDraft]);
 
   const selectedModule = state.moduleId ? getModule(state.moduleId) : undefined;
   const moduleUrlOptions = useMemo(() => normalizeModuleUrls(selectedModule), [selectedModule]);
+  const selectedScenarioDetails = useMemo(
+    () => state.scenarios.find(s => s.id === state.scenarioId) ?? null,
+    [state.scenarios, state.scenarioId]
+  );
+  const manualScenarioEventName = useMemo(() => {
+    if (!selectedScenarioDetails || selectedScenarioDetails.eventId !== 'manual') return '';
+    return extractEventNameFromPayload(selectedScenarioDetails.expectedPayload);
+  }, [selectedScenarioDetails]);
+  const draftEventDefinition = useMemo(
+    () => (scenarioDraft ? findEventDefinition(state.eventDefinitions, scenarioDraft.eventId) : null),
+    [scenarioDraft, state.eventDefinitions]
+  );
+  const draftConfigInputs = draftEventDefinition?.inputs?.filter(input => input.id != 'url') ?? [];
 
   useEffect(() => {
     if (!selectedModule) return;
 
     setState(prev => {
       if (!prev.moduleId || prev.moduleId !== selectedModule.meta.id) {
-        // Module changed, initial state will be handled by module selection logic
         return prev;
       }
 
@@ -94,7 +308,7 @@ export default function SSDTestPage() {
         ...prev.moduleConfig,
       };
 
-      let changed = !shallowConfigEqual(merged, prev.moduleConfig);
+      let changed = false;
 
       for (const field of selectedModule.configFields) {
         if (merged[field.id] === undefined && field.defaultValue !== undefined) {
@@ -126,52 +340,26 @@ export default function SSDTestPage() {
       .map(field => field.label);
   }, [selectedModule, state.moduleConfig]);
 
+  const handleScenarioStateReset = useCallback(() => {
+    setEditableDsl('');
+    setIsEditingDsl(false);
+    setDslValidationError(null);
+    setOriginalDsl(null);
+  }, []);
+
   const handleModuleSelect = (moduleId: ModuleId) => {
     const moduleDefinition = getModule(moduleId);
     const defaultConfig = moduleDefinition?.defaultConfig ?? {};
     const moduleUrls = normalizeModuleUrls(moduleDefinition);
     const initialState = createInitialState(moduleId, defaultConfig, moduleUrls);
-    setState({
-      ...initialState,
-      currentStep: 'module',
-    });
+    setState(initialState);
+    handleScenarioStateReset();
   };
 
-  const handleModuleProceed = () => {
-    if (!state.moduleId) {
-      toast.error('Seleziona un modulo per continuare');
-      return;
-    }
-    setState(prev => ({ ...prev, currentStep: 'upload' }));
-  };
+  const { config: ssdConfig, loading: configLoading, error: configError } = useSSDConfig(import.meta.env.VITE_API_BASE || (window.location.origin === 'http://localhost:5173' ? 'http://localhost:3001' : ''));
+  const apiBaseUrl = import.meta.env.VITE_API_BASE || (window.location.origin === 'http://localhost:5173' ? 'http://localhost:3001' : '');
 
-  const handleChangeModule = () => {
-    setState(createInitialState());
-    setLoadingType(null);
-    setEditableDsl('');
-    setIsEditingDsl(false);
-    setDslValidationError(null);
-    setOriginalDsl(null);
-    hideAnalysis();
-  };
-
-  const handleModuleConfigChange = useCallback((nextConfig: ModuleConfig) => {
-    setState(prev => ({
-      ...prev,
-      moduleConfig: nextConfig,
-    }));
-  }, []);
-
-  const [loadingType, setLoadingType] = useState<'pdf' | 'test' | null>(null);
-  const [editableDsl, setEditableDsl] = useState<string>('');
-  const [isEditingDsl, setIsEditingDsl] = useState(false);
-  const [dslValidationError, setDslValidationError] = useState<string | null>(null);
-  const [originalDsl, setOriginalDsl] = useState<TestSpec | null>(null);
-
-  // AbortController per gestire richieste pendenti
-  const { createNewController, abortCurrentRequest, isAborted } = useAbortController();
-
-  // Progress tracking hook
+  const { createNewController, abortCurrentRequest } = useAbortController();
   const { 
     isVisible: progressVisible, 
     currentStep: currentProgressStep, 
@@ -183,120 +371,82 @@ export default function SSDTestPage() {
     hideAnalysis 
   } = useAnalysisProgress();
 
-  // API base URL configuration
-  const apiBaseUrl = import.meta.env.VITE_API_BASE || (window.location.origin === 'http://localhost:5173' ? 'http://localhost:3001' : '');
-  
-  // SSD Configuration
-  const { config: ssdConfig, loading: configLoading, error: configError } = useSSDConfig(apiBaseUrl);
+  useEffect(() => () => abortCurrentRequest(), [state.currentStep, abortCurrentRequest]);
 
-  // Unified loading steps for the complete workflow
-  const unifiedSteps = [
-    // PDF Processing Phase
-    { id: 'html_fetch', title: 'Download HTML', description: 'Scaricamento della pagina web e estrazione cookie banner...', phase: 'pdf' },
-    { id: 'pdf_upload', title: 'Caricamento PDF', description: 'Upload e validazione del file PDF...', phase: 'pdf' },
-    { id: 'pdf_analysis', title: 'Analisi Documento', description: 'Estrazione testo e analisi del contenuto...', phase: 'pdf' },
-    { id: 'spec_extraction', title: 'Estrazione Specifiche', description: 'Identificazione di test e azioni da eseguire...', phase: 'pdf' },
-    { id: 'dsl_generation', title: 'Generazione DSL', description: 'Creazione della specifica di test strutturata...', phase: 'pdf' },
-    { id: 'test_preparation', title: 'Preparazione Test', description: 'Validazione e preparazione per l\'esecuzione...', phase: 'pdf' },
-    
-    // Test Execution Phase
-    { id: 'browser_launch', title: 'Avvio Browser', description: 'Inizializzazione del browser Puppeteer...', phase: 'test' },
-    { id: 'navigation', title: 'Navigazione', description: 'Caricamento della pagina web...', phase: 'test' },
-    { id: 'cookie_consent', title: 'Gestione Cookie', description: 'Accettazione cookie banner e configurazione consenso...', phase: 'test' },
-    { id: 'test_execution', title: 'Esecuzione Test', description: 'Esecuzione delle azioni e verifica delle aspettative...', phase: 'test' },
-    { id: 'data_collection', title: 'Raccolta Dati', description: 'Cattura di screenshot e eventi dataLayer...', phase: 'test' },
-    { id: 'report_generation', title: 'Generazione Report', description: 'Creazione del report finale con risultati...', phase: 'test' },
-  ];
-
-  // Cancella richieste pendenti quando cambia lo step o si ricarica la pagina
-  useEffect(() => {
-    return () => {
-      abortCurrentRequest();
-    };
-  }, [state.currentStep, abortCurrentRequest]);
-
-  // Step 1: Upload PDF and URL
-  const handleFileUpload = useCallback((file: File) => {
-    if (!ssdConfig) {
-      toast.error('Configuration not loaded yet');
-      return;
+  const fetchModuleEvents = useCallback(async (moduleId: ModuleId): Promise<ModuleEventDefinition[]> => {
+    const res = await fetch(`${apiBaseUrl}/api/modules/${moduleId}/events`);
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.error || `Unable to load events for module ${moduleId}`);
     }
+    const data = await res.json();
+    return data.events ?? [];
+  }, [apiBaseUrl]);
 
-    // Check file extension
-    const hasValidExtension = ssdConfig.allowedExtensions.some(ext => 
-      file.name.toLowerCase().endsWith(ext.toLowerCase())
-    );
-    
-    if (!hasValidExtension) {
-      toast.error(
-        <div className="space-y-1">
-          <div className="font-semibold">Tipo di file non supportato</div>
-          <div className="text-sm">Carica un file PDF</div>
-        </div>,
-        { duration: 5000 }
-      );
-      return;
+  const fetchModuleScenarios = useCallback(async (moduleId: ModuleId): Promise<ModuleScenario[]> => {
+    const res = await fetch(`${apiBaseUrl}/api/modules/${moduleId}/scenarios`);
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.error || `Unable to load scenarios for module ${moduleId}`);
     }
+    const data = await res.json();
+    return data.scenarios ?? [];
+  }, [apiBaseUrl]);
 
-    // Check MIME type
-    const hasValidMimeType = ssdConfig.allowedMimeTypes.includes(file.type) || 
-                            file.type === '' || // Some browsers don't set MIME type for PDFs
-                            file.type === 'application/octet-stream';
-    
-    if (!hasValidMimeType) {
-      toast.error(
-        <div className="space-y-1">
-          <div className="font-semibold">Tipo di file non valido</div>
-          <div className="text-sm">Il file deve essere un PDF</div>
-        </div>,
-        { duration: 5000 }
-      );
-      return;
-    }
-
-    // Check file size
-    if (file.size > ssdConfig.maxFileSize) {
-      const maxSizeMB = ssdConfig.maxFileSizeMB;
-      toast.error(
-        <div className="space-y-1">
-          <div className="font-semibold">File troppo grande</div>
-          <div className="text-sm">Dimensione massima consentita: {maxSizeMB} MB</div>
-        </div>,
-        { duration: 5000 }
-      );
-      return;
-    }
-
-    setState(prev => ({ ...prev, pdfFile: file }));
-  }, [ssdConfig]);
-
-  const handleUrlChange = useCallback((url: string) => {
-    setState(prev => ({ ...prev, url }));
-  }, []);
-
-  // Normalize URL before sending to server
-  const normalizeUrl = (input: string): string => {
-    if (!input || typeof input !== "string") return input;
-
-    let candidate = input.trim();
-
-    if (!/^https?:\/\//i.test(candidate)) {
-      candidate = `https://${candidate}`;
-    }
+  const loadModuleData = useCallback(async (moduleId: ModuleId, moduleUrls: string[]) => {
+    setState(prev => ({ ...prev, isLoading: true, error: null }));
+    handleScenarioStateReset();
 
     try {
-      const url = new URL(candidate);
-      // Keep path/query/hash so tests can target deep pages, but strip default port and collapse redundant slashes
-      url.hash = url.hash.trim();
-      return url.toString();
-    } catch {
-      return input;
-    }
-  };
+      const [events, scenarios] = await Promise.all([
+        fetchModuleEvents(moduleId),
+        fetchModuleScenarios(moduleId),
+      ]);
 
-  const handleIngest = async () => {
+      const defaultUrl = moduleUrls[0] || '';
+      const firstScenario = scenarios[0] ?? null;
+      const fallbackEventId = firstScenario?.eventId ?? null;
+      const fallbackEventDefinition = findEventDefinition(events, fallbackEventId);
+      const scenarioConfig = firstScenario?.config ?? {};
+      const scenarioSteps = buildScenarioStepsFromDefinition(
+        fallbackEventDefinition,
+        scenarioConfig,
+        firstScenario?.steps ?? []
+      );
+      const expectedPayloadString = buildExpectedPayloadString(
+        fallbackEventDefinition,
+        firstScenario?.expectedPayload ?? null
+      );
+
+      setState(prev => ({
+        ...prev,
+        isLoading: false,
+        currentStep: 'scenario',
+        eventDefinitions: events,
+        scenarios,
+        scenarioId: firstScenario?.id ?? null,
+        scenarioName: firstScenario?.name ?? '',
+        scenarioEventId: fallbackEventId,
+        scenarioUrl: firstScenario?.url ?? defaultUrl,
+        url: firstScenario?.url ?? defaultUrl,
+        scenarioConfig,
+        scenarioSteps,
+        scenarioExpectedPayload: expectedPayloadString,
+        scenarioExpectedPayloadError: null,
+        dsl: null,
+        pdfContent: null,
+        report: null,
+        moduleSource: null,
+      }));
+    } catch (error) {
+      setState(prev => ({ ...prev, isLoading: false }));
+      notifyError(error, 'Impossibile caricare gli scenari del modulo selezionato');
+    }
+  }, [fetchModuleEvents, fetchModuleScenarios, handleScenarioStateReset]);
+
+  const handleModuleProceed = () => {
     if (!state.moduleId) {
-      toast.error('Seleziona un modulo prima di avviare il test');
+      toast.error('Seleziona un modulo per continuare');
       return;
     }
 
@@ -312,425 +462,630 @@ export default function SSDTestPage() {
       return;
     }
 
-    if (!state.url || !state.pdfFile) {
-      toast.error('Please provide both URL and PDF file');
+    loadModuleData(state.moduleId, moduleUrlOptions);
+  };
+
+  const handleChangeModule = () => {
+    setState(createInitialState());
+    setLoadingType(null);
+    handleScenarioStateReset();
+    hideAnalysis();
+  };
+
+  const handleModuleConfigChange = useCallback((nextConfig: ModuleConfig) => {
+    setState(prev => ({
+      ...prev,
+      moduleConfig: nextConfig,
+    }));
+  }, []);
+
+
+
+  const handleSelectScenario = useCallback(
+    (scenarioId: string) => {
+      setState(prev => {
+        const scenario = prev.scenarios.find(s => s.id === scenarioId) ?? null;
+        if (!scenario) {
+          return prev;
+        }
+
+        handleScenarioStateReset();
+        const eventDefinition = findEventDefinition(prev.eventDefinitions, scenario.eventId);
+        return {
+          ...prev,
+          scenarioId: scenario.id,
+          scenarioName: scenario.name,
+          scenarioEventId: scenario.eventId,
+          scenarioUrl: scenario.url,
+          url: scenario.url,
+          scenarioConfig: scenario.config ?? {},
+          scenarioSteps: buildScenarioStepsFromDefinition(
+            eventDefinition,
+            scenario.config ?? {},
+            scenario.steps ?? []
+          ),
+          scenarioExpectedPayload: buildExpectedPayloadString(
+            eventDefinition,
+            scenario.expectedPayload ?? null
+          ),
+          scenarioExpectedPayloadError: null,
+          dsl: null,
+          pdfContent: null,
+          report: null,
+          moduleSource: null,
+        };
+      });
+    },
+    [handleScenarioStateReset]
+  );
+
+  const buildDraftFromScenario = useCallback(
+    (scenario: ModuleScenario | null): ScenarioDraft => {
+      const targetEventId = scenario?.eventId ?? 'manual';
+      const eventDefinition = targetEventId ? findEventDefinition(state.eventDefinitions, targetEventId) : null;
+      const defaultUrl = moduleUrlOptions[0] || state.scenarioUrl || '';
+
+      return {
+        id: scenario?.id ?? null,
+        name: scenario?.name ?? '',
+        eventId: targetEventId,
+        url: scenario?.url ?? defaultUrl,
+        config: scenario?.config ?? {},
+        steps: buildScenarioStepsFromDefinition(
+          eventDefinition,
+          scenario?.config ?? {},
+          scenario?.steps ?? []
+        ),
+        expectedPayload: buildExpectedPayloadString(
+          eventDefinition,
+          scenario?.expectedPayload ?? null
+        ),
+        expectedPayloadError: null,
+      };
+    },
+    [moduleUrlOptions, state.eventDefinitions, state.scenarioUrl]
+  );
+
+  const openScenarioModal = useCallback(
+    (mode: 'create' | 'edit') => {
+      const baseScenario =
+        mode === 'edit'
+          ? state.scenarios.find(s => s.id === state.scenarioId) ?? null
+          : null;
+
+      if (mode === 'edit' && !baseScenario) {
+        toast.error('Seleziona uno scenario da modificare');
+        return;
+      }
+
+      const draft = buildDraftFromScenario(baseScenario);
+      setScenarioDraft(draft);
+      setScenarioModalMode(mode);
+      setScenarioModalOpen(true);
+    },
+    [buildDraftFromScenario, state.scenarioId, state.scenarios]
+  );
+
+  const closeScenarioModal = () => {
+    setScenarioModalOpen(false);
+    setScenarioDraft(null);
+    setScenarioModalSaving(false);
+  };
+
+  const updateScenarioDraft = useCallback((updater: (draft: ScenarioDraft) => ScenarioDraft) => {
+    setScenarioDraft(prev => (prev ? updater(prev) : prev));
+  }, []);
+
+  const handleDraftNameChange = (value: string) => {
+    updateScenarioDraft(draft => ({ ...draft, name: value }));
+  };
+
+
+
+  const handleDraftUrlChange = (value: string) => {
+    updateScenarioDraft(draft => ({ ...draft, url: value }));
+  };
+
+  const handleDraftConfigChange = (key: string, value: string) => {
+    updateScenarioDraft(draft => {
+      const eventDefinition = findEventDefinition(state.eventDefinitions, draft.eventId);
+      const updatedSteps = draft.steps.map(step => {
+        const stepDefinition = eventDefinition?.steps.find(def => def.id === step.id);
+        if (!stepDefinition?.input || stepDefinition.input.id !== key) {
+          return step;
+        }
+        if (stepDefinition.input.type === 'selector') {
+          return { ...step, selector: value };
+        }
+        return { ...step, value };
+      });
+
+      return {
+        ...draft,
+        config: {
+          ...draft.config,
+          [key]: value,
+        },
+        steps: updatedSteps,
+      };
+    });
+  };
+
+  const handleDraftAddClickStep = () => {
+    updateScenarioDraft(draft => {
+      const nextIndex = draft.steps.length + 1;
+      const newStep: ScenarioStep = {
+        id: `manual_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        type: 'click',
+        label: `Step ${nextIndex}`,
+        selector: '',
+        delayAfterMs: 10000,
+      };
+      return {
+        ...draft,
+        steps: [...draft.steps, newStep],
+      };
+    });
+  };
+
+  const handleDraftRemoveStep = (stepId: string) => {
+    updateScenarioDraft(draft => {
+      const filtered = draft.steps.filter(step => step.id !== stepId);
+      const resequenced = filtered.map((step, index) => ({
+        ...step,
+        label: step.label && step.label.trim().length > 0 ? step.label : `Step ${index + 1}`,
+      }));
+      return {
+        ...draft,
+        steps: resequenced,
+      };
+    });
+  };
+
+  const handleDraftStepInputChange = (stepId: string, field: 'selector' | 'value', value: string) => {
+    updateScenarioDraft(draft => {
+      const eventDefinition = findEventDefinition(state.eventDefinitions, draft.eventId);
+      const stepDefinition = eventDefinition?.steps.find(def => def.id === stepId);
+      const updatedSteps = draft.steps.map(step =>
+        step.id === stepId ? { ...step, [field]: value } : step
+      );
+
+      let updatedConfig = draft.config;
+      if (stepDefinition?.input?.id) {
+        updatedConfig = {
+          ...draft.config,
+          [stepDefinition.input.id]: value,
+        };
+      }
+
+      return {
+        ...draft,
+        steps: updatedSteps,
+        config: updatedConfig,
+      };
+    });
+  };
+
+  const handleDraftResetSteps = () => {
+    updateScenarioDraft(draft => {
+      const eventDefinition = findEventDefinition(state.eventDefinitions, draft.eventId);
+      if (!eventDefinition) {
+        return { ...draft, steps: [] };
+      }
+      return {
+        ...draft,
+        steps: buildScenarioStepsFromDefinition(
+          eventDefinition,
+          draft.config ?? {},
+          []
+        ),
+      };
+    });
+  };
+
+  const handleDraftExpectedPayloadChange = (value: string) => {
+    updateScenarioDraft(draft => {
+      const { error } = validateExpectedPayloadInput(value);
+      return {
+        ...draft,
+        expectedPayload: value,
+        expectedPayloadError: error,
+      };
+    });
+  };
+
+  const handleDraftResetPayload = () => {
+    updateScenarioDraft(draft => {
+      const eventDefinition = findEventDefinition(state.eventDefinitions, draft.eventId);
+      return {
+        ...draft,
+        expectedPayload: buildExpectedPayloadString(eventDefinition, null),
+        expectedPayloadError: null,
+      };
+    });
+  };
+
+  const handleDraftFormatPayload = () => {
+    if (!scenarioDraft) return;
+    const source = scenarioDraft.expectedPayload;
+    if (!source.trim()) return;
+
+    const { parsed, error } = validateExpectedPayloadInput(source);
+    if (error || parsed == null) {
+      updateScenarioDraft(draft => ({
+        ...draft,
+        expectedPayloadError: error,
+      }));
+      toast.error('Payload non valido, impossibile formattare');
+      return;
+    }
+
+    const formatted = JSON.stringify(parsed, null, 2);
+    updateScenarioDraft(draft => ({
+      ...draft,
+      expectedPayload: formatted,
+      expectedPayloadError: null,
+    }));
+  };
+
+const persistScenarioDraft = useCallback(
+  async (draft: ScenarioDraft): Promise<ModuleScenario | null> => {
+    if (!state.moduleId) {
+      toast.error('Seleziona prima un modulo');
+      return null;
+    }
+
+    const name = draft.name.trim();
+    if (!name) {
+      toast.error('Inserisci un nome per lo scenario');
+      return null;
+    }
+
+    const normalizedUrl = normalizeUrl(draft.url);
+    if (!normalizedUrl) {
+      toast.error('Inserisci un URL valido per lo scenario');
+      return null;
+    }
+
+    const { parsed: parsedExpectedPayload, error: payloadError } = validateExpectedPayloadInput(
+      draft.expectedPayload
+    );
+    if (payloadError) {
+      updateScenarioDraft(prev => ({
+        ...prev,
+        expectedPayloadError: payloadError,
+      }));
+      toast.error('Correggi il payload atteso prima di salvare');
+      return null;
+    }
+
+    const eventDefinitionForDraft =
+      draft.eventId && draft.eventId !== 'manual'
+        ? findEventDefinition(state.eventDefinitions, draft.eventId)
+        : null;
+
+    const sanitizedSteps: ScenarioStep[] = (draft.steps ?? []).map((step, index) => {
+      const selector = typeof step.selector === 'string' ? step.selector.trim() : '';
+      const value = typeof step.value === 'string' ? step.value.trim() : undefined;
+      const label =
+        typeof step.label === 'string' && step.label.trim().length > 0
+          ? step.label.trim()
+          : `Step ${index + 1}`;
+
+      return {
+        ...step,
+        label,
+        selector: selector.length > 0 ? selector : undefined,
+        value,
+        delayAfterMs: typeof step.delayAfterMs === 'number' ? step.delayAfterMs : 10000,
+      };
+    });
+
+    if (!eventDefinitionForDraft && sanitizedSteps.some(step => step.selector === undefined)) {
+      toast.error('Ogni step deve includere un selettore CSS valido');
+      return null;
+    }
+
+    const normalizedConfig = Object.entries(draft.config ?? {}).reduce<Record<string, unknown>>(
+      (acc, [key, value]) => {
+        if (typeof value === 'string') {
+          acc[key] = value.trim();
+        } else {
+          acc[key] = value;
+        }
+        return acc;
+      },
+      {}
+    );
+
+    const eventId = eventDefinitionForDraft ? draft.eventId! : 'manual';
+
+    const payload = {
+      name,
+      eventId,
+      url: normalizedUrl,
+      config: normalizedConfig,
+      steps: sanitizedSteps,
+      expectedPayload: parsedExpectedPayload ?? null,
+    };
+
+    setScenarioModalSaving(true);
+
+    try {
+      let scenario: ModuleScenario;
+      if (draft.id) {
+        const res = await fetch(
+          `${apiBaseUrl}/api/modules/${state.moduleId}/scenarios/${draft.id}`,
+          {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          }
+        );
+        if (!res.ok) {
+          const error = await res.json().catch(() => ({}));
+          throw new Error(error.error || 'Impossibile aggiornare lo scenario');
+        }
+        const data = await res.json();
+        scenario = data.scenario;
+      } else {
+        const res = await fetch(`${apiBaseUrl}/api/modules/${state.moduleId}/scenarios`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          const error = await res.json().catch(() => ({}));
+          throw new Error(error.error || 'Impossibile creare lo scenario');
+        }
+        const data = await res.json();
+        scenario = data.scenario;
+      }
+
+      setState(prev => {
+        const others = prev.scenarios.filter(item => item.id !== scenario.id);
+        const updated = [...others, scenario].sort((a, b) => a.name.localeCompare(b.name));
+        const eventDefinition = findEventDefinition(prev.eventDefinitions, scenario.eventId);
+        return {
+          ...prev,
+          scenarios: updated,
+          scenarioId: scenario.id,
+          scenarioName: scenario.name,
+          scenarioEventId: scenario.eventId,
+          scenarioUrl: scenario.url,
+          url: scenario.url,
+          scenarioConfig: scenario.config ?? {},
+          scenarioSteps: buildScenarioStepsFromDefinition(
+            eventDefinition,
+            scenario.config ?? {},
+            scenario.steps ?? []
+          ),
+          scenarioExpectedPayload: buildExpectedPayloadString(
+            eventDefinition,
+            scenario.expectedPayload ?? null
+          ),
+          scenarioExpectedPayloadError: null,
+        };
+      });
+
+      handleScenarioStateReset();
+      toast.success(draft.id ? 'Scenario aggiornato' : 'Scenario creato');
+      closeScenarioModal();
+      return scenario;
+    } catch (error) {
+      notifyError(error, 'Errore durante il salvataggio dello scenario');
+      return null;
+    } finally {
+      setScenarioModalSaving(false);
+    }
+  },
+  [apiBaseUrl, state.moduleId, handleScenarioStateReset, updateScenarioDraft]
+);
+
+  const handleScenarioModalSave = async () => {
+    if (!scenarioDraft) return;
+    await persistScenarioDraft(scenarioDraft);
+  };
+
+  const handleScenarioCreate = () => openScenarioModal('create');
+  const handleScenarioEdit = () => openScenarioModal('edit');
+
+  const handleDeleteScenario = async () => {
+    if (!state.moduleId) {
+      toast.error('Seleziona un modulo prima di eliminare uno scenario');
+      return;
+    }
+
+    if (!state.scenarioId) {
+      toast.error('Seleziona uno scenario da eliminare');
+      return;
+    }
+
+    const confirmed = window.confirm('Eliminare definitivamente lo scenario selezionato?');
+    if (!confirmed) return;
+
+    try {
+      setState(prev => ({ ...prev, isLoading: true }));
+      const res = await fetch(`${apiBaseUrl}/api/modules/${state.moduleId}/scenarios/${state.scenarioId}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}));
+        throw new Error(error.error || 'Impossibile eliminare lo scenario');
+      }
+
+      setState(prev => {
+        const remaining = prev.scenarios.filter(s => s.id !== state.scenarioId);
+        const defaultUrl = moduleUrlOptions[0] || '';
+        const firstScenario = remaining[0] ?? null;
+        const fallbackEventId = firstScenario?.eventId ?? prev.eventDefinitions[0]?.id ?? null;
+        const eventDefinition = findEventDefinition(prev.eventDefinitions, fallbackEventId);
+        return {
+          ...prev,
+          scenarios: remaining,
+          scenarioId: firstScenario?.id ?? null,
+          scenarioName: firstScenario?.name ?? '',
+          scenarioEventId: fallbackEventId,
+          scenarioUrl: firstScenario?.url ?? defaultUrl,
+          url: firstScenario?.url ?? defaultUrl,
+          scenarioConfig: firstScenario?.config ?? {},
+          scenarioSteps: buildScenarioStepsFromDefinition(
+            eventDefinition,
+            firstScenario?.config ?? {},
+            firstScenario?.steps ?? []
+          ),
+          scenarioExpectedPayload: buildExpectedPayloadString(
+            eventDefinition,
+            firstScenario?.expectedPayload ?? null
+          ),
+          scenarioExpectedPayloadError: null,
+          dsl: null,
+          pdfContent: null,
+          report: null,
+          moduleSource: null,
+          isLoading: false,
+        };
+      });
+      handleScenarioStateReset();
+      toast.success('Scenario eliminato');
+    } catch (error) {
+      setState(prev => ({ ...prev, isLoading: false }));
+      notifyError(error, "Errore durante l'eliminazione dello scenario");
+    }
+  };
+
+  const handleGenerateScenarioDsl = async () => {
+    if (!state.moduleId) {
+      toast.error('Seleziona prima un modulo');
+      return;
+    }
+
+    if (!state.scenarioId) {
+      toast.error('Crea o seleziona uno scenario prima di generare la DSL');
+      return;
+    }
+
+    const scenario = state.scenarios.find(s => s.id === state.scenarioId);
+    if (!scenario) {
+      toast.error('Scenario selezionato non trovato');
       return;
     }
 
     setLoadingType('pdf');
-    setState(prev => ({ ...prev, isLoading: true, error: null }));
-
-    // Avvia il progresso dettagliato con tutti gli step
-    startAnalysis(unifiedSteps);
-
-    // Crea nuovo AbortController per questa richiesta
-    const abortController = createNewController();
-
+    setState(prev => ({ ...prev, isLoading: true }));
     try {
-      // Normalize URL before sending
-      const normalizedUrl = normalizeUrl(state.url);
-      
-      // STEP 1: Scarica HTML e estrai cookie banner
-      console.log('Step 1: Fetching HTML and extracting cookie banner...');
-      updateStep('html_fetch', 'running', 'Downloading HTML and extracting cookie banner...');
-      
-      const htmlResponse = await fetch(`${apiBaseUrl}/api/ssd/fetch-html?url=${encodeURIComponent(normalizedUrl)}`, {
-        method: 'GET',
-        signal: abortController.signal,
-      });
-
-      if (!htmlResponse.ok) {
-        const error = await htmlResponse.json();
-        throw new Error(error.error || 'Failed to fetch HTML');
-      }
-
-      const htmlData = await htmlResponse.json();
-      console.log('Cookie banner extraction result:', htmlData.cookieBanner);
-      updateStep('html_fetch', 'completed', 'HTML downloaded and cookie banner extracted!');
-
-      // STEP 2: Processa PDF e genera DSL
-      console.log('Step 2: Processing PDF and generating DSL...');
-      updateStep('pdf_upload', 'running', 'Uploading PDF file...');
-      
-      const formData = new FormData();
-      formData.append('url', normalizedUrl);
-      formData.append('pdf', state.pdfFile);
-      formData.append('moduleId', state.moduleId);
-      formData.append('moduleConfig', JSON.stringify(state.moduleConfig || {}));
-
-      updateStep('pdf_upload', 'completed', 'PDF uploaded successfully');
-      updateStep('pdf_analysis', 'running', 'Analyzing PDF content...');
-
-      const response = await fetch(`${apiBaseUrl}/api/spec/generate`, {
+      const res = await fetch(`${apiBaseUrl}/api/modules/${scenario.moduleId}/scenarios/${scenario.id}/build`, {
         method: 'POST',
-        body: formData,
-        signal: abortController.signal,
       });
-
-      if (!response.ok) {
-        const error = await response.json();
-        notifyError(error, 'Failed to process PDF');
-        throw new Error(error.error?.message || error.error || 'Failed to process PDF');
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}));
+        throw new Error(error.error || 'Impossibile generare la DSL per lo scenario');
       }
+      const data = await res.json();
+      const dsl = data.dsl;
 
-      const result = await response.json();
-      
-      updateStep('pdf_analysis', 'completed', 'PDF content analyzed');
-      updateStep('spec_extraction', 'completed', 'Test specifications extracted');
-      updateStep('dsl_generation', 'completed', 'DSL generated successfully');
-      updateStep('test_preparation', 'completed', 'Tests prepared for execution');
-      
+      setEditableDsl(JSON.stringify(dsl, null, 2));
+      setOriginalDsl(dsl);
       setState(prev => ({
         ...prev,
-        dsl: result.dsl,
-        pdfContent: result.pdfContent,
-        moduleSource: result.moduleSource ?? prev.moduleSource ?? null,
-        currentStep: 'upload', // Keep on upload, we'll auto-run
+        dsl,
+        pdfContent: '',
+        moduleSource: 'scenario',
+        currentStep: 'review',
         isLoading: false,
+        url: scenario.url,
       }));
-      setOriginalDsl(result.dsl);
-      
-      // Store the data for auto-run
-      console.log('Auto-running tests after specification generation...');
-      console.log('DSL generated:', result.dsl);
-      console.log('PDF Content length:', result.pdfContent?.length);
-      console.log('PDF Buffer Path:', result.pdfBufferPath);
-      
-      // Non completare subito l'analisi, aspettiamo che i test finiscano
-      setEditableDsl(JSON.stringify(result.dsl, null, 2));
-      
-      // Avvia immediatamente i test senza pause artificiali
-      console.log('About to call handleRunTests with stored data...');
-      handleRunTestsWithData(
-        result.dsl,
-        result.pdfContent,
-        result.pdfBufferPath,
-        result.moduleSource ?? null,
-        result.moduleId ?? selectedModule?.meta.id ?? state.moduleId ?? null
-      );
-
+      toast.success('DSL generata dallo scenario');
     } catch (error) {
-      // Gestisci errore di abort
-      if (error instanceof Error && error.name === 'AbortError') {
-        console.log('Request was aborted');
-        hideAnalysis();
-        return;
-      }
-      
-      setState(prev => ({
-        ...prev,
-        error: error instanceof Error ? error.message : 'Unknown error',
-        isLoading: false,
-      }));
+      setState(prev => ({ ...prev, isLoading: false }));
+      notifyError(error, 'Errore durante la generazione della DSL');
+    } finally {
       setLoadingType(null);
-      hideAnalysis();
-      notifyError(error, 'Failed to process PDF');
     }
   };
 
-  // Step 2: Review (universal mode - no disambiguation needed)
+  const handleDslEdit = (value: string) => {
+    setEditableDsl(value);
+    try {
+      const parsed = JSON.parse(value);
+      if (!parsed.site || !parsed.tests || !Array.isArray(parsed.tests)) {
+        setDslValidationError('DSL non valida: mancano campi obbligatori');
+      } else {
+        setDslValidationError(null);
+      }
+    } catch (error) {
+      setDslValidationError(`JSON non valido: ${error instanceof Error ? error.message : 'Errore sconosciuto'}`);
+    }
+  };
+
+  const handleSaveDsl = () => {
+    try {
+      const parsed = JSON.parse(editableDsl);
+      setState(prev => ({ ...prev, dsl: parsed }));
+      setIsEditingDsl(false);
+      toast.success('DSL aggiornata');
+    } catch (error) {
+      toast.error(`DSL non valida: ${error instanceof Error ? error.message : 'Errore sconosciuto'}`);
+    }
+  };
+
+  const handleResetDsl = () => {
+    if (originalDsl) {
+      setEditableDsl(JSON.stringify(originalDsl, null, 2));
+      setState(prev => ({ ...prev, dsl: originalDsl }));
+      setIsEditingDsl(false);
+      setDslValidationError(null);
+      toast.success('DSL ripristinata');
+    }
+  };
+
+  const handleReset = useCallback(() => {
+    setState(prev => ({
+      ...prev,
+      currentStep: 'scenario',
+      dsl: null,
+      pdfContent: null,
+      report: null,
+      moduleSource: null,
+      isLoading: false,
+      error: null,
+    }));
+    setLoadingType(null);
+    handleScenarioStateReset();
+    hideAnalysis();
+  }, [handleScenarioStateReset, hideAnalysis]);
+
+  const startTestRun = useCallback(() => {
+    setLoadingType('test');
+    startAnalysis(scenarioRunSteps);
+  }, [startAnalysis]);
+
+  const finalizeTestRun = useCallback(() => {
+    completeAnalysis();
+    setTimeout(() => {
+      setLoadingType(null);
+      hideAnalysis();
+    }, 1200);
+  }, [completeAnalysis, hideAnalysis]);
 
   const handleRunTestsWithData = async (
     dsl: any,
     pdfContent: string,
-    pdfBufferPath?: string,
+    _pdfBufferPath?: string,
     sourceOverride?: ModuleSource | null,
     moduleIdOverride?: ModuleId | null
   ) => {
-    console.log('handleRunTestsWithData called');
-    console.log('dsl:', dsl);
-    console.log('pdfContent:', pdfContent);
-    console.log('pdfBufferPath:', pdfBufferPath);
     const moduleIdForRun = moduleIdOverride ?? state.moduleId ?? selectedModule?.meta.id ?? null;
-
-    if (!moduleIdForRun) {
-      toast.error('Modulo non selezionato, impossibile eseguire i test');
-      return;
-    }
-
-    const missingConfigFields = getMissingRequiredConfig();
-    if (missingConfigFields.length > 0) {
-      toast.error(
-        <div className="space-y-1">
-          <div className="font-semibold">Configura tutti i campi obbligatori</div>
-          <div className="text-sm">Completa: {missingConfigFields.join(', ')}</div>
-        </div>,
-        { duration: 5000 }
-      );
-      return;
-    }
-
-    if (!dsl) {
-      console.log('No DSL provided, returning');
-      return;
-    }
-
-    console.log('Starting test execution with provided data...');
-    setLoadingType('test');
-    
-    // La modale è già visibile con tutti gli step, non serve riavviarla
-    // Aggiorna solo il tipo di loading per cambiare il titolo
-    
-    // Crea nuovo AbortController per questa richiesta
-    const abortController = createNewController();
-    
-    // Update state with the provided data
-    setState(prev => ({ 
-      ...prev, 
-      moduleId: moduleIdForRun ?? prev.moduleId ?? null,
-      moduleSource: sourceOverride ?? prev.moduleSource ?? null,
-      dsl: dsl,
-      pdfContent: pdfContent,
-      isLoading: true, 
-      error: null 
-    }));
-
-    try {
-      updateStep('browser_launch', 'running', 'Launching Puppeteer browser...');
-
-      const moduleSourceToUse: ModuleSource | null =
-        sourceOverride ?? state.moduleSource ?? (moduleIdForRun && selectedModule?.manifest ? 'manifest' : null);
-      
-      const requestBody = {
-        moduleId: moduleIdForRun,
-        moduleConfig: state.moduleConfig,
-        moduleSource: moduleSourceToUse,
-        dsl: dsl,
-        pdfContent: pdfContent,
-        pdfBufferPath: pdfBufferPath,
-        runOptions: {
-          headless: true,
-          consent: 'both',
-        },
-      };
-      
-      console.log('Frontend sending request body:', {
-        moduleId: requestBody.moduleId,
-        moduleSource: requestBody.moduleSource,
-        dsl: !!requestBody.dsl,
-        pdfContent: !!requestBody.pdfContent,
-        pdfContentLength: requestBody.pdfContent?.length || 0,
-        pdfContentPreview: requestBody.pdfContent?.substring(0, 100) + '...',
-        moduleConfigKeys: Object.keys(requestBody.moduleConfig || {}),
-        runOptions: requestBody.runOptions
-      });
-      
-      // Test JSON serialization
-      let jsonBody;
-      try {
-        jsonBody = JSON.stringify(requestBody);
-        console.log('✅ JSON serialization successful, length:', jsonBody.length);
-      } catch (jsonError) {
-        console.error('❌ JSON serialization failed:', jsonError);
-        throw new Error(`JSON serialization failed: ${jsonError.message}`);
-      }
-      
-      updateStep('browser_launch', 'completed', 'Browser launched successfully');
-      updateStep('navigation', 'running', 'Navigating to website...');
-      
-      const response = await fetch(`${apiBaseUrl}/api/ssd/run`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: jsonBody,
-        signal: abortController.signal,
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        notifyError(error, 'Failed to run tests');
-        throw new Error(error.error?.message || error.error || `HTTP error! status: ${response.status}`);
-      }
-
-      const result = await response.json();
-      
-      // Debug: log del risultato per capire cosa contiene
-      console.log('🔍 RAW RESPONSE DEBUG:');
-      console.log('  📦 Full result object:', result);
-      console.log('  📊 Result keys:', Object.keys(result));
-      console.log('  📋 Result.report:', result.report);
-      console.log('  📋 Result.report type:', typeof result.report);
-      console.log('  📋 Result.report keys:', result.report ? Object.keys(result.report) : 'N/A');
-      console.log('  🎯 Result.pdf:', result.pdf);
-      console.log('  🎯 Result.cookie:', result.cookie);
-      console.log('  🎯 Result.artifacts:', result.artifacts);
-      
-      const challengeInfo = result.challenge || result.cookie?.challenge || null;
-
-      // Aggiorna i progressi dei test in base al challenge
-      if (challengeInfo?.detected) {
-        const detail = challengeInfo.message || 'Bloccato dal sistema anti-bot';
-        updateStep('navigation', 'error', detail);
-        updateStep('cookie_consent', 'error', 'Cookie banner non gestito: challenge anti-bot attivo');
-        updateStep('test_execution', 'error', 'Esecuzione test interrotta dal challenge');
-        updateStep('data_collection', 'error', 'Nessun dato raccolto: challenge anti-bot');
-        updateStep('report_generation', 'completed', 'Report generato con avviso anti-bot');
-      } else {
-        updateStep('navigation', 'completed', 'Successfully navigated to website');
-        updateStep('cookie_consent', 'completed', 'Cookie consent handled');
-        updateStep('test_execution', 'completed', 'Tests executed successfully');
-        updateStep('data_collection', 'completed', 'Data collected and analyzed');
-        updateStep('report_generation', 'completed', 'Report generated successfully');
-      }
-      
-      // Funzioni helper per calcolare stato e statistiche
-      const calculateOverallStatus = (cookie: any, pdf: any) => {
-        const cookieStatus = (cookie?.status || 'UNKNOWN').toUpperCase();
-        const pdfStatus = (pdf?.status || 'UNKNOWN').toUpperCase();
-        
-        if (cookieStatus === 'BLOCKED' || pdfStatus === 'BLOCKED') return 'BLOCKED';
-        if (cookieStatus === 'ERROR' || pdfStatus === 'ERROR') return 'ERROR';
-        if (cookieStatus === 'FAIL' || pdfStatus === 'FAIL') return 'FAIL';
-        if (cookieStatus === 'PASS' && pdfStatus === 'PASS') return 'PASS';
-        return 'UNKNOWN';
-      };
-      
-      const calculateSummary = (cookie: any, pdf: any) => {
-        let totalTests = 0;
-        let passedTests = 0;
-        let failedTests = 0;
-        let blockedTests = 0;
-
-        const consider = (status?: string | null) => {
-          if (!status) return;
-          const normalized = status.toUpperCase();
-          if (normalized === 'PASS') passedTests++;
-          else if (normalized === 'BLOCKED') blockedTests++;
-          else if (normalized === 'FAIL' || normalized === 'ERROR') failedTests++;
-        };
-
-        if (cookie) {
-          totalTests++;
-          consider(cookie.status);
-        }
-
-        if (pdf) {
-          totalTests++;
-          consider(pdf.status);
-        }
-
-        const totalDuration = (cookie?.duration || 0) + (pdf?.duration || 0);
-
-        console.log('📊 SUMMARY CALCULATION:');
-        console.log('  🍪 Cookie test:', cookie?.status || 'N/A');
-        console.log('  📄 PDF test:', pdf?.status || 'N/A');
-        console.log('  📈 Total tests:', totalTests);
-        console.log('  ✅ Passed tests:', passedTests);
-        console.log('  ❌ Failed tests:', failedTests);
-        console.log('  🚫 Blocked tests:', blockedTests);
-        console.log('  ⏱️ Total duration:', totalDuration, 'ms');
-
-        return {
-          steps: totalTests,
-          totalTests,
-          passed: passedTests,
-          failed: failedTests,
-          blocked: blockedTests,
-          duration: totalDuration,
-          consentProfiles: cookie?.consentStatus ? [cookie.consentStatus] : []
-        };
-      };
-
-      // Debug: analizza la struttura dei dati
-      console.log('🔍 DATA STRUCTURE ANALYSIS:');
-      console.log('  📋 result.report exists:', !!result.report);
-      console.log('  📋 result.pdf exists:', !!result.pdf);
-      console.log('  📋 result.cookie exists:', !!result.cookie);
-      console.log('  📋 result.artifacts exists:', !!result.artifacts);
-      
-      // Crea un report unificato dalla struttura del backend
-      let reportData = null;
-      
-      // Il backend restituisce: { requestId, url, artifacts, cookie, pdf }
-      // Dobbiamo combinare cookie e pdf in un report unificato
-      if (result.pdf || result.cookie) {
-        console.log('✅ Creating unified report from backend structure');
-        reportData = {
-          // Metadati generali
-          requestId: result.requestId,
-          url: result.url,
-          artifacts: result.artifacts,
-          
-          // Risultati dei test
-          cookie: result.cookie || null,
-          pdf: result.pdf || null,
-          
-          // Calcola lo stato generale
-          overallStatus: calculateOverallStatus(result.cookie, result.pdf),
-          
-          // Calcola le statistiche
-          summary: calculateSummary(result.cookie, result.pdf),
-
-          // Challenge info
-          challenge: challengeInfo,
-          
-          // Timestamp
-          timestamp: new Date().toISOString()
-        };
-      } else {
-        console.log('⚠️ No test data found, using full result');
-        reportData = result;
-      }
-      
-      console.log('🎯 Final reportData:', reportData);
-      console.log('🎯 Final reportData type:', typeof reportData);
-      console.log('🎯 Final reportData keys:', reportData ? Object.keys(reportData) : 'N/A');
-
-      const overallStatus = reportData?.overallStatus;
-      if (challengeInfo?.detected) {
-        toast.error(challengeInfo.message || 'Accesso bloccato dal sistema anti-bot (Cloudflare).');
-      } else if (overallStatus === 'PASS') {
-        toast.success('Tests completed successfully!');
-      } else if (overallStatus === 'FAIL' || overallStatus === 'ERROR' || overallStatus === 'BLOCKED') {
-        toast.error('Tests completed with issues. Controlla i dettagli.');
-      } else {
-        toast('Tests completed with warnings.', { icon: '⚠️' });
-      }
-      
-      setState(prev => ({
-        ...prev,
-        report: reportData,
-        currentStep: 'run',
-        isLoading: false,
-      }));
-      
-      // Debug: verifica che lo stato sia stato aggiornato correttamente
-      console.log('✅ State updated - currentStep:', 'run', 'report:', !!reportData);
-      setLoadingType(null);
-      
-      // Completa l'analisi e chiudi il loader dopo aver mostrato i risultati
-      completeAnalysis();
-    } catch (error) {
-      // Gestisci errore di abort
-      if (error instanceof Error && error.name === 'AbortError') {
-        console.log('Request was aborted');
-        hideAnalysis();
-        return;
-      }
-      
-      setState(prev => ({
-        ...prev,
-        error: error instanceof Error ? error.message : 'Unknown error',
-        isLoading: false,
-      }));
-      setLoadingType(null);
-      hideAnalysis();
-      notifyError(error, 'Failed to run tests');
-    }
-  };
-
-  const handleRunTests = async () => {
-    console.log('handleRunTests called');
-    console.log('state.dsl:', state.dsl);
-    console.log('state.pdfContent:', state.pdfContent);
-    const moduleIdForRun = state.moduleId ?? selectedModule?.meta.id ?? null;
-
     if (!moduleIdForRun) {
       toast.error('Seleziona un modulo prima di eseguire i test');
       return;
     }
 
+    if (!dsl) {
+      toast.error('DSL non disponibile');
+      return;
+    }
+
     const missingConfigFields = getMissingRequiredConfig();
     if (missingConfigFields.length > 0) {
       toast.error(
@@ -743,39 +1098,51 @@ export default function SSDTestPage() {
       return;
     }
 
-    if (!state.dsl) {
-      console.log('No DSL found, returning');
-      return;
-    }
+    startTestRun();
+    const progressTimers: number[] = [];
+    const scheduleStepUpdate = (stepId: string, status: 'running' | 'completed', details: string, delay: number) => {
+      const timer = window.setTimeout(() => {
+        updateStep(stepId, status, details);
+      }, delay);
+      progressTimers.push(timer);
+    };
 
-    console.log('Starting test execution...');
-    setLoadingType('test');
-    
-    // Crea nuovo AbortController per questa richiesta
     const abortController = createNewController();
-    
-    setState(prev => ({ 
-      ...prev, 
-      moduleId: moduleIdForRun ?? prev.moduleId ?? null,
-      isLoading: true, 
-      error: null 
+
+    setState(prev => ({
+      ...prev,
+      moduleId: moduleIdForRun,
+      moduleSource: sourceOverride ?? prev.moduleSource ?? 'scenario',
+      dsl,
+      pdfContent,
+      isLoading: true,
+      error: null,
     }));
 
     try {
-      const moduleSourceToUse: ModuleSource | null =
-        state.moduleSource ?? (selectedModule?.manifest ? 'manifest' : null);
+     updateStep('browser_launch', 'running', 'Avvio del browser Puppeteer...');
+     scheduleStepUpdate('browser_launch', 'completed', 'Browser inizializzato', 300);
+      scheduleStepUpdate('navigation', 'running', 'Caricamento della pagina...', 350);
+      scheduleStepUpdate('navigation', 'completed', 'Navigazione completata', 900);
+      scheduleStepUpdate('cookie_consent', 'running', 'Gestione del banner cookie...', 1100);
+      scheduleStepUpdate('cookie_consent', 'completed', 'Gestione cookie completata', 1700);
+      scheduleStepUpdate('test_execution', 'running', 'Esecuzione scenario DSL...', 1900);
+      scheduleStepUpdate('test_execution', 'completed', 'Scenario eseguito', 2600);
+      scheduleStepUpdate('data_collection', 'running', 'Raccolta eventi e screenshot...', 2800);
+      scheduleStepUpdate('data_collection', 'completed', 'Dati raccolti', 3400);
+      scheduleStepUpdate('report_generation', 'running', 'Generazione del report...', 3600);
+
       const response = await fetch(`${apiBaseUrl}/api/ssd/run`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         signal: abortController.signal,
         body: JSON.stringify({
           moduleId: moduleIdForRun,
           moduleConfig: state.moduleConfig,
-          moduleSource: moduleSourceToUse,
-          dsl: state.dsl,
-          pdfContent: state.pdfContent,
+          moduleSource: sourceOverride ?? 'scenario',
+          scenarioId: state.scenarioId ?? null,
+          dsl,
+          pdfContent,
           runOptions: {
             headless: true,
             consent: 'both',
@@ -784,128 +1151,74 @@ export default function SSDTestPage() {
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        notifyError(error, 'Failed to run tests');
-        throw new Error(error.error?.message || error.error || `Server error (${response.status})`);
+        const error = await response.json().catch(() => ({}));
+        notifyError(error, 'Esecuzione test fallita');
+        throw new Error(error.error || `Server error (${response.status})`);
       }
 
       const result = await response.json();
       const reportData = result.report ?? result;
-      
+
+      progressTimers.forEach(timerId => window.clearTimeout(timerId));
+      updateStep('report_generation', 'running', 'Generazione del report...');
+      updateStep('report_generation', 'completed', 'Report generato');
+
       setState(prev => ({
         ...prev,
         report: reportData,
         currentStep: 'run',
         isLoading: false,
       }));
-      setLoadingType(null);
 
-      toast.success('Tests completed successfully!');
+      toast.success('Test completati');
+      finalizeTestRun();
     } catch (error) {
-      // Gestisci errore di abort
+      progressTimers.forEach(timerId => window.clearTimeout(timerId));
+      updateStep('report_generation', 'error', error instanceof Error ? error.message : 'Errore durante il test');
+
       if (error instanceof Error && error.name === 'AbortError') {
-        console.log('Request was aborted');
+        setLoadingType(null);
+        hideAnalysis();
         return;
       }
-      
+
       setState(prev => ({
         ...prev,
         error: error instanceof Error ? error.message : 'Unknown error',
         isLoading: false,
       }));
+      notifyError(error, 'Impossibile completare il test');
       setLoadingType(null);
-      notifyError(error, 'Failed to run tests');
+      hideAnalysis();
     }
   };
 
-  // DSL editing functions
-  const validateDsl = (dslText: string): { isValid: boolean; error?: string; dsl?: TestSpec } => {
-    try {
-      const parsed = JSON.parse(dslText);
-      
-      // Basic validation
-      if (!parsed.site || !parsed.tests || !Array.isArray(parsed.tests)) {
-        return { isValid: false, error: 'Invalid DSL structure: missing required fields' };
-      }
-      
-      if (parsed.tests.length === 0) {
-        return { isValid: false, error: 'DSL must contain at least one test' };
-      }
-      
-      // Validate each test
-      for (let i = 0; i < parsed.tests.length; i++) {
-        const test = parsed.tests[i];
-        if (!test.section || !test.steps || !Array.isArray(test.steps)) {
-          return { isValid: false, error: `Test ${i} is missing required fields` };
-        }
-        
-        if (test.steps.length === 0) {
-          return { isValid: false, error: `Test ${i} must contain at least one step` };
-        }
-      }
-      
-      return { isValid: true, dsl: parsed };
-    } catch (error) {
-      return { 
-        isValid: false, 
-        error: `Invalid JSON: ${error instanceof Error ? error.message : 'Unknown error'}` 
-      };
+  const handleRunTests = async () => {
+    if (!state.dsl) {
+      toast.error('Genera la DSL dello scenario prima di eseguire i test');
+      return;
     }
-  };
 
-  const handleDslEdit = (value: string) => {
-    setEditableDsl(value);
-    const validation = validateDsl(value);
-    setDslValidationError(validation.isValid ? null : validation.error || 'Invalid DSL');
-  };
-
-  const handleSaveDsl = () => {
-    const validation = validateDsl(editableDsl);
-    if (validation.isValid && validation.dsl) {
-      setState(prev => ({ ...prev, dsl: validation.dsl! }));
-      setIsEditingDsl(false);
-      toast.success('DSL updated successfully');
-    } else {
-      toast.error(validation.error || 'Invalid DSL');
-    }
-  };
-
-  const handleResetDsl = () => {
-    if (originalDsl) {
-      setEditableDsl(JSON.stringify(originalDsl, null, 2));
-      setState(prev => ({ ...prev, dsl: originalDsl }));
-      setDslValidationError(null);
-      setIsEditingDsl(false);
-      toast.success('DSL reset to original');
-    }
-  };
-
-  const handleReset = () => {
-    const defaultConfig = selectedModule?.defaultConfig ?? {};
-    setState(prev => createInitialState(prev.moduleId, defaultConfig, moduleUrlOptions));
-    setLoadingType(null);
-    setEditableDsl('');
-    setIsEditingDsl(false);
-    setDslValidationError(null);
-    setOriginalDsl(null);
-    hideAnalysis();
+    await handleRunTestsWithData(
+      state.dsl,
+      state.pdfContent ?? '',
+      undefined,
+      state.moduleSource ?? 'scenario',
+      state.moduleId ?? selectedModule?.meta.id ?? null
+    );
   };
 
   const progressStepsDefinition = [
     { key: 'module', label: 'Modulo', icon: PackageSearch },
-    { key: 'upload', label: 'Upload & Process', icon: Upload },
-    { key: 'run', label: 'Results', icon: Play },
+    { key: 'scenario', label: 'Scenario', icon: Tag },
+    { key: 'run', label: 'Risultati', icon: Play },
   ] as const;
 
-  const activeStepKey =
-    state.currentStep === 'review' ? 'upload' : state.currentStep;
-  const activeStepIndex = progressStepsDefinition.findIndex(
-    step => step.key === activeStepKey
-  );
+  const activeStepKey = state.currentStep === 'review' ? 'scenario' : state.currentStep;
+  const activeStepIndex = progressStepsDefinition.findIndex(step => step.key === activeStepKey);
 
   const handleExportReport = () => {
     if (!state.report) return;
-
     const reportData = {
       url: state.url,
       timestamp: new Date().toISOString(),
@@ -923,274 +1236,633 @@ export default function SSDTestPage() {
     URL.revokeObjectURL(url);
   };
 
+  const selectedEventDefinition = state.eventDefinitions.find(event => event.id === state.scenarioEventId) ?? null;
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-pink-50 flex flex-col relative overflow-hidden">
-      {/* Sfondo dinamico con particelle - IDENTICO ALLA HOMEPAGE */}
-      <div className="absolute inset-0 overflow-hidden">
-        {/* Cerchi animati */}
-        <div className="absolute -top-40 -left-40 w-80 h-80 bg-purple-300 rounded-full mix-blend-multiply filter blur-xl opacity-70 animate-blob"></div>
-        <div className="absolute -top-40 -right-40 w-80 h-80 bg-yellow-300 rounded-full mix-blend-multiply filter blur-xl opacity-70 animate-blob animation-delay-2000"></div>
-        <div className="absolute -bottom-40 left-20 w-80 h-80 bg-pink-300 rounded-full mix-blend-multiply filter blur-xl opacity-70 animate-blob animation-delay-4000"></div>
-        <div className="absolute -bottom-40 right-20 w-80 h-80 bg-blue-300 rounded-full mix-blend-multiply filter blur-xl opacity-70 animate-blob animation-delay-6000"></div>
-        
-        {/* Particelle fluttuanti */}
-        <div className="absolute inset-0">
-          {[...Array(20)].map((_, i) => (
-            <div
-              key={i}
-              className="absolute w-2 h-2 bg-purple-400 rounded-full opacity-60 animate-float"
-              style={{
-                left: `${Math.random() * 100}%`,
-                top: `${Math.random() * 100}%`,
-                animationDelay: `${Math.random() * 10}s`,
-                animationDuration: `${3 + Math.random() * 4}s`
-              }}
-            />
-          ))}
-        </div>
-      </div>
-      
-      {/* Contenuto principale */}
-      <div className="relative z-10 p-6">
-        <div className="max-w-6xl mx-auto">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">SSD Test</h1>
-          <p className="text-gray-600">
-            Convert PDF slide decks into automated test specifications and execute them with Puppeteer
-          </p>
-        </div>
+      <SSDProgressModal
+        isVisible={!!loadingType}
+        currentStep={currentProgressStep}
+        steps={progressSteps}
+        progress={progress}
+        loadingType={loadingType}
+      />
 
-        {/* Progress Steps */}
-        <div className="mb-8">
-          <div className="flex items-center justify-center space-x-8">
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute -top-40 -left-40 w-80 h-80 bg-purple-300 rounded-full mix-blend-multiply filter blur-3xl opacity-40 animate-blob" />
+        <div className="absolute -bottom-40 right-0 w-96 h-96 bg-blue-200 rounded-full mix-blend-multiply filter blur-3xl opacity-40 animate-blob animation-delay-2000" />
+      </div>
+
+      <div className="relative z-10 flex-1">
+        <div className="max-w-6xl mx-auto px-4 py-12 flex flex-col space-y-8">
+          <div className="text-center">
+            <div className="inline-flex items-center gap-2 px-4 py-1 rounded-full bg-white/80 shadow-sm text-purple-600 text-sm font-medium">
+              <Tag className="w-4 h-4" />
+              Scenario-based SSD Testing
+            </div>
+            <h1 className="mt-4 text-4xl font-semibold text-slate-900">Configura e salva scenari di tracciamento</h1>
+            <p className="mt-3 text-slate-600">
+              Seleziona un modulo verticale, scegli l'evento da monitorare e crea scenari riutilizzabili senza caricare PDF.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {progressStepsDefinition.map((step, index) => {
-              const Icon = step.icon;
-              const status =
-                activeStepIndex === -1
-                  ? 'pending'
-                  : index < activeStepIndex
-                  ? 'completed'
-                  : index === activeStepIndex
-                  ? 'active'
-                  : 'pending';
-              const circleClass =
-                status === 'active'
-                  ? 'bg-blue-600 text-white'
-                  : status === 'completed'
-                  ? 'bg-green-600 text-white'
-                  : 'bg-gray-300 text-gray-600';
-              const labelClass =
-                status === 'active'
-                  ? 'text-blue-600'
-                  : status === 'completed'
-                  ? 'text-green-600'
-                  : 'text-gray-600';
+              const isActive = index === activeStepIndex || (step.key === 'run' && activeStepIndex > index);
               return (
-                <div key={step.key} className="flex items-center">
-                  <div
-                    className={`flex items-center justify-center w-10 h-10 rounded-full ${circleClass}`}
-                  >
-                    <Icon className="w-5 h-5" />
+                <Card key={step.key} className={`p-4 flex items-center gap-3 border ${isActive ? 'border-purple-400 bg-white' : 'border-transparent bg-white/70'}`}>
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center ${isActive ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-500'}`}>
+                    <step.icon className="w-5 h-5" />
                   </div>
-                  <span className={`ml-2 font-medium ${labelClass}`}>
-                    {step.label}
-                  </span>
-                  {index < progressStepsDefinition.length - 1 && (
-                    <div
-                      className={`w-8 h-0.5 mx-4 ${
-                        index < activeStepIndex ? 'bg-green-600' : 'bg-gray-300'
-                      }`}
-                    />
-                  )}
-                </div>
+                  <div>
+                    <div className="text-sm text-slate-500">Step {index + 1}</div>
+                    <div className="font-semibold text-slate-800">{step.label}</div>
+                  </div>
+                </Card>
               );
             })}
           </div>
-        </div>
 
-        {/* Progress Modal */}
-        <SSDProgressModal
-          isVisible={progressVisible}
-          loadingType={loadingType}
-          currentStep={currentProgressStep}
-          progress={progress}
-          steps={progressSteps}
-          onComplete={() => {
-            // Solo chiudi se non stiamo passando da PDF a test
-            if (loadingType !== 'pdf') {
-              setTimeout(() => hideAnalysis(), 2000);
-            }
-          }}
-        />
+          {state.currentStep === 'module' ? (
+            <ModuleSelectionStep
+              currentModuleId={state.moduleId}
+              onModuleSelect={handleModuleSelect}
+              onModuleProceed={handleModuleProceed}
+            />
+          ) : (
+            selectedModule && (
+              <>
+                <Card className="p-6 bg-white/80 backdrop-blur border border-white/60 shadow-lg">
+                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.3em] text-purple-500 mb-1">
+                        Modulo selezionato
+                      </p>
+                      <h2 className="text-2xl font-semibold text-gray-900">
+                        {selectedModule.meta.title}
+                      </h2>
+                      <p className="text-gray-600 mt-1 max-w-2xl">{selectedModule.meta.description}</p>
+                      {selectedModule.meta.tags && selectedModule.meta.tags.length > 0 && (
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {selectedModule.meta.tags.map(tag => (
+                            <span
+                              key={tag}
+                              className="px-3 py-1 text-xs font-medium bg-purple-50 text-purple-600 rounded-full border border-purple-100"
+                            >
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <Button variant="outline" onClick={handleChangeModule}>
+                      Cambia modulo
+                    </Button>
+                  </div>
+                </Card>
 
-        {state.currentStep === 'module' && (
-          <ModuleSelectionStep
-            selectedModuleId={state.moduleId}
-            onSelect={handleModuleSelect}
-            onProceed={handleModuleProceed}
-          />
-        )}
+                {selectedModule.configFields.length > 0 && (
+                  <ModuleConfigForm
+                    module={selectedModule}
+                    values={state.moduleConfig}
+                    onChange={handleModuleConfigChange}
+                  />
+                )}
+              </>
+            )
+          )}
 
-        {state.currentStep !== 'module' && selectedModule && (
-          <Card className="mb-6 p-5 border border-blue-100 bg-white/80 backdrop-blur">
-            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-              <div>
-                <p className="text-xs uppercase tracking-wide text-blue-500 mb-1">
-                  Modulo selezionato
-                </p>
-                <h2 className="text-2xl font-semibold text-gray-900">
-                  {selectedModule.meta.title}
-                </h2>
-                <p className="text-gray-600 mt-1 max-w-2xl">
-                  {selectedModule.meta.description}
+          {state.currentStep === 'scenario' && (
+            <div className="grid gap-6 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
+              <Card className="p-6 space-y-6 bg-white/90 backdrop-blur border border-white/60 shadow-lg">
+                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <h2 className="text-xl font-semibold text-slate-900">Gestisci gli scenari salvati</h2>
+                    <p className="text-sm text-slate-600">
+                      Scegli uno use case configurato o apri la modale per crearne uno nuovo. Ogni scenario memorizza URL, step e payload atteso.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={handleScenarioEdit}
+                      disabled={!state.scenarioId || state.isLoading}
+                      className="rounded-full border-indigo-200 bg-indigo-50 px-4 py-2 text-indigo-600 shadow-sm transition hover:border-indigo-300 hover:bg-indigo-100 hover:text-indigo-700 disabled:opacity-40"
+                    >
+                      <PencilLine className="w-4 h-4 mr-2" />
+                      Modifica scenario
+                    </Button>
+                    <Button
+                      onClick={handleScenarioCreate}
+                      disabled={state.isLoading}
+                      className="rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-fuchsia-500 px-4 py-2 font-semibold text-white shadow-lg transition hover:from-indigo-600 hover:via-purple-600 hover:to-fuchsia-600 disabled:opacity-40"
+                    >
+                      <Plus className="w-4 h-4 mr-2" />
+                      Nuovo scenario
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="space-y-1">
+                    <label className="text-sm font-medium text-slate-700">Scenario salvato</label>
+                    <select
+                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-200"
+                      value={state.scenarioId ?? ''}
+                      onChange={event => handleSelectScenario(event.target.value)}
+                      disabled={state.isLoading || state.scenarios.length === 0}
+                    >
+                      <option value="" disabled>
+                        {state.scenarios.length === 0 ? 'Nessuno scenario disponibile' : 'Seleziona uno scenario'}
+                      </option>
+                      {state.scenarios.map(scenario => (
+                        <option key={scenario.id} value={scenario.id}>
+                          {scenario.name}
+                        </option>
+                      ))}
+                    </select>
+                    {state.scenarios.length === 0 && (
+                      <p className="text-xs text-slate-500">
+                        Non hai ancora salvato scenari per questo modulo. Crea il primo tramite il pulsante “Nuovo scenario”.
+                      </p>
+                    )}
+                  </div>
+
+                  {selectedScenarioDetails ? (
+                    <div className="space-y-5 rounded-2xl border border-white/70 bg-white/80 p-5 shadow-inner">
+                      {selectedScenarioDetails.eventId && selectedScenarioDetails.eventId !== 'manual' && (
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-purple-500">
+                              Evento monitorato
+                            </p>
+                            <h3 className="text-lg font-semibold text-slate-900">
+                              {selectedEventDefinition?.label ?? selectedScenarioDetails.eventId}
+                            </h3>
+                            {selectedEventDefinition?.description && (
+                              <p className="mt-1 text-sm text-slate-600 max-w-xl">
+                                {selectedEventDefinition.description}
+                              </p>
+                            )}
+                          </div>
+                          <span className="inline-flex items-center gap-2 rounded-full border border-purple-100 bg-purple-50 px-3 py-1 text-xs font-semibold text-purple-600">
+                            <ListChecks className="h-3.5 w-3.5" />
+                            {selectedScenarioDetails.eventId}
+                          </span>
+                        </div>
+                      )}
+                      {selectedScenarioDetails.eventId === 'manual' && manualScenarioEventName && (
+                        <div className="rounded-xl border border-indigo-100 bg-indigo-50/70 px-4 py-3 text-sm font-medium text-indigo-700">
+                          Evento atteso: {manualScenarioEventName}
+                        </div>
+                      )}
+
+                      <div className="space-y-2">
+                        <p className="text-xs font-semibold uppercase tracking-[0.28em] text-slate-500">
+                          URL di test
+                        </p>
+                        <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm">
+                          {selectedScenarioDetails.url}
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <p className="text-xs font-semibold uppercase tracking-[0.28em] text-slate-500">
+                          Step configurati
+                        </p>
+                        {state.scenarioSteps.length === 0 ? (
+                          <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50/70 px-4 py-3 text-sm text-slate-600">
+                            Nessuna azione configurata. Aggiungi almeno un clic nella modale per istruire il runner.
+                          </div>
+                        ) : (
+                          <ul className="space-y-3">
+                            {state.scenarioSteps.map((step, index) => {
+                              const meta = STEP_TYPE_META[step.type];
+                              return (
+                                <li
+                                  key={step.id}
+                                  className="flex flex-col gap-1 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm sm:flex-row sm:items-center sm:justify-between"
+                                >
+                                  <div>
+                                    <p className="text-xs font-semibold uppercase tracking-[0.25em] text-purple-500">
+                                      Step {index + 1}
+                                    </p>
+                                    <p className="text-sm font-medium text-slate-800">{step.label}</p>
+                                  </div>
+                                  <span
+                                    className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold ${meta?.badgeClass ?? 'bg-slate-100 text-slate-600'}`}
+                                  >
+                                    {meta?.label ?? step.type}
+                                  </span>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        )}
+                      </div>
+
+                      <div className="space-y-2">
+                        <p className="text-xs font-semibold uppercase tracking-[0.28em] text-slate-500">
+                          Payload atteso
+                        </p>
+                        <div className="rounded-xl border border-slate-200 bg-slate-950/90 px-4 py-3 text-xs text-emerald-200 shadow-inner">
+                          <pre className="max-h-48 overflow-auto">
+                            {state.scenarioExpectedPayload.trim().length > 0 ? state.scenarioExpectedPayload : JSON.stringify(selectedScenarioDetails.expectedPayload ?? {}, null, 2)}
+                          </pre>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50/80 p-5 text-sm text-slate-600">
+                      Seleziona uno scenario per visualizzarne i dettagli oppure creane uno nuovo tramite la modale dedicata.
+                    </div>
+                  )}
+
+                  <div className="flex flex-wrap gap-3">
+                    <Button
+                      onClick={handleGenerateScenarioDsl}
+                      disabled={state.isLoading || !state.scenarioId}
+                      className="rounded-full bg-slate-900 px-5 py-2 font-semibold text-white shadow-lg transition hover:bg-slate-800 disabled:opacity-40"
+                    >
+                      <Play className="w-4 h-4 mr-2" />
+                      Genera DSL
+                    </Button>
+                    <Button
+                      onClick={handleDeleteScenario}
+                      disabled={state.isLoading || !state.scenarioId}
+                      variant="destructive"
+                      className="rounded-full px-5 py-2 font-semibold shadow-sm disabled:opacity-40"
+                    >
+                      <Trash2 className="w-4 h-4 mr-2" />
+                      Elimina
+                    </Button>
+                  </div>
+                </div>
+              </Card>
+
+              <Card className="p-6 bg-white/70 border border-white/60 shadow-lg space-y-4">
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-[0.2em]">Come funziona</h3>
+                  <ul className="mt-3 text-sm text-slate-600 space-y-2 list-disc list-inside">
+                    <li>Apri la modale per creare o modificare scenario, step e payload atteso.</li>
+                    <li>Gli scenari salvati restano disponibili per il modulo e possono essere rieseguiti in qualsiasi momento.</li>
+                    <li>La DSL generata riflette sempre l'ultima versione dello scenario salvato.</li>
+                  </ul>
+                </div>
+
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-[0.2em]">Suggerimenti</h3>
+                  <ul className="mt-3 text-sm text-slate-600 space-y-2 list-disc list-inside">
+                    <li>Compila i selettori con classi o ID univoci per evitare ambiguità nei click.</li>
+                    <li>Usa <code>*</code> nel payload per indicare valori dinamici; lascia vuoto per usare il template del manifest.</li>
+                    <li>Versiona il file <code className="text-slate-700">config/module-scenarios.json</code> per condividere gli scenari con il team.</li>
+                  </ul>
+                </div>
+
+                <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50/70 p-4 text-xs text-slate-500">
+                  Le configurazioni degli scenari sono salvate sul filesystem locale. Puoi committare il file per mantenerle allineate tra i diversi ambienti.
+                </div>
+              </Card>
+            </div>
+          )}
+
+          {state.currentStep === 'review' && state.dsl && (
+            <ReviewStep
+              state={state}
+              editableDsl={editableDsl}
+              isEditingDsl={isEditingDsl}
+              dslValidationError={dslValidationError}
+              ambiguityMinConfidence={ssdConfig?.ambiguityMinConfidence || 0.6}
+              onDslEdit={handleDslEdit}
+              onSaveDsl={handleSaveDsl}
+              onResetDsl={handleResetDsl}
+              onReset={handleReset}
+              onRunTests={handleRunTests}
+            />
+          )}
+
+          {state.currentStep === 'run' && state.report && (
+            <DetailedResultsStep
+              state={state}
+              onReset={handleReset}
+              onExportReport={handleExportReport}
+              onRunTestsWithData={handleRunTestsWithData}
+            />
+          )}
+
+          {state.currentStep === 'run' && !state.report && (
+            <Card className="p-8 text-center bg-white/90 border border-white/60 shadow-lg">
+              <div className="mb-6">
+                <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <CheckCircle className="w-8 h-8 text-green-600" />
+                </div>
+                <h2 className="text-2xl font-bold text-gray-900 mb-2">Test completati</h2>
+                <p className="text-gray-600 mb-6">
+                  I test sono stati eseguiti con successo. I risultati saranno disponibili a breve.
                 </p>
               </div>
-              <div className="flex items-center gap-3">
-                {selectedModule.meta.tags?.map(tag => (
-                  <span
-                    key={tag}
-                    className="px-3 py-1 text-xs font-medium bg-blue-50 text-blue-600 rounded-full"
+              <Button onClick={handleReset} variant="outline" className="px-6 py-3">
+                <RefreshCw className="w-4 h-4 mr-2" />
+                Torna agli scenari
+              </Button>
+            </Card>
+          )}
+
+
+          {isScenarioModalOpen && scenarioDraft && (
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur"
+              onClick={() => {
+                if (!scenarioModalSaving) {
+                  closeScenarioModal();
+                }
+              }}
+            >
+              <div
+                className="relative w-full max-w-4xl max-h-[90vh] overflow-hidden rounded-3xl border border-white/20 bg-white shadow-2xl"
+                onClick={event => event.stopPropagation()}
+              >
+                <div className="flex items-center justify-between border-b border-slate-200/70 px-6 py-4">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.28em] text-purple-500">
+                      {scenarioModalMode === 'create' ? 'Nuovo scenario' : 'Modifica scenario'}
+                    </p>
+                    <h2 className="text-xl font-semibold text-slate-900 mt-1">
+                      {scenarioModalMode === 'create' ? "Configura un nuovo caso d'uso" : "Aggiorna il caso d'uso selezionato"}
+                    </h2>
+                  </div>
+                  <button
+                    type="button"
+                    className="rounded-full p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100"
+                    onClick={closeScenarioModal}
+                    disabled={scenarioModalSaving}
                   >
-                    {tag}
-                  </span>
-                ))}
-                <Button variant="outline" onClick={handleChangeModule}>
-                  Cambia modulo
-                </Button>
-              </div>
-            </div>
-          </Card>
-        )}
-
-        {state.currentStep !== 'module' && selectedModule && (
-          <ModuleConfigForm
-            module={selectedModule}
-            values={state.moduleConfig}
-            onChange={handleModuleConfigChange}
-          />
-        )}
-
-        {/* Step 1: Upload */}
-        {state.currentStep === 'upload' && (
-          <UploadStep
-            state={state}
-            ssdConfig={ssdConfig}
-            configLoading={configLoading}
-            configError={configError}
-            moduleUrls={moduleUrlOptions}
-            onFileUpload={handleFileUpload}
-            onUrlChange={handleUrlChange}
-            onIngest={handleIngest}
-          />
-        )}
-
-        {/* Step 2: Review & Disambiguation */}
-        {state.currentStep === 'review' && state.dsl && (
-          <ReviewStep
-            state={state}
-            editableDsl={editableDsl}
-            isEditingDsl={isEditingDsl}
-            dslValidationError={dslValidationError}
-            ambiguityMinConfidence={ssdConfig?.ambiguityMinConfidence || 0.6}
-            onDslEdit={handleDslEdit}
-            onSaveDsl={handleSaveDsl}
-            onResetDsl={handleResetDsl}
-            onReset={handleReset}
-          />
-        )}
-
-        {/* Step 3: Results */}
-        {state.currentStep === 'run' && state.report && (
-          <DetailedResultsStep
-            state={state}
-            onReset={handleReset}
-            onExportReport={handleExportReport}
-            onRunTestsWithData={handleRunTestsWithData}
-          />
-        )}
-
-        {/* Debug: Mostra informazioni di debug quando siamo in fase run */}
-        {state.currentStep === 'run' && process.env.NODE_ENV === 'development' && (
-          <Card className="p-4 mb-4 bg-yellow-50 border-yellow-200">
-            <h3 className="font-semibold text-yellow-800 mb-2">Debug Info</h3>
-            <div className="text-sm text-yellow-700 space-y-1">
-              <div>Current Step: {state.currentStep}</div>
-              <div>Has Report: {state.report ? 'Yes' : 'No'}</div>
-              <div>Has DSL: {state.dsl ? 'Yes' : 'No'}</div>
-              <div>Is Loading: {state.isLoading ? 'Yes' : 'No'}</div>
-              {state.report && (
-                <div>Report Keys: {Object.keys(state.report).join(', ')}</div>
-              )}
-            </div>
-          </Card>
-        )}
-
-        {/* Fallback: Mostra messaggio di successo anche se non c'è report */}
-        {state.currentStep === 'run' && !state.report && (
-          <Card className="p-8 text-center">
-            <div className="mb-6">
-              <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <CheckCircle className="w-8 h-8 text-green-600" />
-              </div>
-              <h2 className="text-2xl font-bold text-gray-900 mb-2">Test Completati!</h2>
-              <p className="text-gray-600 mb-6">
-                I test sono stati eseguiti con successo. I risultati dettagliati saranno disponibili a breve.
-              </p>
-            </div>
-            
-            <div className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                <div className="text-center p-4 bg-blue-50 rounded-lg">
-                  <div className="text-2xl font-bold text-blue-600">✓</div>
-                  <div className="text-sm text-blue-800">PDF Processato</div>
+                    <X className="w-5 h-5" />
+                  </button>
                 </div>
-                <div className="text-center p-4 bg-green-50 rounded-lg">
-                  <div className="text-2xl font-bold text-green-600">✓</div>
-                  <div className="text-sm text-green-800">Test Eseguiti</div>
+
+                <div className="overflow-y-auto px-6 py-6 space-y-6">
+                  <div className="space-y-1">
+                    <label className="text-sm font-medium text-slate-700">Nome scenario</label>
+                    <Input
+                      value={scenarioDraft.name}
+                      onChange={event => handleDraftNameChange(event.target.value)}
+                      placeholder="Es. Add to cart Bronze"
+                      disabled={scenarioModalSaving}
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-sm font-medium text-slate-700">URL da testare</label>
+                    <Input
+                      value={scenarioDraft.url}
+                      onChange={event => handleDraftUrlChange(event.target.value)}
+                      placeholder="https://www.example.com/pagina"
+                      disabled={scenarioModalSaving}
+                    />
+                  </div>
+
+                  {draftConfigInputs.length > 0 && (
+                    <div className="grid gap-4 md:grid-cols-2">
+                      {draftConfigInputs.map(input => (
+                        <div key={input.id} className="space-y-1">
+                          <label className="text-sm font-medium text-slate-700">{input.label}</label>
+                          <Input
+                            value={String(scenarioDraft.config?.[input.id] ?? '')}
+                            placeholder={input.placeholder || ''}
+                            onChange={event => handleDraftConfigChange(input.id, event.target.value)}
+                            disabled={scenarioModalSaving}
+                          />
+                          {input.helperText && (
+                            <p className="text-xs text-slate-500">{input.helperText}</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="space-y-4">
+                    <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                      <div>
+                        <div className="inline-flex items-center gap-2 rounded-full border border-purple-100 bg-purple-50/80 px-3 py-1 text-xs font-semibold uppercase tracking-[0.3em] text-purple-600">
+                          <ListChecks className="h-3.5 w-3.5" />
+                          Step del test
+                        </div>
+                        <p className="mt-2 text-sm text-slate-600">
+                          Definisci i click necessari per riprodurre il tracciamento. Dopo ogni click il runner attende automaticamente 10 secondi prima di proseguire.
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          type="button"
+                          className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 disabled:opacity-40"
+                          onClick={handleDraftAddClickStep}
+                          disabled={scenarioModalSaving}
+                        >
+                          <Plus className="h-4 w-4" />
+                          Aggiungi clic
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="flex items-center gap-2 rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
+                          onClick={handleDraftResetSteps}
+                          disabled={scenarioModalSaving}
+                        >
+                          <RotateCcw className="h-4 w-4" />
+                          Ripristina step
+                        </Button>
+                      </div>
+                    </div>
+
+                    {scenarioDraft.steps.length === 0 ? (
+                      <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50/80 p-4 text-sm text-slate-600">
+                        Nessuna azione configurata. Aggiungi almeno un clic per istruire il runner su cosa eseguire dopo la CMP.
+                      </div>
+                    ) : (
+                      scenarioDraft.steps.map((step, index) => {
+                        const stepDefinition = draftEventDefinition?.steps.find(def => def.id === step.id);
+                        const meta = STEP_TYPE_META[step.type];
+                        const inputDefinition = stepDefinition?.input;
+                        const usesSelector = inputDefinition?.type === 'selector';
+                        const inputValue = usesSelector ? step.selector ?? '' : step.value ?? '';
+
+                        return (
+                          <div
+                            key={step.id}
+                            className="rounded-xl border border-slate-200 bg-white px-4 py-4 shadow-sm"
+                          >
+                            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                              <div>
+                                <p className="text-xs font-semibold uppercase tracking-[0.3em] text-purple-500">
+                                  Step {index + 1}
+                                </p>
+                                <h4 className="text-base font-semibold text-slate-900">{step.label}</h4>
+                                {(step.description || stepDefinition?.description) && (
+                                  <p className="mt-1 text-xs text-slate-500">
+                                    {step.description || stepDefinition?.description}
+                                  </p>
+                                )}
+                              </div>
+                              <span
+                                className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold ${meta?.badgeClass ?? 'bg-slate-100 text-slate-600'}`}
+                              >
+                                {meta?.label ?? step.type}
+                              </span>
+                            </div>
+
+                            {inputDefinition ? (
+                              <div className="mt-3 space-y-1">
+                                <label className="text-xs font-semibold text-slate-600">
+                                  {inputDefinition.label}
+                                </label>
+                                <Input
+                                  value={inputValue}
+                                  placeholder={inputDefinition.placeholder || ''}
+                                  onChange={event =>
+                                    handleDraftStepInputChange(
+                                      step.id,
+                                      usesSelector ? 'selector' : 'value',
+                                      event.target.value
+                                    )
+                                  }
+                                  disabled={scenarioModalSaving}
+                                />
+                                {inputDefinition.helperText && (
+                                  <p className="text-xs text-slate-500">{inputDefinition.helperText}</p>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="mt-3 space-y-1">
+                                <label className="text-xs font-semibold text-slate-600">
+                                  Selettore CSS del click
+                                </label>
+                                <Input
+                                  value={step.selector ?? ''}
+                                  placeholder=".btn.cta-purchase"
+                                  onChange={event =>
+                                    handleDraftStepInputChange(step.id, 'selector', event.target.value)
+                                  }
+                                  disabled={scenarioModalSaving}
+                                />
+                                <p className="text-xs text-slate-500">
+                                  Il runner cliccherà questo elemento e attenderà 10 secondi prima di passare allo step successivo.
+                                </p>
+                              </div>
+                            )}
+
+                            {!stepDefinition && (
+                              <div className="mt-3">
+                                <button
+                                  type="button"
+                                  className="flex items-center gap-2 text-xs font-semibold text-rose-600 hover:text-rose-700 disabled:opacity-40"
+                                  onClick={() => handleDraftRemoveStep(step.id)}
+                                  disabled={scenarioModalSaving}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                  Rimuovi step
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                      <div>
+                        <div className="text-xs font-semibold uppercase tracking-[0.3em] text-purple-500">
+                          Payload atteso
+                        </div>
+                        <p className="text-sm text-slate-600">
+                          Indica il push minimo che il dataLayer deve contenere dopo gli step.
+                        </p>
+                        {draftExpectedEventName && (
+                          <p className="text-xs font-semibold text-indigo-600">
+                            Evento atteso: {draftExpectedEventName}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          type="button"
+                          className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 disabled:opacity-40"
+                          onClick={handleDraftFormatPayload}
+                          disabled={scenarioModalSaving}
+                        >
+                          <Braces className="h-4 w-4" />
+                          Format JSON
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="flex items-center gap-2 rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
+                          onClick={handleDraftResetPayload}
+                          disabled={scenarioModalSaving}
+                        >
+                          <RotateCcw className="h-4 w-4" />
+                          Ripristina template
+                        </Button>
+                      </div>
+                    </div>
+
+                    <textarea
+                      value={scenarioDraft.expectedPayload}
+                      onChange={event => handleDraftExpectedPayloadChange(event.target.value)}
+                      placeholder={`{
+  "event": "add_to_cart"
+}`}
+                      className={`w-full min-h-[200px] rounded-xl border px-3 py-2 text-sm font-mono leading-relaxed shadow-inner focus:outline-none focus:ring-2 focus:ring-purple-200 ${scenarioDraft.expectedPayloadError ? 'border-rose-300 bg-rose-50/80 text-rose-700' : 'border-slate-200 bg-white/80 text-slate-800'}`}
+                      spellCheck={false}
+                      disabled={scenarioModalSaving}
+                    />
+                    {scenarioDraft.expectedPayloadError ? (
+                      <div className="text-xs text-rose-600">
+                        Payload non valido: {scenarioDraft.expectedPayloadError}
+                      </div>
+                    ) : (
+                      <div className="text-xs text-slate-500">
+                        Lascia vuoto per utilizzare il template del manifest. Inserisci lo snippet completo con valori di esempio: il sistema verificherà solo la struttura e l&apos;evento.
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <div className="text-center p-4 bg-purple-50 rounded-lg">
-                  <div className="text-2xl font-bold text-purple-600">✓</div>
-                  <div className="text-sm text-purple-800">Report Generato</div>
+
+                <div className="flex items-center justify-between border-t border-slate-200/70 bg-slate-50/80 px-6 py-4">
+                  <div className="text-xs text-slate-500">
+                    {scenarioModalSaving ? (
+                      <span className="inline-flex items-center gap-2 text-purple-600">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Salvataggio in corso...
+                      </span>
+                    ) : (
+                      <span>Le modifiche vengono salvate nel file config/module-scenarios.json.</span>
+                    )}
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={closeScenarioModal}
+                      disabled={scenarioModalSaving}
+                      className="rounded-lg border border-slate-200 px-5 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
+                    >
+                      Annulla
+                    </Button>
+                    <Button
+                      onClick={handleScenarioModalSave}
+                      disabled={scenarioModalSaving}
+                      className="rounded-lg bg-indigo-600 px-6 py-2 text-sm font-semibold text-white shadow hover:bg-indigo-700 disabled:opacity-40"
+                    >
+                      {scenarioModalSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                      Salva scenario
+                    </Button>
+                  </div>
                 </div>
-              </div>
-              
-              <div className="flex justify-center space-x-4">
-                <Button 
-                  onClick={handleReset}
-                  variant="outline"
-                  className="px-6 py-3"
-                >
-                  <RefreshCw className="w-4 h-4 mr-2" />
-                  Esegui Nuovo Test
-                </Button>
-                <Button 
-                  onClick={() => {
-                    // Mostra i dettagli del DSL generato
-                    if (state.dsl) {
-                      const dslWindow = window.open();
-                      if (dslWindow) {
-                        dslWindow.document.write(`
-                          <html>
-                            <head><title>DSL Generato - SSD Test</title></head>
-                            <body style="font-family: monospace; padding: 20px; background: #f5f5f5;">
-                              <h1>DSL Generato</h1>
-                              <pre style="background: white; padding: 20px; border-radius: 8px; overflow: auto;">${JSON.stringify(state.dsl, null, 2)}</pre>
-                            </body>
-                          </html>
-                        `);
-                      }
-                    }
-                  }}
-                  className="px-6 py-3"
-                >
-                  <Eye className="w-4 h-4 mr-2" />
-                  Visualizza DSL
-                </Button>
               </div>
             </div>
-          </Card>
-        )}
+          )}
         </div>
       </div>
     </div>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { CheckCircle, Clock, Loader2, Globe, Shield, Zap, BarChart3, Brain, FileText, Upload, Play, Tag, Code2, PackageSearch, Box, Eye } from 'lucide-react';
 
 interface SSDStep {
@@ -127,7 +127,7 @@ export const SSDProgressModal: React.FC<SSDProgressModalProps> = ({
   steps: propSteps = [],
   onComplete
 }) => {
-  const [steps, setSteps] = useState<SSDStep[]>([]);
+  const [internalSteps, setInternalSteps] = useState<SSDStep[]>([]);
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [startTime, setStartTime] = useState<number | null>(null);
 
@@ -144,19 +144,20 @@ export const SSDProgressModal: React.FC<SSDProgressModalProps> = ({
   };
 
   // Usa gli step passati come prop se disponibili, altrimenti usa quelli statici
-  const displaySteps = propSteps.length > 0 ? propSteps : steps;
+  const displaySteps = propSteps.length > 0 ? propSteps : internalSteps;
+  const referenceSteps = useMemo(() => getStepsForType(loadingType), [loadingType]);
 
   // Aggiorna gli step quando cambia il tipo di loading
   useEffect(() => {
-    if (loadingType) {
-      setSteps(getStepsForType(loadingType));
+    if (loadingType && propSteps.length === 0) {
+      setInternalSteps(getStepsForType(loadingType));
     }
-  }, [loadingType]);
+  }, [loadingType, propSteps.length]);
 
   // Gestisce la chiusura automatica quando tutti gli step sono completati
   useEffect(() => {
     if (!isVisible) {
-      setSteps([]);
+      setInternalSteps([]);
       setCurrentStepIndex(0);
       setStartTime(null);
       return;
@@ -190,6 +191,8 @@ export const SSDProgressModal: React.FC<SSDProgressModalProps> = ({
   }, [currentStep, displaySteps]);
 
   if (!isVisible || !loadingType) return null;
+
+  const renderSteps = propSteps.length > 0 ? propSteps : internalSteps;
 
   // Usa il progresso passato come prop invece di calcolarlo localmente
   const progressPercentage = progress;
@@ -305,25 +308,14 @@ export const SSDProgressModal: React.FC<SSDProgressModalProps> = ({
 
         {/* Steps List */}
         <div className="space-y-4">
-          {displaySteps.map((step, index) => {
+          {renderSteps.map((step, index) => {
             // Mappa gli step del hook agli step statici per ottenere l'icona
-            const staticStep = steps.find(s => s.id === step.id);
+            const staticStep = referenceSteps.find(s => s.id === step.id);
             const Icon = staticStep?.icon || Globe; // Fallback a Globe se non trovato
             const isActive = index === currentStepIndex && step.status === 'running';
             const isCompleted = step.status === 'completed';
             const isPending = step.status === 'pending';
             
-            // Debug: log dei dati dello step per capire da dove viene il "0"
-            if (step.id === 'pdf_upload') {
-              console.log('PDF Upload Step Debug:', {
-                id: step.id,
-                status: step.status,
-                details: step.details,
-                duration: step.duration,
-                staticDescription: staticStep?.description
-              });
-            }
-
             return (
               <div
                 key={step.id}

@@ -1,0 +1,166 @@
+{
+  "moduleId": "actalis",
+  "scenarioId": "98b05a08-6e2b-4180-aebd-31c291502b43",
+  "scenarioName": "view_item_list",
+  "rawSpec": {
+    "site": "https://www.actalis.com/",
+    "allowed_hosts": [
+      "actalis.com"
+    ],
+    "consent": [
+      "accept"
+    ],
+    "tests": [
+      {
+        "section": "view_item_list",
+        "steps": [
+          {
+            "description": "Accetta tutti i cookie",
+            "action": "click",
+            "target": {
+              "region": "any",
+              "kind": "selector",
+              "value": "#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll"
+            },
+            "value": "",
+            "expect": [],
+            "confidence": 0,
+            "severity": "critical"
+          },
+          {
+            "description": "Verify user payload",
+            "action": "custom",
+            "target": {
+              "region": "any",
+              "kind": "text",
+              "value": ""
+            },
+            "value": "",
+            "expect": [
+              {
+                "type": "dataLayer",
+                "event": "view_item_list",
+                "params_subset": {
+                  "ecommerce": {
+                    "items": [
+                      {
+                        "item_name": "*",
+                        "item_id": "*",
+                        "item_brand": "*",
+                        "price": "*",
+                        "quantity": "*"
+                      },
+                      {
+                        "item_name": "*",
+                        "item_id": "*",
+                        "item_brand": "*",
+                        "price": "*",
+                        "quantity": "*"
+                      }
+                    ]
+                  }
+                }
+              }
+            ],
+            "confidence": 0,
+            "severity": "major"
+          }
+        ]
+      }
+    ],
+    "meta": {
+      "model": "scenario-llm::actalis",
+      "moduleId": "actalis",
+      "tokens": {
+        "input": 0,
+        "output": 0
+      }
+    }
+  },
+  "sanitizedSpec": {
+    "site": "https://www.actalis.com/",
+    "allowed_hosts": [
+      "actalis.com"
+    ],
+    "consent": [
+      "accept"
+    ],
+    "tests": [
+      {
+        "section": "view_item_list",
+        "steps": [
+          {
+            "description": "Accetta tutti i cookie",
+            "action": "click",
+            "target": {
+              "region": "any",
+              "kind": "selector",
+              "value": "#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll"
+            },
+            "value": "",
+            "expect": [],
+            "confidence": 0,
+            "severity": "critical"
+          },
+          {
+            "description": "Verify user payload",
+            "action": "custom",
+            "target": {
+              "region": "any",
+              "kind": "text",
+              "value": ""
+            },
+            "value": "",
+            "expect": [
+              {
+                "type": "dataLayer",
+                "event": "view_item_list",
+                "params_subset": {
+                  "ecommerce": {
+                    "items": [
+                      {
+                        "item_name": "*",
+                        "item_id": "*",
+                        "item_brand": "*",
+                        "price": "*",
+                        "quantity": "*"
+                      },
+                      {
+                        "item_name": "*",
+                        "item_id": "*",
+                        "item_brand": "*",
+                        "price": "*",
+                        "quantity": "*"
+                      }
+                    ]
+                  }
+                }
+              }
+            ],
+            "confidence": 0,
+            "severity": "major"
+          }
+        ]
+      }
+    ],
+    "meta": {
+      "model": "scenario-llm::actalis",
+      "moduleId": "actalis",
+      "tokens": {
+        "input": 0,
+        "output": 0
+      }
+    }
+  },
+  "validationError": {
+    "message": "DSL schema validation failed",
+    "code": "SCHEMA_VALIDATION",
+    "details": [
+      {
+        "field": "tests.0.steps.1.target.value",
+        "message": "Target value cannot be empty",
+        "code": "SCHEMA_VALIDATION"
+      }
+    ]
+  }
+}

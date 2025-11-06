@@ -10,7 +10,7 @@
     {
       "id": "view-item-list",
       "label": "Ecommerce: view_item_list",
-      "description": "Verifica che l'evento view_item_list venga inviato sul dataLayer dopo il caricamento della pagina.",
+      "description": "Verifica che l'evento view_item_list venga inviato sul dataLayer dopo il caricamento della pagina elenco prodotti.",
       "trackingEvents": [
         "view_item_list"
       ],
@@ -20,7 +20,52 @@
           "description": "Attendi il push view_item_list sul dataLayer",
           "expectEvents": [
             {
-              "event": "view_item_list"
+              "event": "view_item_list",
+              "payload": {
+                "ecommerce": {
+                  "items": [
+                    {
+                      "item_name": "*",
+                      "item_id": "*",
+                      "price": "*",
+                      "quantity": "*"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "add-to-cart",
+      "label": "Ecommerce: add_to_cart",
+      "description": "Verifica che il click sulla CTA \"Acquista\" generi l'evento add_to_cart con il payload GA4 previsto.",
+      "trackingEvents": [
+        "add_to_cart"
+      ],
+      "steps": [
+        {
+          "action": "click",
+          "description": "Clicca la CTA Acquista sul piano Bronze",
+          "targetSelector": ".btn.btn-primary-alt.add-product.bronzeplan",
+          "expectEvents": [
+            {
+              "event": "add_to_cart",
+              "payload": {
+                "ecommerce": {
+                  "items": [
+                    {
+                      "item_name": "*",
+                      "item_id": "*",
+                      "item_brand": "*",
+                      "price": "*",
+                      "quantity": 1
+                    }
+                  ]
+                }
+              }
             }
           ]
         }

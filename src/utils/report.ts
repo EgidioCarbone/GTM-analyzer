@@ -32,6 +32,41 @@ export function buildReportSummary(report: TestReport | null): ReportSummaryView
   }
 
   // NEW LOGIC: Handle the new report structure with cookie and pdf
+  if (report.scenario) {
+    const scenario = report.scenario;
+    const scenarioStatus = scenario.status || scenario.summary?.status || scenario.result?.status || 'UNKNOWN';
+    const durationMs =
+      typeof scenario.duration === 'number'
+        ? scenario.duration
+        : scenario.summary?.duration ??
+          scenario.summary?.durationMs ??
+          scenario.result?.summary?.duration ??
+          null;
+    const consentProfiles = scenario.summary?.consentProfiles ?? [];
+
+    const totalTests = 1;
+    const passed = scenarioStatus === 'PASS' ? 1 : 0;
+    const failed = scenarioStatus === 'FAIL' || scenarioStatus === 'ERROR' ? 1 : 0;
+    const blocked = scenarioStatus === 'BLOCKED' ? 1 : 0;
+
+    let overallStatus: OverallStatus = 'PARTIAL';
+    if (blocked > 0 || failed > 0) {
+      overallStatus = 'FAILURE';
+    } else if (passed === totalTests) {
+      overallStatus = 'SUCCESS';
+    }
+
+    return {
+      totalTests,
+      passed,
+      failed,
+      blocked,
+      durationMs,
+      consentProfiles,
+      overallStatus,
+    };
+  }
+
   if (report.cookie || report.pdf) {
     const cookieStatus = report.cookie?.status || 'UNKNOWN';
     const pdfStatus = report.pdf?.status || 'UNKNOWN';

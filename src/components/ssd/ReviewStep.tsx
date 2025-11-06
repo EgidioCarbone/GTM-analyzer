@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
 import {
   AlertTriangle,
-  ArrowRight,
   CheckCircle,
   ClipboardList,
   Edit3,
   FileCode2,
   Layers,
   ListTree,
+  Play,
   RefreshCw,
   RotateCcw,
   Save,
@@ -31,7 +31,8 @@ export default function ReviewStep({
   onDslEdit,
   onSaveDsl,
   onResetDsl,
-  onReset
+  onReset,
+  onRunTests
 }: ReviewStepProps) {
   if (!state.dsl) return null;
 
@@ -142,7 +143,7 @@ export default function ReviewStep({
               <div className="flex items-center gap-3">
                 <span className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-white/80 px-3 py-1 text-xs font-semibold text-emerald-600 shadow-sm">
                   <div className="h-2 w-2 rounded-full bg-emerald-500" />
-                  Generata dal PDF
+                  Generata dallo scenario salvato
                 </span>
                 {!isEditingDsl ? (
                   <Button
@@ -340,8 +341,8 @@ export default function ReviewStep({
                 </p>
               </div>
               <p className="text-xs text-gray-500">
-                I token influenzano la fedeltà della conversione dal PDF. Valori molto alti possono
-                indicare documenti complessi o rumorosi.
+                I token indicano il lavoro svolto dall’LLM. Negli scenari guidati dal manifest i valori
+                restano prossimi allo zero, mentre aumentano se interviene una generazione assistita.
               </p>
             </div>
           </Card>
@@ -388,13 +389,12 @@ export default function ReviewStep({
             Ricomincia
           </Button>
           <Button
-            onClick={() => {
-              window.location.reload();
-            }}
-            className="group inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-purple-500 via-indigo-500 to-pink-500 px-8 py-3 text-base font-semibold text-white shadow-lg transition-all duration-200 hover:shadow-2xl focus:ring-4 focus:ring-purple-300/40"
+            onClick={onRunTests}
+            disabled={ambiguities.length > 0 || state.isLoading}
+            className="group inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-purple-500 via-indigo-500 to-pink-500 px-8 py-3 text-base font-semibold text-white shadow-lg transition-all duration-200 hover:shadow-2xl focus:ring-4 focus:ring-purple-300/40 disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            Vai ai risultati
-            <ArrowRight className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-1" />
+            Esegui test
+            <Play className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-1" />
           </Button>
         </div>
       </div>

@@ -1,4 +1,4 @@
-import type { ModuleId } from '../modules/types';
+import type { ModuleId, ModuleScenario, ModuleEventDefinition, ScenarioStep } from '../modules/types';
 
 // SSD Test Types
 // ============================================================================
@@ -6,11 +6,13 @@ import type { ModuleId } from '../modules/types';
 export interface TestSpec {
   site: string;                       // required, absolute URL
   allowed_hosts?: string[];           // for cross-domain navigation allowlist
-  consent?: ("reject" | "accept")[];  // optional; if absent, default to ["accept"]
+  consent?: ('reject' | 'accept')[];  // optional; if absent, default to ["accept"]
   tests: Test[];
-  meta?: {                           // optional metadata from generation
+  meta?: {                            // optional metadata from generation
     model: string;
     moduleId?: ModuleId;
+    scenarioId?: string;
+    scenarioName?: string;
     tokens: {
       input: number;
       output: number;
@@ -19,7 +21,7 @@ export interface TestSpec {
 }
 
 export type ModuleConfig = Record<string, unknown>;
-export type ModuleSource = 'manifest' | 'openai';
+export type ModuleSource = 'manifest' | 'openai' | 'scenario';
 
 export interface Test {
   section: string;                    // e.g., "Header", "Checkout"
@@ -34,6 +36,7 @@ export interface Step {
   expect?: Expectation[];             // what should happen after the action
   severity?: "critical" | "major" | "minor";
   confidence?: number;                // 0..1 from LLM
+  delayAfterMs?: number;              // optional pause after action (manual builder)
 }
 
 export interface Target {
@@ -153,6 +156,7 @@ export interface TestReport {
     };
     llmError?: string;
   };
+  scenario?: ScenarioRunReport | null;
   artifacts?: {
     htmlFile?: string;
     pdfTextFile?: string;
@@ -189,6 +193,9 @@ export interface TestResult {
   description?: string;
   status: "PASS" | "FAIL";
   reasons?: string[];
+  action?: string;
+  target?: any;
+  value?: string;
   evidence: {
     screenshotPathOrB64: string;
     dataLayerEvents: DataLayerEvent[];
@@ -214,11 +221,50 @@ export interface TrackingHit {
   domain: string;
 }
 
+export interface ScenarioValidationOutcome {
+  status: 'PASS' | 'FAIL' | 'WARNING' | 'SKIPPED' | 'ERROR';
+  eventName?: string | null;
+  expectedPayload?: any;
+  normalizedExpectedPayload?: any;
+  matchedEventIndex?: number | null;
+  matchedEvent?: any;
+  reasoning?: string;
+  differences?: string[];
+  matchedEventSource?: 'deterministic' | 'llm';
+  llm?: {
+    status: 'MATCH' | 'NO_MATCH' | 'ERROR';
+    reasoning: string;
+    matchedEventIndex?: number | null;
+    matchedEvent?: any;
+    confidence?: number | null;
+  };
+  error?: string;
+}
+
+export interface ScenarioRunReport {
+  status: 'PASS' | 'FAIL' | 'WARNING' | 'ERROR' | 'SKIPPED';
+  steps?: TestResult[];
+  summary?: {
+    steps: number;
+    passed: number;
+    failed: number;
+    duration: number;
+    consentProfiles?: string[];
+  };
+  duration?: number;
+  spec?: TestSpec | null;
+  source?: ModuleSource | string;
+  events?: DataLayerEvent[];
+  validation?: ScenarioValidationOutcome | null;
+  expectedPayload?: any;
+  details?: string;
+}
+
 // Frontend State Types
 // ============================================================================
 
 export interface SSDTestState {
-  currentStep: 'module' | 'upload' | 'review' | 'run';
+  currentStep: 'module' | 'scenario' | 'review' | 'run';
   moduleId: ModuleId | null;
   moduleConfig: ModuleConfig;
   moduleSource: ModuleSource | null;
@@ -229,6 +275,16 @@ export interface SSDTestState {
   report: TestReport | null;
   isLoading: boolean;
   error: string | null;
+  scenarios: ModuleScenario[];
+  eventDefinitions: ModuleEventDefinition[];
+  scenarioId: string | null;
+  scenarioName: string;
+  scenarioEventId: string | null;
+  scenarioUrl: string;
+  scenarioConfig: Record<string, unknown>;
+  scenarioSteps: ScenarioStep[];
+  scenarioExpectedPayload: string;
+  scenarioExpectedPayloadError: string | null;
 }
 
 export interface DisambiguationItem {
@@ -262,6 +318,7 @@ export interface ReviewStepProps {
   onSaveDsl: () => void;
   onResetDsl: () => void;
   onReset: () => void;
+  onRunTests: () => void;
 }
 
 export interface ResultsStepProps {

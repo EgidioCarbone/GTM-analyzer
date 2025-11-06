@@ -1,6 +1,8 @@
 import OpenAI from 'openai';
 import fsSync from 'fs';
 import { SSD_DEFAULTS, getConfigValue } from '../config/ssd-defaults';
+import type { ScenarioStep } from '../modules/types';
+import type { TestSpec } from '../types/ssd';
 
 export interface OpenAISpecResponse {
   dsl: any;
@@ -48,6 +50,51 @@ export interface TestEvaluationResponse {
     message: string;
   }>;
   suggestedFixes?: string[];
+}
+
+export interface ScenarioSpecBuildStep {
+  id: string;
+  type: ScenarioStep['type'] | string;
+  label?: string;
+  selector?: string;
+  description?: string;
+  value?: string;
+  delayAfterMs?: number;
+}
+
+export interface ScenarioSpecBuildInput {
+  moduleId: string;
+  moduleName: string;
+  moduleDescription?: string;
+  targetUrl: string;
+  cmp?: {
+    vendor?: string;
+    acceptAllSelector?: string;
+    rejectAllSelector?: string;
+    notes?: string;
+  };
+  scenarioName: string;
+  eventId: string;
+  steps: ScenarioSpecBuildStep[];
+  expectedPayload: any | null;
+  expectationTemplate?: any | null;
+}
+
+export interface ScenarioPayloadMatchRequest {
+  site: string;
+  scenarioName?: string;
+  expectedEventName?: string;
+  expectedPayload: any;
+  normalizedExpectedPayload?: any;
+  capturedEvents: any[];
+}
+
+export interface ScenarioPayloadMatchResponse {
+  status: 'MATCH' | 'NO_MATCH';
+  matchedEventIndex: number | null;
+  reasoning: string;
+  matchedEvent?: any;
+  confidence?: number | null;
 }
 
 export class OpenAISpecService {
@@ -219,6 +266,128 @@ export class OpenAISpecService {
     }
   }
 
+  async evaluateScenarioDataLayerMatch(
+    request: ScenarioPayloadMatchRequest
+  ): Promise<ScenarioPayloadMatchResponse> {
+    const sliceLimit = Math.min(
+      Number.parseInt(process.env.SSD_SCENARIO_EVENT_LIMIT ?? '25', 10),
+      50
+    );
+    const startIndex =
+      request.capturedEvents.length > sliceLimit
+        ? request.capturedEvents.length - sliceLimit
+        : 0;
+    const truncatedEvents = request.capturedEvents.slice(startIndex);
+
+    const payload = {
+      site: request.site,
+      scenarioName: request.scenarioName ?? null,
+      expectedEventName: request.expectedEventName ?? null,
+      expectedPayload: request.expectedPayload,
+      normalizedExpectedPayload: request.normalizedExpectedPayload ?? null,
+      capturedEvents: truncatedEvents,
+      totalCapturedEvents: request.capturedEvents.length,
+      startIndex,
+    };
+
+    const response = await this.client.chat.completions.create({
+      model: this.model,
+      messages: [
+        { role: 'system', content: this.getScenarioValidationSystemPrompt() },
+        { role: 'user', content: this.buildScenarioValidationPrompt(payload) },
+      ],
+      response_format: { type: 'json_object' },
+      temperature: SSD_DEFAULTS.llm.temperature.evaluation ?? 0,
+      max_tokens: 800,
+    });
+
+    const content = response.choices[0]?.message?.content;
+    if (!content) {
+      throw new OpenAIError('Empty response from OpenAI during scenario validation', 'INVALID_RESPONSE');
+    }
+
+    let parsed: any;
+    try {
+      parsed = JSON.parse(content);
+    } catch (error) {
+      throw new OpenAIError(
+        `Invalid JSON response from OpenAI scenario validation: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`,
+        'INVALID_RESPONSE'
+      );
+    }
+
+    const status = parsed.status === 'MATCH' ? 'MATCH' : 'NO_MATCH';
+    const matchedIndex =
+      typeof parsed.matched_event_index === 'number'
+        ? parsed.matched_event_index
+        : typeof parsed.matchedEventIndex === 'number'
+        ? parsed.matchedEventIndex
+        : null;
+
+    return {
+      status,
+      matchedEventIndex: matchedIndex,
+      reasoning:
+        typeof parsed.reasoning === 'string'
+          ? parsed.reasoning
+          : 'Nessuna motivazione fornita.',
+      matchedEvent: parsed.matched_event ?? parsed.matchedEvent ?? null,
+      confidence:
+        typeof parsed.confidence === 'number'
+          ? parsed.confidence
+          : null,
+    };
+  }
+
+  async buildScenarioTestSpec(input: ScenarioSpecBuildInput): Promise<OpenAISpecResponse> {
+    const systemPrompt = this.getScenarioSystemPrompt();
+    const userPrompt = this.buildScenarioPrompt(input);
+
+    const response = await this.client.chat.completions.create({
+      model: this.model,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      response_format: { type: 'json_object' },
+      temperature: SSD_DEFAULTS.llm.temperature.specGeneration ?? 0.2,
+      max_tokens: SSD_DEFAULTS.llm.maxTokens.specGeneration ?? 4000,
+    });
+
+    const content = response.choices[0]?.message?.content;
+    if (!content) {
+      throw new OpenAIError('Empty response from OpenAI (scenario spec)', 'INVALID_RESPONSE');
+    }
+
+    let parsed: TestSpec;
+    try {
+      parsed = JSON.parse(content) as TestSpec;
+    } catch (error) {
+      throw new OpenAIError(
+        `Invalid JSON response from OpenAI (scenario spec): ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`,
+        'INVALID_RESPONSE'
+      );
+    }
+
+    const usage = response.usage;
+    const meta = {
+      model: response.model,
+      tokens: {
+        input: usage?.prompt_tokens || 0,
+        output: usage?.completion_tokens || 0,
+      },
+    };
+
+    return {
+      dsl: parsed,
+      meta,
+    };
+  }
+
   /**
    * Get the universal system prompt for DSL generation
    */
@@ -260,6 +429,146 @@ IMPORTANT:
 - Do not output empty fields (e.g., no empty "url_contains", "url_matches", "for_event").
 - The "consent" field must ALWAYS be an array: ["accept"] or ["accept", "reject"] - never a string.
 - The runner will execute EXACTLY what you return. Be precise and conservative.`;
+  }
+
+  private getScenarioValidationSystemPrompt(): string {
+    return `You are an analytics QA assistant. Determine whether any captured dataLayer payload matches the expected event structure.
+
+Rules:
+- Treat "*" in the normalized expected payload as a wildcard meaning any non-empty value.
+- Treat placeholder strings in the original payload (e.g. "[NOME PRODOTTO]") as wildcards.
+- Compare object structures using subset semantics: the captured event may contain additional fields.
+- If "expectedEventName" is provided, the event field must match (case-insensitive).
+- Consider array order when relevant, but allow extra items unless explicitly constrained.
+- The captured events array may be truncated; "startIndex" indicates the absolute index of the first event in the provided list.
+
+Respond ONLY with JSON containing:
+{
+  "status": "MATCH" | "NO_MATCH",
+  "matched_event_index": number | null,  // absolute index considering startIndex
+  "matched_event": object | null,
+  "reasoning": string,
+  "confidence": number | null
+}`;
+  }
+
+  private buildScenarioValidationPrompt(payload: {
+    site: string;
+    scenarioName: string | null;
+    expectedEventName: string | null;
+    expectedPayload: any;
+    normalizedExpectedPayload: any;
+    capturedEvents: any[];
+    totalCapturedEvents: number;
+    startIndex: number;
+  }): string {
+    return `Confronta il payload atteso con gli eventi catturati nel dataLayer.
+
+CONTESTO:
+${JSON.stringify(
+  {
+    site: payload.site,
+    scenarioName: payload.scenarioName,
+    expectedEventName: payload.expectedEventName,
+    expectedPayload: payload.expectedPayload,
+    normalizedExpectedPayload: payload.normalizedExpectedPayload,
+    totalCapturedEvents: payload.totalCapturedEvents,
+    startIndex: payload.startIndex,
+  },
+  null,
+  2
+)}
+
+EVENTI CATTURATI (indice assoluto = startIndex + posizione):
+${JSON.stringify(payload.capturedEvents, null, 2)}
+
+TASK:
+- Indica se esiste un evento che corrisponde al payload atteso.
+- Usa "MATCH" se trovi un evento compatibile, altrimenti "NO_MATCH".
+- Se trovi un match, restituisci l'indice assoluto (startIndex + indice locale) in "matched_event_index".
+- Includi "matched_event" con il payload dell'evento compatibile se trovato.
+- Fornisci una breve spiegazione in italiano nel campo "reasoning".
+- Opzionalmente assegna "confidence" tra 0 e 1.`;
+  }
+
+  private getScenarioSystemPrompt(): string {
+    return `You are an expert SSD Test spec builder. Given scenario information (URL, module metadata, CMP selector, optional user-defined interaction steps) produce a STRICT TestSpec JSON ready for execution by a Puppeteer runner.
+
+Hard constraints:
+- Output ONLY JSON that matches the TestSpec schema (no prose or comments).
+- The spec must focus on reproducing the user's navigation and interaction steps. DO NOT add verification steps or dataLayer expectations.
+- Avoid using action "custom". Use only navigate, click, input, wait_for_selector, wait_for_text, etc.
+- Always include a first step that ACCEPTS the cookie banner using the provided CMP selector when available; otherwise use a generic, multilingual fallback as described below.
+- Maintain the order of user-provided steps AFTER the cookie step. For steps without selectors infer conservative targets (prefer text/aria before selector).
+- Ensure allowed_hosts only includes the main host of the URL plus "www." variant when relevant.
+- consent MUST be an array (["accept"] or ["accept","reject"]).
+- Fill meta.model with "scenario-llm::<moduleId>" and meta.moduleId with the module id.
+
+Cookie acceptance rules:
+- If an explicit selector is provided (cmp.actions.acceptAllButton), use it as a selector step labelled "Accetta tutti i cookie".
+- If missing, use a resilient selector targeting buttons with text variations ("Accept all","Accetta","Consenti tutti","Allow all") while excluding cookie dialogs later (use :not() to avoid interfering elements).
+
+General:
+- Do not include expectations, dataLayer assertions, or additional checks.
+- Do not leave empty arrays or null fields unless required.`;
+  }
+
+  private buildScenarioPrompt(input: ScenarioSpecBuildInput): string {
+    const context = {
+      module: {
+        id: input.moduleId,
+        name: input.moduleName,
+        description: input.moduleDescription,
+        cmp: input.cmp,
+      },
+      scenario: {
+        name: input.scenarioName,
+        eventId: input.eventId,
+        targetUrl: input.targetUrl,
+        steps: input.steps,
+      },
+    };
+
+    const schema = {
+      site: 'string',
+      allowed_hosts: ['string'],
+      consent: ['accept', 'reject'],
+      tests: [
+        {
+          section: 'string',
+          steps: [
+            {
+              description: 'string',
+              action: 'click|input|wait_for_selector|wait_for_text|navigate|maybe_set_quantity|choose_payment|complete_order',
+              target: {
+                region: 'header|main|footer|any',
+                kind: 'text|aria|href|selector',
+                value: 'string',
+              },
+              value: 'string',
+              expect: [],
+              confidence: 0.0,
+              severity: 'critical|major|minor',
+            },
+          ],
+        },
+      ],
+      meta: {
+        model: 'string',
+        moduleId: input.moduleId,
+        tokens: { input: 0, output: 0 },
+      },
+    };
+
+    return `SCHEMA (do not echo literally, only follow it):\n${JSON.stringify(
+      schema,
+      null,
+      2
+    )}\n\nSCENARIO CONTEXT:\n${JSON.stringify(
+      context,
+      null,
+      2
+    )}\n\nTASK:\n- Produce ONE TestSpec JSON following the schema.\n- Always include a cookie-acceptance first step as required by the system instructions.\n- Use the provided steps in order after the cookie step. Missing selectors must be inferred conservatively (prefer text/aria before selector).\n- Focus ONLY on navigation and interaction steps; do NOT add verification steps, dataLayer expectations or action:\"custom\".\n- Omit the "expect" array unless a navigation expectation is strictly necessary.\n- Return ONLY JSON with no comments.`;
   }
 
   /**

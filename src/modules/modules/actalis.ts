@@ -15,6 +15,7 @@ export const actalisModule: SSDModule = {
   ],
   defaultUrls: [
     'https://www.actalis.com/',
+    'https://www.actalis.com/it/abbonamento',
   ],
   configFields: [],
   defaultConfig: {},

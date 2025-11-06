@@ -15,11 +15,36 @@ Convert PDF test specifications into executable DSL, run both cookie-consent and
 - `POST /api/spec/generate` – accepts `multipart/form-data` with `url` & `pdf`, extracts text, runs LLM to build DSL.
 - `POST /api/ssd/run` – executes consent + DSL tests. Responds with `{ report: TestReport }`.
 
+### Scenario-based configuration (beta)
+To prepare configurable, repeatable tests without PDF upload:
+
+- `GET /api/modules/:moduleId/events` → returns available event templates for a module (inputs + description).
+- `GET /api/modules/:moduleId/scenarios` → lists saved scenarios (see `config/module-scenarios.json`).
+- `POST /api/modules/:moduleId/scenarios` → create a scenario. Body must include:
+  ```json
+  {
+    "name": "Add to cart bronze",
+    "eventId": "add_to_cart",
+    "url": "https://www.actalis.com/it/abbonamento",
+    "config": {
+      "ctaSelector": ".btn.btn-primary-alt.add-product.bronzeplan",
+      "expectedItemId": "12345-SKU-ID"
+    }
+  }
+  ```
+  Required inputs are enforced by the event template.
+- `PUT /api/modules/:moduleId/scenarios/:id` → update scenario metadata/config.
+- `DELETE /api/modules/:moduleId/scenarios/:id` → remove scenario.
+- `POST /api/modules/:moduleId/scenarios/:id/build` → builds a manifest-free DSL for the scenario; the frontend can pass the resulting `dsl` directly to `/api/ssd/run`.
+
+Scenarios are persisted in `config/module-scenarios.json`. Actalis currently exposes `view_item_list` and `add_to_cart` templates with wildcard-friendly expectations so the same test works across multiple ACTALIS products.
+
 ## Frontend Flow
-1. Upload PDF & URL.
-2. Automatically invokes `/api/ssd/fetch-html` then `/api/spec/generate`.
-3. Immediately calls `/api/ssd/run` with DSL, raw PDF text, optional buffer path, and run options.
-4. Progress modal uses `useAnalysisProgress`; results page renders the returned `report` directly (no mock data).
+1. Seleziona il modulo verticale (es. Actalis) dal wizard iniziale.
+2. Scegli o crea uno scenario: il frontend chiama `/api/modules/:moduleId/events` per elencare gli eventi supportati e `/api/modules/:moduleId/scenarios` per i salvataggi locali. La creazione/modifica avviene in una modale dedicata che raccoglie nome, URL, step e payload atteso.
+3. Alla pressione di “Genera DSL” lo scenario viene salvato (`POST/PUT /api/modules/:moduleId/scenarios`) e costruito via `/api/modules/:moduleId/scenarios/:id/build`.
+4. La DSL ottenuta può essere rivista/ritoccata; il run parte inviando `{ moduleId, moduleSource: 'manifest', dsl, runOptions }` a `/api/ssd/run`.
+5. La progress modal sfrutta `useAnalysisProgress`; la pagina risultati (`DetailedResultsStep`) visualizza direttamente il report di backend.
 
 ## Report Payload (what `/api/ssd/run` should return)
 ```json

@@ -15,15 +15,15 @@ import { listModules } from '../../modules';
 import type { ModuleId } from '../../modules/types';
 
 type ModuleSelectionStepProps = {
-  selectedModuleId: ModuleId | null;
-  onSelect: (moduleId: ModuleId) => void;
-  onProceed: () => void;
+  currentModuleId: ModuleId | null;
+  onModuleSelect: (moduleId: ModuleId) => void;
+  onModuleProceed: () => void;
 };
 
 export default function ModuleSelectionStep({
-  selectedModuleId,
-  onSelect,
-  onProceed,
+  currentModuleId,
+  onModuleSelect,
+  onModuleProceed,
 }: ModuleSelectionStepProps) {
   const modules = listModules();
 
@@ -81,8 +81,8 @@ export default function ModuleSelectionStep({
               <div className="flex items-center gap-3 rounded-2xl border border-white/70 bg-white/60 px-4 py-3 text-gray-400">
                 <span className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 text-sm font-semibold">2</span>
                 <div>
-                  <p className="text-sm font-semibold">Upload &amp; Process</p>
-                  <p className="text-xs">Carica PDF e genera DSL</p>
+                  <p className="text-sm font-semibold">Scenario</p>
+                  <p className="text-xs">Configura evento e parametri</p>
                 </div>
               </div>
               <div className="flex items-center gap-3 rounded-2xl border border-white/70 bg-white/60 px-4 py-3 text-gray-400">
@@ -113,7 +113,7 @@ export default function ModuleSelectionStep({
 
       <div className="grid gap-6 lg:grid-cols-3">
         {modules.map(mod => {
-          const isActive = mod.meta.id === selectedModuleId;
+          const isActive = mod.meta.id === currentModuleId;
           const Icon = mod.meta.icon ? iconMap[mod.meta.icon] : null;
 
           return (
@@ -124,7 +124,7 @@ export default function ModuleSelectionStep({
                   ? 'ring-2 ring-indigo-400/70 shadow-2xl scale-[1.01] bg-gradient-to-br from-indigo-500/10 via-white to-purple-500/10'
                   : 'hover:-translate-y-2 hover:shadow-xl hover:ring-1 hover:ring-indigo-200/60'
               }`}
-              onClick={() => onSelect(mod.meta.id)}
+              onClick={() => onModuleSelect(mod.meta.id)}
             >
               {isActive && (
                 <>
@@ -204,13 +204,13 @@ export default function ModuleSelectionStep({
 
       <div className="sticky bottom-8 flex flex-col items-center justify-between gap-4 rounded-3xl border border-white/60 bg-white/70 px-6 py-5 shadow-2xl backdrop-blur">
         <div className="text-center text-sm text-gray-600">
-          {selectedModuleId
-            ? `Hai selezionato il modulo "${modules.find(m => m.meta.id === selectedModuleId)?.meta.title}".`
+          {currentModuleId
+            ? `Hai selezionato il modulo "${modules.find(m => m.meta.id === currentModuleId)?.meta.title}".`
             : 'Seleziona un modulo per continuare con la configurazione.'}
         </div>
         <Button
-          disabled={!selectedModuleId}
-          onClick={onProceed}
+          disabled={!currentModuleId}
+          onClick={onModuleProceed}
           className="group relative inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 px-8 py-3 text-base font-semibold text-white shadow-lg transition-all duration-200 hover:shadow-2xl hover:from-indigo-500 hover:via-purple-500 hover:to-pink-500 focus:ring-4 focus:ring-purple-300/40 disabled:cursor-not-allowed disabled:from-gray-200 disabled:to-gray-300 disabled:text-gray-500"
         >
           Continua

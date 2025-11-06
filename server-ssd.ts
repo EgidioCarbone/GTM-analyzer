@@ -14,16 +14,17 @@ import { dirname, join } from 'path';
 import path from 'path';
 import fs from 'fs/promises';
 import fsSync from 'fs';
+import vm from 'node:vm';
+import { randomUUID } from 'crypto';
 
 // Import our SSD services
 import { extractPDFText, extractPDFTextFromBuffer, validatePDFFile, PDFExtractionError } from './src/services/pdfTextExtraction.js';
-import { OpenAISpecService, OpenAIError as ServiceOpenAIError } from './src/services/openaiSpecService.js';
+import { OpenAISpecService, OpenAIError as ServiceOpenAIError, type ScenarioSpecBuildInput } from './src/services/openaiSpecService.js';
 import { validateTestSpec, SpecValidationError } from './src/services/specValidation.js';
 import { z } from 'zod';
-import { SSDPuppeteerRunner, SSDRunnerError } from './src/services/ssdPuppeteerRunner.js';
+import { SSDPuppeteerRunner, SSDRunnerError, type RunOptions } from './src/services/ssdPuppeteerRunner.js';
 import { normalizeOrigin, isValidUrl } from './src/utils/url.js';
 import { extractCookieBannerWithPuppeteer } from './src/services/cookieBannerExtractor.js';
-import { llmPdfSpec } from './src/services/llmPdfSpec.js';
 import puppeteer from 'puppeteer';
 import { runConsentTest, ConsentTestInputSchema, type ConsentRunnerDependencies } from './src/ai-sentinel/pw-runner.js';
 import { ConsentLLMService } from './src/ai-sentinel/llm/consent-llm-service.js';
@@ -32,7 +33,11 @@ import { modelSupportsCustomTemperature } from './src/utils/openaiCapabilities.t
 import { SSD_DEFAULTS, getConfigValue, parseArray } from './src/config/ssd-defaults.js';
 import { getModule } from './src/modules/index.js';
 import { buildTestSpecFromManifest } from './src/modules/dslBuilder.js';
-import type { ModuleId } from './src/modules/types.js';
+import { listModuleEventDefinitions, getModuleEventDefinition } from './src/modules/eventDefinitions.js';
+import { listModuleScenarios, getModuleScenario, upsertModuleScenario, deleteModuleScenario } from './src/modules/scenarioStore.js';
+import type { ModuleId, ModuleScenario, ScenarioStep, ModuleEventDefinition, SSDModule } from './src/modules/types.js';
+import type { TestSpec, Step, TestResult, ModuleSource, ScenarioValidationOutcome } from './src/types/ssd.js';
+import { extractExpectedPayloadExpression } from './shared/expectedPayload.ts';
 
 // Global type declarations
 declare global {
@@ -82,6 +87,377 @@ interface ConsentTestResult {
 
 // Helper function for sleep
 const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
+
+async function installScenarioDataLayerHook(page: puppeteer.Page, events: Array<{ timestamp: number; payload: any }>): Promise<void> {
+  await page.exposeFunction('__scenarioCaptureEvent', (event: any) => {
+    events.push({
+      timestamp: Date.now(),
+      payload: event?.payload ?? event,
+    });
+  });
+
+  const hookScript = `(() => {
+    const logEvent = (label, payload) => {
+      try {
+        const entry = { label, payload };
+        if (window.__scenarioCaptureEvent) {
+          window.__scenarioCaptureEvent(entry);
+        }
+        if (window.__ssdCaptureDataLayerEvent) {
+          window.__ssdCaptureDataLayerEvent({
+            timestamp: Date.now(),
+            payload,
+          });
+        }
+      } catch (error) {
+        console.warn('[scenario][hook] capture failed', error);
+      }
+    };
+
+    const patch = (arr, label) => {
+      if (!Array.isArray(arr) || arr.__patched) return arr;
+      const originalPush = arr.push;
+      Object.defineProperty(arr, 'push', {
+        configurable: true,
+        writable: true,
+        value: function patchedPush(...items) {
+          items.forEach(ev => logEvent(label, ev));
+          return originalPush.apply(this, items);
+        },
+      });
+      arr.__patched = true;
+      arr.forEach(ev => logEvent(label + ' (existing)', ev));
+      return arr;
+    };
+
+    window.dataLayer = patch(window.dataLayer || [], 'window.dataLayer');
+    if (window.google_tag_manager) {
+      Object.values(window.google_tag_manager).forEach(container => {
+        if (container && container.dataLayer) {
+          container.dataLayer = patch(container.dataLayer, 'gtm.dataLayer');
+        }
+      });
+    }
+  })();`;
+
+  await page.evaluateOnNewDocument(hookScript);
+  await page.evaluate(hookScript);
+}
+
+function matchValue(expected: any, actual: any): boolean {
+  if (expected === '*') {
+    return actual != null && String(actual).length > 0;
+  }
+
+  if (Array.isArray(expected)) {
+    if (!Array.isArray(actual)) return false;
+    return expected.every((item, index) => matchValue(item, actual[index]));
+  }
+
+  if (expected && typeof expected === 'object') {
+    if (!actual || typeof actual !== 'object') return false;
+    return Object.entries(expected).every(([key, value]) => matchValue(value, (actual as any)[key]));
+  }
+
+  if (typeof expected === 'string' && typeof actual === 'string') {
+    return expected.toLowerCase() === actual.toLowerCase();
+  }
+
+  return expected === actual;
+}
+
+function findMatchingEvent(expectation: any, events: Array<{ timestamp: number; payload: any }>): any | null {
+  if (!expectation) return null;
+  const eventName = expectation.event;
+  return events.find(event => {
+    const payload = event.payload;
+    if (!payload || typeof payload !== 'object') return false;
+    if (eventName && payload.event !== eventName) return false;
+    if (expectation.params_subset) {
+      return matchValue(expectation.params_subset, payload);
+    }
+    return true;
+  }) || null;
+}
+
+function appendPath(base: string, segment: string): string {
+  if (!base) return segment;
+  if (segment.startsWith('[')) {
+    return `${base}${segment}`;
+  }
+  return `${base}.${segment}`;
+}
+
+function valueIsPresent(value: any): boolean {
+  if (value === null || value === undefined) {
+    return false;
+  }
+  if (typeof value === 'string') {
+    return value.trim().length > 0;
+  }
+  if (Array.isArray(value)) {
+    return value.length > 0;
+  }
+  if (typeof value === 'object') {
+    return Object.keys(value).length > 0;
+  }
+  return true;
+}
+
+type Difference = { path: string; type: 'missing' | 'mismatch'; expected?: any; actual?: any };
+
+function diffPayload(expected: any, actual: any, path = ''): Difference[] {
+const issues: Difference[] = [];
+
+  if (expected === '*') {
+    if (!valueIsPresent(actual)) {
+      issues.push({
+        path: path || 'valore',
+        type: 'missing',
+        expected: '*',
+        actual,
+      });
+    }
+    return issues;
+  }
+
+  if (Array.isArray(expected)) {
+    if (!Array.isArray(actual)) {
+      issues.push({
+        path: path || 'array',
+        type: 'missing',
+        expected,
+        actual,
+      });
+      return issues;
+    }
+
+    if (actual.length < expected.length) {
+      issues.push({
+        path: path || 'array',
+        type: 'mismatch',
+        expected: `almeno ${expected.length} elementi`,
+        actual: `${actual.length} elementi`,
+      });
+    }
+
+    expected.forEach((expectedItem, index) => {
+      const itemPath = appendPath(path, `[${index}]`);
+      const actualItem = index < actual.length ? actual[index] : undefined;
+      issues.push(...diffPayload(expectedItem, actualItem, itemPath));
+    });
+
+    return issues;
+  }
+
+  if (expected && typeof expected === 'object') {
+    if (!actual || typeof actual !== 'object') {
+      issues.push({
+        path: path || 'oggetto',
+        type: 'missing',
+        expected,
+        actual,
+      });
+      return issues;
+    }
+
+    for (const [key, value] of Object.entries(expected)) {
+      const keyPath = appendPath(path, key);
+      if (!Object.prototype.hasOwnProperty.call(actual, key)) {
+        issues.push({
+          path: keyPath,
+          type: 'missing',
+          expected: value,
+          actual: undefined,
+        });
+      } else {
+        issues.push(...diffPayload(value, (actual as any)[key], keyPath));
+      }
+    }
+
+    return issues;
+  }
+
+  if (typeof expected === 'string' && typeof actual === 'string') {
+    if (expected.toLowerCase() !== actual.toLowerCase()) {
+      issues.push({
+        path: path || 'valore',
+        type: 'mismatch',
+        expected,
+        actual,
+      });
+      return issues;
+    }
+    return issues;
+  }
+
+  if (expected !== actual) {
+    issues.push({
+      path: path || 'valore',
+      type: 'mismatch',
+      expected,
+      actual,
+    });
+  }
+
+  return issues;
+}
+
+function formatDifferences(differences: Difference[]): string[] {
+  return differences.map(diff => {
+    if (diff.type === 'missing') {
+      return `${diff.path} mancante o vuoto`;
+    }
+    return `${diff.path} atteso "${diff.expected ?? '*'}" ma trovato "${diff.actual ?? 'n/a'}"`;
+  });
+}
+
+async function validateScenarioDataLayer(params: {
+  scenario?: ModuleScenario | null;
+  eventDefinition?: ModuleEventDefinition | null;
+  capturedEvents: Array<{ timestamp: number; payload: any }>;
+}): Promise<ScenarioValidationOutcome | null> {
+  const { scenario, eventDefinition, capturedEvents } = params;
+  const expectedSource =
+    scenario?.expectedPayload ??
+    eventDefinition?.expectationTemplate?.payloadTemplate ??
+    null;
+
+  if (!expectedSource) {
+    console.log('[scenario][validation] No expected payload provided, skipping validation');
+    return {
+      status: 'SKIPPED',
+      expectedPayload: null,
+      normalizedExpectedPayload: null,
+      matchedEventIndex: null,
+      matchedEvent: null,
+      reasoning: 'Nessun payload atteso fornito per questo scenario.',
+    };
+  }
+
+  const normalizedExpected = normalizeManualExpectedPayload(expectedSource);
+  let eventName =
+    extractEventNameFromPayload(expectedSource) ||
+    eventDefinition?.expectationTemplate?.event ||
+    null;
+
+  if (!eventName && typeof normalizedExpected?.event === 'string') {
+    eventName = normalizedExpected.event;
+  }
+
+  const expectedStructure =
+    normalizedExpected ??
+    (eventName ? { event: eventName } : null);
+
+  const candidateEvents = capturedEvents
+    .map((event, index) => ({
+      index,
+      timestamp: event.timestamp,
+      payload: event.payload,
+    }))
+    .filter(candidate => {
+      if (!candidate.payload || typeof candidate.payload !== 'object') {
+        return false;
+      }
+      if (!eventName) {
+        return true;
+      }
+      const payloadEvent =
+        typeof candidate.payload.event === 'string'
+          ? candidate.payload.event.toLowerCase()
+          : null;
+      return payloadEvent === eventName.toLowerCase();
+    });
+
+  let perfectMatch: null | { index: number; payload: any } = null;
+  let bestMismatch:
+    | null
+    | {
+        index: number;
+        payload: any;
+        differences: Difference[];
+      } = null;
+
+  if (candidateEvents.length > 0) {
+    for (const candidate of candidateEvents) {
+      const differences =
+        expectedStructure != null
+          ? diffPayload(expectedStructure, candidate.payload, '')
+          : [];
+
+     if (differences.length === 0) {
+        perfectMatch = { index: candidate.index, payload: candidate.payload };
+        break;
+      }
+
+      if (!bestMismatch || differences.length < bestMismatch.differences.length) {
+        bestMismatch = {
+          index: candidate.index,
+          payload: candidate.payload,
+          differences,
+        };
+      }
+    }
+  }
+
+  if (perfectMatch) {
+    return {
+      status: 'PASS',
+      eventName,
+      expectedPayload: expectedSource,
+      normalizedExpectedPayload: normalizedExpected,
+      matchedEventIndex: perfectMatch.index,
+      matchedEvent: perfectMatch.payload,
+      reasoning: eventName
+        ? `Evento '${eventName}' trovato nel dataLayer.`
+        : 'Payload atteso trovato nel dataLayer.',
+      differences: [],
+      matchedEventSource: 'deterministic',
+    };
+  }
+
+  if (bestMismatch) {
+    const differenceMessages = formatDifferences(bestMismatch.differences);
+    return {
+      status: 'WARNING',
+      eventName,
+      expectedPayload: expectedSource,
+      normalizedExpectedPayload: normalizedExpected,
+      matchedEventIndex: bestMismatch.index,
+      matchedEvent: bestMismatch.payload,
+      reasoning: eventName
+        ? `Evento '${eventName}' rilevato ma la struttura presenta differenze.`
+        : 'Struttura parzialmente trovata nel dataLayer ma con differenze.',
+      differences: differenceMessages,
+      matchedEventSource: 'deterministic',
+    };
+  }
+
+  const diffMessages = formatDifferences(
+    expectedStructure ? diffPayload(expectedStructure, null, '') : []
+  );
+
+  return {
+    status: 'FAIL',
+    eventName,
+    expectedPayload: expectedSource,
+    normalizedExpectedPayload: normalizedExpected,
+    matchedEventIndex: null,
+    matchedEvent: null,
+    reasoning: eventName
+      ? `Evento '${eventName}' non trovato nel dataLayer.`
+      : 'Nessun evento coerente con il payload atteso è stato rilevato nel dataLayer.',
+    differences:
+      diffMessages.length > 0
+        ? diffMessages
+        : [
+            eventName
+              ? `Evento '${eventName}' non presente.`
+              : 'Evento atteso non presente nel dataLayer.',
+          ],
+    matchedEventSource: 'deterministic',
+  };
+}
 
 // ============================================================================
 // COOKIE TEST SPEC CACHE
@@ -393,11 +769,19 @@ app.use((req, res, next) => {
   // Sanitize request body for SSD endpoints
   if (req.path.startsWith('/api/ssd/')) {
     if (req.body && typeof req.body === 'object') {
-      // Remove any potentially dangerous keys
-      const sanitizedBody = {};
+      const allowedKeys = [
+        'url',
+        'dsl',
+        'runOptions',
+        'pdfContent',
+        'pdfBufferPath',
+        'moduleId',
+        'moduleSource',
+        'scenarioId',
+      ];
+      const sanitizedBody: Record<string, unknown> = {};
       for (const [key, value] of Object.entries(req.body)) {
-        // Only allow expected keys for SSD endpoints
-        if (['url', 'dsl', 'runOptions', 'pdfContent', 'pdfBufferPath'].includes(key)) {
+        if (allowedKeys.includes(key)) {
           sanitizedBody[key] = value;
         }
       }
@@ -1548,6 +1932,14 @@ async function executePdfTests(testSpec: any, options: any, browserInstance: any
     console.log('Test specification type:', typeof testSpec);
     console.log('Number of tests:', testSpec?.tests?.length || 0);
     
+    if (browserInstance && existingPage) {
+      options = {
+        ...options,
+        reuseBrowser: browserInstance,
+        reusePage: existingPage,
+      };
+    }
+    
     // Guard-rails: Check if spec is valid and has tests
     if (!testSpec || !Array.isArray(testSpec.tests) || testSpec.tests.length === 0) {
       console.warn('[PDF] No tests in spec, skipping');
@@ -1612,6 +2004,7 @@ async function executePdfTests(testSpec: any, options: any, browserInstance: any
       // Set the page in the runner
       (runner as any).page = existingPage;
       (runner as any).browser = browserInstance;
+      (existingPage as any).__ssdCapturedEvents = [];
       
       // CRITICAL: Re-apply the universal hook to the existing page
       console.log('🔄 Re-applying universal hook to existing page...');
@@ -1685,7 +2078,7 @@ async function executePdfTests(testSpec: any, options: any, browserInstance: any
         console.log('Hook attivo: ora premi il link header e guarda i log sopra.');
         logEvent('__ssd_hook_installed__', { event: '__ssd_hook_installed__' });
       `;
-      
+      await existingPage.evaluateOnNewDocument(hookScript);
       await existingPage.evaluate(hookScript);
       
       console.log('✅ Universal hook injected into existing page');
@@ -1702,28 +2095,46 @@ async function executePdfTests(testSpec: any, options: any, browserInstance: any
     if (existingPage) {
       console.log('🎯 Executing tests directly on existing page...');
       
-      const steps = normalized.tests[0]?.steps || [];
+      const tests = normalized.tests || [];
       const stepResults: any[] = [];
-      
-      for (let i = 0; i < steps.length; i++) {
-        const step = steps[i];
-      console.log(`===== PDF TEST STEP ${i + 1} =====`);
-      console.log(`📝 Description: ${step.description || 'No description'}`);
-      console.log(`🎯 Action: ${step.action}`);
-        console.log(`🎯 Target: ${step.target?.value ?? 'N/A'}`);
-      
-      const stepResult: any = {
-        step: i + 1,
-        description: step.description || 'No description',
-        action: step.action,
-        status: 'FAIL',
-        error: null as string | null,
-        eventDetails: null,
-        expectations: step.expect || [],
-      };
 
-      try {
-          if (step.action === 'custom') {
+      for (let testIndex = 0; testIndex < tests.length; testIndex++) {
+        const test = tests[testIndex];
+        const steps = Array.isArray(test?.steps) ? test.steps : [];
+
+        for (let stepIndex = 0; stepIndex < steps.length; stepIndex++) {
+          const step = steps[stepIndex];
+          const globalStepIndex = stepResults.length;
+          console.log(`===== PDF TEST STEP ${globalStepIndex + 1} (section: ${test.section || test.id || 'N/A'}) =====`);
+          console.log(`📝 Description: ${step.description || 'No description'}`);
+          console.log(`🎯 Action: ${step.action}`);
+          console.log(`🎯 Target: ${step.target?.value ?? 'N/A'}`);
+
+          const stepResult: any = {
+            step: globalStepIndex + 1,
+            section: test.section || test.id || `Test ${testIndex + 1}`,
+            description: step.description || 'No description',
+            action: step.action,
+            status: 'FAIL',
+            error: null as string | null,
+            eventDetails: null,
+            expectations: step.expect || [],
+          };
+
+          try {
+          if (step.action === 'navigate') {
+            const targetUrl = step.target?.value || normalized.site || scenarioSpec.site || testSpec.site;
+            if (targetUrl) {
+              console.log(`🌐 Navigating to ${targetUrl}`);
+              await existingPage.goto(targetUrl, { waitUntil: 'networkidle0', timeout: options.navTimeoutMs || options.timeout || 60000 });
+              await new Promise(resolve => setTimeout(resolve, 2000));
+              const currentUrl = await existingPage.url();
+              console.log(`📍 Current URL after navigation: ${currentUrl}`);
+            } else {
+              console.log('⚠️ Navigate step without valid target URL - skipping');
+            }
+            stepResult.status = 'PASS';
+          } else if (step.action === 'custom') {
             const dataLayerExpectations = (step.expect || []).filter((e: any) => e?.type === 'dataLayer');
             if (dataLayerExpectations.length === 0) {
               console.log('ℹ️ Custom step without dataLayer expectations → marking PASS by default');
@@ -1828,7 +2239,7 @@ async function executePdfTests(testSpec: any, options: any, browserInstance: any
             
             // Take screenshot before click
             const beforeScreenshot = await existingPage.screenshot({ 
-              path: `${SSD_DEFAULTS.path.screenshots}/pdf_test_step_${i + 1}_before_${Date.now()}.png`,
+              path: `${SSD_DEFAULTS.path.screenshots}/pdf_test_step_${globalStepIndex + 1}_before_${Date.now()}.png`,
               fullPage: true 
             });
             
@@ -1847,7 +2258,7 @@ async function executePdfTests(testSpec: any, options: any, browserInstance: any
             
             // Take screenshot after click
             const afterScreenshot = await existingPage.screenshot({ 
-              path: `${SSD_DEFAULTS.path.screenshots}/pdf_test_step_${i + 1}_after_${Date.now()}.png`,
+              path: `${SSD_DEFAULTS.path.screenshots}/pdf_test_step_${globalStepIndex + 1}_after_${Date.now()}.png`,
               fullPage: true 
             });
             
@@ -1932,11 +2343,12 @@ async function executePdfTests(testSpec: any, options: any, browserInstance: any
           }
         } catch (error: any) {
           stepResult.error = error.message;
-          console.error(`❌ Step ${i + 1} failed:`, error.message);
+          console.error(`❌ Step ${globalStepIndex + 1} failed:`, error.message);
         }
         
         stepResults.push(stepResult);
-        console.log(`===== STEP ${i + 1} RESULT: ${stepResult.status} =====`);
+        console.log(`===== STEP ${globalStepIndex + 1} RESULT: ${stepResult.status} =====`);
+        }
       }
       
       const failedSteps = stepResults.filter(s => s.status === 'FAIL');
@@ -1958,7 +2370,11 @@ async function executePdfTests(testSpec: any, options: any, browserInstance: any
       };
     } else {
       // Fallback to runner for new pages
-      const runResult = await runner.runTests(testSpecForRunner, options);
+      const runResult = await runner.runTests(testSpecForRunner, {
+        ...options,
+        reuseBrowser: browserInstance,
+        reusePage: existingPage,
+      });
       
       console.log('✅ PDF tests completed with universal runner');
       console.log('📊 Results:', {
@@ -1990,6 +2406,340 @@ async function executePdfTests(testSpec: any, options: any, browserInstance: any
       error: error instanceof Error ? error.message : 'Unknown error',
       duration: Date.now() - startTime
     };
+  }
+}
+
+async function runScenarioFlow(params: {
+  requestId: string;
+  validatedDSL: TestSpec;
+  options: RunOptions;
+  moduleDefinition?: SSDModule;
+  moduleId?: ModuleId | null;
+  scenario?: ModuleScenario;
+  eventDefinition?: ModuleEventDefinition;
+}): Promise<any> {
+  const { requestId, validatedDSL, options, moduleDefinition, moduleId, scenario, eventDefinition } =
+    params;
+
+  console.log('===== SCENARIO FLOW START =====');
+
+  const scenarioSpec = normalizeScenarioSpec(validatedDSL, validatedDSL.site, moduleDefinition);
+  const flatSteps: Array<{
+    section: string;
+    testIndex: number;
+    step: Step;
+    stepIndex: number;
+  }> = [];
+
+  (scenarioSpec.tests || []).forEach((test, testIndex) => {
+    (test.steps || []).forEach((step, stepIndex) => {
+      flatSteps.push({
+        section: test.section || `Sezione ${testIndex + 1}`,
+        testIndex,
+        step,
+        stepIndex,
+      });
+    });
+  });
+
+  console.log(
+    '[scenario] Normalized spec summary:',
+    JSON.stringify(
+      flatSteps.map(item => ({ section: item.section, action: item.step.action })),
+      null,
+      0
+    )
+  );
+
+  const capturedEvents: Array<{ timestamp: number; payload: any }> = [];
+  const stepResults: TestResult[] = [];
+  let browser: puppeteer.Browser | null = null;
+  let page: puppeteer.Page | null = null;
+
+  const stepTimeoutMs = options.timeout ?? SSD_DEFAULTS.timeout.step;
+  const navigationTimeoutMs = options.navTimeoutMs ?? SSD_DEFAULTS.timeout.navigation;
+  const postActionDelayMs = Number.parseInt(process.env.SSD_SCENARIO_DELAY_MS || '1500', 10);
+  const extraPostRunDelayMs = Number.parseInt(process.env.SSD_SCENARIO_POST_DELAY_MS || '2000', 10);
+
+  let flowStatus: 'PASS' | 'FAIL' | 'WARNING' | 'ERROR' = 'PASS';
+  let flowError: string | null = null;
+
+  try {
+    browser = await puppeteer.launch({
+      headless: options.headless !== false,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--no-first-run',
+        '--no-zygote',
+        '--disable-gpu',
+      ],
+    });
+
+    page = await browser.newPage();
+    // Manual delay helper while we work around missing waitForTimeout
+    const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+    await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 });
+    await page.setUserAgent(
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
+    );
+    await page.setExtraHTTPHeaders({
+      'accept-language': 'it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7',
+    });
+    await page.emulateMediaType('screen');
+    await installScenarioDataLayerHook(page, capturedEvents);
+
+    for (const item of flatSteps) {
+      const { step, section } = item;
+      const stepStart = Date.now();
+      const baselineEventIndex = capturedEvents.length;
+      let stepStatus: 'PASS' | 'FAIL' = 'PASS';
+      let stepError: string | null = null;
+
+      console.log(
+        `[scenario] Executing step t${item.testIndex}#${item.stepIndex} action=${step.action}`
+      );
+
+      try {
+        if (step.action === 'navigate') {
+          const targetUrl =
+            (step.target?.kind === 'href' && typeof step.target.value === 'string'
+              ? step.target.value
+              : scenarioSpec.site) || scenarioSpec.site;
+          if (!targetUrl) {
+            throw new Error('Missing target URL for navigation step');
+          }
+          await page.goto(targetUrl, {
+            waitUntil: 'networkidle2',
+            timeout: navigationTimeoutMs,
+          });
+        } else if (step.action === 'click') {
+          if (!step.target || step.target.kind !== 'selector') {
+            throw new Error('Click step requires a CSS selector target');
+          }
+          const selector = step.target.value;
+          if (!selector || selector.trim().length === 0) {
+            throw new Error('Click step selector is empty');
+          }
+          await page.waitForSelector(selector, { timeout: stepTimeoutMs, visible: true });
+          await page.click(selector);
+          await page
+            .waitForNetworkIdle({ idleTime: 500, timeout: 5000 })
+            .catch(() => undefined);
+        } else if (step.action === 'wait_for_selector') {
+          if (!step.target || step.target.kind !== 'selector') {
+            throw new Error('wait_for_selector requires a CSS selector target');
+          }
+          const selector = step.target.value;
+          if (!selector || selector.trim().length === 0) {
+            throw new Error('wait_for_selector selector is empty');
+          }
+          await page.waitForSelector(selector, { timeout: stepTimeoutMs, visible: true });
+        } else if (step.action === 'wait_for_text') {
+          if (!step.target || !step.target.value) {
+            throw new Error('wait_for_text requires a target value');
+          }
+          const text = step.target.value;
+          await page.waitForFunction(
+            value => document.body && document.body.innerText.includes(value),
+            { timeout: stepTimeoutMs },
+            text
+          );
+        } else {
+          console.warn(`[scenario] Unsupported step action "${step.action}" – skipping`);
+        }
+
+        if (typeof step.delayAfterMs === 'number' && step.delayAfterMs > 0) {
+          await sleep(step.delayAfterMs);
+        } else if (postActionDelayMs > 0) {
+          await sleep(postActionDelayMs);
+        }
+      } catch (error) {
+        stepStatus = 'FAIL';
+        stepError = error instanceof Error ? error.message : 'Errore sconosciuto';
+        flowStatus = 'FAIL';
+        if (!flowError) {
+          flowError = stepError;
+        }
+        console.error(`[scenario] Step failed: ${stepError}`);
+      }
+
+      let screenshotB64 = '';
+      if (page) {
+        try {
+          screenshotB64 = await page.screenshot({ encoding: 'base64', fullPage: true });
+        } catch (screenshotError) {
+          console.warn('[scenario] Unable to capture screenshot:', screenshotError);
+        }
+      }
+
+      const stepEnd = Date.now();
+      const newEvents = capturedEvents.slice(baselineEventIndex);
+
+      stepResults.push({
+        section,
+        stepIndex: item.stepIndex,
+        description: step.description,
+        status: stepStatus,
+        reasons: stepError ? [stepError] : undefined,
+        evidence: {
+          screenshotPathOrB64: screenshotB64,
+          dataLayerEvents: newEvents,
+          trackingHits: [],
+        },
+        timings: {
+          startTime: stepStart,
+          endTime: stepEnd,
+          duration: stepEnd - stepStart,
+        },
+        action: step.action,
+        target: step.target,
+        value: step.value,
+      } as TestResult);
+
+      if (stepStatus === 'FAIL') {
+        console.warn('[scenario] Stopping execution due to failed step');
+        break;
+      }
+    }
+
+    if (extraPostRunDelayMs > 0) {
+      await sleep(extraPostRunDelayMs);
+    }
+
+    const validation = await validateScenarioDataLayer({
+      scenario: scenario ?? null,
+      eventDefinition: eventDefinition ?? null,
+      capturedEvents,
+    });
+
+    if (validation) {
+      if (validation.status === 'FAIL') {
+        flowStatus = 'FAIL';
+      } else if (validation.status === 'ERROR') {
+        flowStatus = 'ERROR';
+      } else if (validation.status === 'WARNING' && flowStatus === 'PASS') {
+        flowStatus = 'WARNING';
+      }
+    }
+
+    const summary = {
+      steps: stepResults.length,
+      passed: stepResults.filter(step => step.status === 'PASS').length,
+      failed: stepResults.filter(step => step.status === 'FAIL').length,
+      duration:
+        stepResults.length > 0
+          ? stepResults[stepResults.length - 1].timings.endTime - stepResults[0].timings.startTime
+          : 0,
+      consentProfiles: Array.isArray(scenarioSpec.consent) ? scenarioSpec.consent : ['accept'],
+    };
+
+    let htmlPath: string | null = null;
+    try {
+      const html = await page.content();
+      const tempHtmlDir = join(process.cwd(), 'temp-html');
+      await fs.mkdir(tempHtmlDir, { recursive: true });
+      htmlPath = join(tempHtmlDir, `${requestId}.html`);
+      await fs.writeFile(htmlPath, html, 'utf8');
+      console.log(`✓ Scenario HTML snapshot saved to ${htmlPath}`);
+    } catch (snapshotError) {
+      console.warn('⚠️ Unable to save scenario HTML snapshot:', snapshotError);
+    }
+
+    const scenarioPayload = {
+      status: flowStatus,
+      steps: stepResults,
+      summary,
+      duration: summary.duration,
+      spec: scenarioSpec,
+      source: 'scenario',
+      events: capturedEvents,
+      validation,
+      expectedPayload:
+        scenario?.expectedPayload ??
+        eventDefinition?.expectationTemplate?.payloadTemplate ??
+        null,
+      scenarioId: scenario?.id ?? scenarioSpec.meta?.scenarioId ?? null,
+      scenarioName: scenario?.name ?? scenarioSpec.meta?.scenarioName ?? null,
+      error: flowError,
+    };
+
+    console.log('===== SCENARIO FLOW COMPLETED =====');
+    console.log(`Scenario status: ${flowStatus}`);
+
+    return {
+      requestId,
+      url: scenarioSpec.site,
+      module: {
+        id: moduleId ?? null,
+        source: 'scenario',
+      },
+      artifacts: {
+        htmlFile: htmlPath,
+        screenshotsFolder: SSD_DEFAULTS.path.screenshots,
+      },
+      scenario: scenarioPayload,
+      summary,
+      challenge: null,
+      cookie: null,
+      pdf: null,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Errore sconosciuto';
+    console.error('[scenario] Fatal error during scenario flow:', error);
+    flowStatus = 'ERROR';
+    flowError = message;
+
+    return {
+      requestId,
+      url: scenarioSpec.site,
+      module: {
+        id: moduleId ?? null,
+        source: 'scenario',
+      },
+      scenario: {
+        status: 'ERROR',
+        steps: stepResults,
+        summary: {
+          steps: stepResults.length,
+          passed: stepResults.filter(step => step.status === 'PASS').length,
+          failed: stepResults.filter(step => step.status === 'FAIL').length,
+          duration: 0,
+          consentProfiles: Array.isArray(scenarioSpec.consent)
+            ? scenarioSpec.consent
+            : ['accept'],
+        },
+        duration: 0,
+        spec: scenarioSpec,
+        source: 'scenario',
+        events: capturedEvents,
+        validation: null,
+        expectedPayload:
+          scenario?.expectedPayload ??
+          eventDefinition?.expectationTemplate?.payloadTemplate ??
+          null,
+        error: message,
+      },
+      summary: {
+        steps: stepResults.length,
+        passed: stepResults.filter(step => step.status === 'PASS').length,
+        failed: stepResults.filter(step => step.status === 'FAIL').length,
+        duration: 0,
+        consentProfiles: Array.isArray(scenarioSpec.consent)
+          ? scenarioSpec.consent
+          : ['accept'],
+      },
+      challenge: null,
+      cookie: null,
+      pdf: null,
+    };
+  } finally {
+    if (browser) {
+      await browser.close().catch(() => {});
+    }
   }
 }
 
@@ -2834,6 +3584,922 @@ async function findSelectorInShadowRoots(page: any, selector: string) {
   }
 }
 
+
+// ---------------------------------------------------------------------------
+// Scenario & module configuration endpoints
+// ---------------------------------------------------------------------------
+
+function buildDefaultScenarioSteps(
+  eventDefinition: ReturnType<typeof getModuleEventDefinition>
+): ScenarioStep[] {
+  if (!eventDefinition) return [];
+  return eventDefinition.steps.map(step => ({
+    id: step.id,
+    type: step.type,
+    label: step.label,
+    description: step.description,
+    selector: undefined,
+    value: undefined,
+  }));
+}
+
+function sanitizeManualSteps(rawSteps: any[]): ScenarioStep[] {
+  if (!Array.isArray(rawSteps)) return [];
+  return rawSteps
+    .filter(entry => entry && typeof entry === 'object')
+    .map((entry, index) => {
+      const selector = typeof entry.selector === 'string' ? entry.selector.trim() : '';
+      const label =
+        typeof entry.label === 'string' && entry.label.trim().length > 0
+          ? entry.label.trim()
+          : `Step ${index + 1}`;
+      const id =
+        typeof entry.id === 'string' && entry.id.trim().length > 0
+          ? entry.id.trim()
+          : `manual_${Date.now()}_${index}`;
+      const delayAfterMs = typeof entry.delayAfterMs === 'number' ? entry.delayAfterMs : 10000;
+
+      return {
+        id,
+        type: 'click',
+        label,
+        description: typeof entry.description === 'string' ? entry.description : undefined,
+        selector: selector.length > 0 ? selector : undefined,
+        value: undefined,
+        delayAfterMs,
+      };
+    });
+}
+
+function tryParseLoosePayloadExpression(expression: string): any | null {
+  const trimmed = expression.trim();
+  if (!trimmed) return null;
+
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    /* fall through to VM evaluation */
+  }
+
+  try {
+    return vm.runInNewContext(`(${trimmed})`, {}, { timeout: 250 });
+  } catch {
+    return null;
+  }
+}
+
+function coerceExpectedPayloadValue(payload: any): any {
+  if (payload == null) return null;
+  if (typeof payload === 'object') return payload;
+  if (typeof payload !== 'string') return null;
+
+  const expression = extractExpectedPayloadExpression(payload);
+  if (!expression) return null;
+
+  return tryParseLoosePayloadExpression(expression);
+}
+
+function normalizeManualExpectedPayload(payload: any): any {
+  const value = coerceExpectedPayloadValue(payload);
+  if (value == null) return null;
+
+  if (Array.isArray(value)) {
+    return value.map(item => normalizeManualExpectedPayload(item));
+  }
+
+  if (typeof value === 'object') {
+    const normalized: Record<string, any> = {};
+    for (const [key, nested] of Object.entries(value)) {
+      if (key === 'event' && typeof nested === 'string') {
+        normalized[key] = nested.trim();
+      } else if (nested !== null && typeof nested === 'object') {
+        normalized[key] = normalizeManualExpectedPayload(nested);
+      } else {
+        normalized[key] = '*';
+      }
+    }
+    return normalized;
+  }
+
+  return '*';
+}
+
+function extractEventNameFromPayload(payload: any): string {
+  const value = coerceExpectedPayloadValue(payload);
+  if (value && typeof value === 'object' && typeof (value as any).event === 'string') {
+    const eventName = (value as any).event.trim();
+    return eventName;
+  }
+  return '';
+}
+
+function sanitizeTestSpecPlaceholders(spec: TestSpec): TestSpec {
+  const cloned = JSON.parse(JSON.stringify(spec)) as TestSpec;
+  cloned.tests = cloned.tests?.map(test => ({
+    ...test,
+    steps: (test.steps?.map(step => {
+      const sanitizedStep: any = { ...step };
+
+      if (typeof sanitizedStep.value === 'string') {
+        const trimmedValue = sanitizedStep.value.trim();
+        if (trimmedValue.length === 0) {
+          delete sanitizedStep.value;
+        } else {
+          sanitizedStep.value = trimmedValue;
+        }
+      }
+
+      if (typeof sanitizedStep.confidence !== 'number' || sanitizedStep.confidence <= 0 || sanitizedStep.confidence > 1) {
+        delete sanitizedStep.confidence;
+      }
+
+      if (sanitizedStep.target) {
+        const targetValue = sanitizedStep.target.value;
+        if (typeof targetValue === 'string') {
+          const trimmedTarget = targetValue.trim();
+          if (trimmedTarget.length === 0) {
+            delete sanitizedStep.target;
+          } else {
+            sanitizedStep.target.value = trimmedTarget;
+          }
+        }
+      }
+
+      if (sanitizedStep.expect) {
+        sanitizedStep.expect = sanitizedStep.expect
+          .map(expectation => {
+            const sanitizedExpectation: any = { ...expectation };
+            if (sanitizedExpectation.params_subset) {
+              sanitizedExpectation.params_subset = normalizeManualExpectedPayload(sanitizedExpectation.params_subset);
+            }
+            return sanitizedExpectation;
+          })
+          .filter(expectation => expectation != null);
+
+        if (sanitizedStep.expect.length === 0) {
+          delete sanitizedStep.expect;
+        }
+      }
+
+      return sanitizedStep;
+    })) ?? [],
+  })) ?? [];
+  return cloned;
+}
+
+function ensureCookieStep(spec: TestSpec, moduleDefinition?: SSDModule): void {
+  const selector = moduleDefinition?.manifest?.cmp?.actions?.acceptAllButton;
+  if (!selector) {
+    return;
+  }
+
+  if (!spec.tests || spec.tests.length === 0) {
+    spec.tests = [
+      {
+        section: 'Scenario DSL',
+        steps: [],
+      },
+    ];
+  }
+
+  const firstTest = spec.tests[0];
+  if (!Array.isArray(firstTest.steps)) {
+    firstTest.steps = [];
+  }
+
+  const alreadyExists = firstTest.steps.some(
+    step => step.action === 'click' && step.target?.value === selector
+  );
+
+  if (alreadyExists) {
+    return;
+  }
+
+  const cookieStep: Step = {
+    description: 'Accetta tutti i cookie',
+    action: 'click',
+    target: {
+      kind: 'selector',
+      value: selector,
+    },
+    severity: 'critical',
+  };
+
+  const navigateIndex = firstTest.steps.findIndex(step => step.action === 'navigate');
+  if (navigateIndex >= 0) {
+    firstTest.steps.splice(navigateIndex + 1, 0, cookieStep);
+  } else {
+    firstTest.steps.unshift(cookieStep);
+  }
+}
+
+function ensureAllowedHosts(spec: TestSpec, siteUrl?: string): void {
+  const hosts = new Set<string>(spec.allowed_hosts ?? []);
+  const target = siteUrl || spec.site;
+  try {
+    const parsed = new URL(target);
+    hosts.add(parsed.host);
+    if (!parsed.host.startsWith('www.')) {
+      hosts.add(`www.${parsed.host}`);
+    }
+  } catch {
+    // ignore invalid URL
+  }
+  spec.allowed_hosts = Array.from(hosts);
+}
+
+function buildNavigationStep(url: string): Step {
+  const expectedHost = (() => {
+    try {
+      return new URL(url).host;
+    } catch {
+      return url;
+    }
+  })();
+  return {
+    description: 'Vai al sito indicato',
+    action: 'navigate',
+    target: {
+      kind: 'href',
+      value: url,
+    },
+    expect: [
+      {
+        type: 'navigation',
+        url_contains: expectedHost,
+      },
+    ],
+    severity: 'critical',
+  };
+}
+
+function ensureNavigationStep(spec: TestSpec, scenarioUrl?: string): void {
+  if (!spec.tests || spec.tests.length === 0) {
+    spec.tests = [
+      {
+        section: 'Scenario DSL',
+        steps: [buildNavigationStep(scenarioUrl || spec.site)],
+      },
+    ];
+    return;
+  }
+
+  const hasNavigateStep = spec.tests.some(test =>
+    Array.isArray(test.steps) && test.steps.some(step => step.action === 'navigate')
+  );
+
+  if (!hasNavigateStep) {
+    const firstTest = spec.tests[0];
+    const steps = Array.isArray(firstTest.steps) ? firstTest.steps.slice() : [];
+    steps.unshift(buildNavigationStep(scenarioUrl || spec.site));
+    firstTest.steps = steps;
+  }
+}
+
+function normalizeScenarioSpec(spec: TestSpec, siteUrl?: string, moduleDefinition?: SSDModule): TestSpec {
+  const sanitized = sanitizeTestSpecPlaceholders(spec);
+  const normalizedSite = siteUrl || sanitized.site;
+  if (!sanitized.site && normalizedSite) {
+    sanitized.site = normalizedSite;
+  }
+  sanitized.tests =
+    sanitized.tests
+      ?.filter(test => Array.isArray(test.steps) && test.steps.length > 0)
+      .map(test => ({
+        ...test,
+        steps: (test.steps ?? []).filter(step => step.action !== 'custom'),
+      })) ?? [];
+  ensureNavigationStep(sanitized, normalizedSite);
+  ensureCookieStep(sanitized, moduleDefinition);
+  ensureAllowedHosts(sanitized, normalizedSite);
+  if (!sanitized.consent || sanitized.consent.length === 0) {
+    sanitized.consent = ['accept'];
+  }
+  return sanitized;
+}
+
+function buildManualScenarioTestSpec(moduleId: ModuleId, scenario: ModuleScenario) {
+  const allowedHosts = new Set<string>();
+  let host: string | null = null;
+  try {
+    const parsed = new URL(scenario.url);
+    host = parsed.host;
+    allowedHosts.add(parsed.host);
+  } catch {
+    /* ignore invalid URL */
+  }
+
+  const steps: any[] = [];
+
+  const navigationStep: any = {
+    description: 'Naviga alla pagina indicata',
+    action: 'navigate',
+    target: { kind: 'href', value: scenario.url },
+  };
+  if (host) {
+    navigationStep.expect = [
+      {
+        type: 'navigation',
+        url_contains: host,
+      },
+    ];
+  }
+  steps.push(navigationStep);
+
+  const manualSteps = Array.isArray(scenario.steps)
+    ? scenario.steps.filter(step => step.type === 'click' && typeof step.selector === 'string' && step.selector.trim().length > 0)
+    : [];
+
+  manualSteps.forEach((step, index) => {
+    steps.push({
+      description: step.label || `Click step ${index + 1}`,
+      action: 'click',
+      target: { kind: 'selector', value: step.selector!.trim() },
+      delayAfterMs: typeof step.delayAfterMs === 'number' ? step.delayAfterMs : 10000,
+    });
+  });
+
+  const rawEventName = extractEventNameFromPayload(scenario.expectedPayload);
+
+  return {
+    site: scenario.url,
+    allowed_hosts: Array.from(allowedHosts),
+    consent: ['accept'],
+    tests: [
+      {
+        section: `Evento manuale: ${rawEventName || 'dataLayer'}`,
+        steps,
+      },
+    ],
+    meta: {
+      model: 'module-scenario:manual',
+      moduleId,
+      tokens: { input: 0, output: 0 },
+    },
+  };
+}
+
+async function generateScenarioTestSpecForScenario(
+  moduleDefinition: SSDModule,
+  scenario: ModuleScenario,
+  eventDefinition?: ModuleEventDefinition
+): Promise<{ spec: TestSpec; meta: NonNullable<ModuleScenario['testSpecMeta']> }> {
+  const generationTimestamp = new Date().toISOString();
+  let fallbackReason: string | undefined;
+
+  const cmp = moduleDefinition.manifest?.cmp;
+  const cmpAcceptSelector = cmp?.actions?.acceptAllButton;
+  let rawGeneratedSpec: TestSpec | null = null;
+  let sanitizedGeneratedSpec: TestSpec | null = null;
+
+  if (openaiService) {
+    try {
+      const llmInput: ScenarioSpecBuildInput = {
+        moduleId: moduleDefinition.meta.id,
+        moduleName: moduleDefinition.meta.title,
+        moduleDescription: moduleDefinition.meta.description,
+        targetUrl: scenario.url,
+        cmp: cmp
+          ? {
+              vendor: cmp.vendor,
+              acceptAllSelector: cmpAcceptSelector,
+              rejectAllSelector: cmp.actions?.rejectAllButton,
+              notes: cmp.notes,
+            }
+          : undefined,
+        scenarioName: scenario.name,
+        eventId: scenario.eventId,
+        steps: Array.isArray(scenario.steps)
+          ? scenario.steps.map(step => ({
+              id: step.id,
+              type: step.type,
+              label: step.label,
+              selector: step.selector,
+              description: step.description,
+              value: step.value,
+              delayAfterMs: step.delayAfterMs,
+            }))
+          : [],
+        expectedPayload: null,
+        expectationTemplate: null,
+      };
+
+      const response = await openaiService.buildScenarioTestSpec(llmInput);
+      rawGeneratedSpec = response.dsl as TestSpec;
+      ensureCookieStep(rawGeneratedSpec, moduleDefinition);
+      sanitizedGeneratedSpec = normalizeScenarioSpec(rawGeneratedSpec, scenario.url, moduleDefinition);
+
+      if (!sanitizedGeneratedSpec.meta) {
+        sanitizedGeneratedSpec.meta = {
+          model: `scenario-llm:${moduleDefinition.meta.id}`,
+          moduleId: moduleDefinition.meta.id,
+          scenarioId: scenario.id,
+          scenarioName: scenario.name,
+          tokens: response.meta.tokens,
+        };
+      } else {
+        sanitizedGeneratedSpec.meta.model = sanitizedGeneratedSpec.meta.model || `scenario-llm:${moduleDefinition.meta.id}`;
+        sanitizedGeneratedSpec.meta.moduleId = moduleDefinition.meta.id;
+        sanitizedGeneratedSpec.meta.tokens = sanitizedGeneratedSpec.meta.tokens || response.meta.tokens;
+        sanitizedGeneratedSpec.meta.scenarioId = scenario.id;
+        sanitizedGeneratedSpec.meta.scenarioName = scenario.name;
+      }
+
+      const validated = validateTestSpec(sanitizedGeneratedSpec) as TestSpec;
+
+      return {
+        spec: validated,
+        meta: {
+          generatedAt: generationTimestamp,
+          model: response.meta.model,
+          tokens: response.meta.tokens,
+          source: 'scenario-llm',
+        },
+      };
+    } catch (error) {
+      if (error instanceof SpecValidationError) {
+        let debugPath: string | null = null;
+        if (rawGeneratedSpec) {
+          const debugDir = join(process.cwd(), 'temp-html', 'scenario-spec-debug');
+          try {
+            await fs.mkdir(debugDir, { recursive: true });
+            debugPath = join(debugDir, `${scenario.id}-${Date.now()}.json`);
+            const debugPayload = {
+              moduleId: moduleDefinition.meta.id,
+              scenarioId: scenario.id,
+              scenarioName: scenario.name,
+              rawSpec: rawGeneratedSpec,
+              sanitizedSpec: sanitizedGeneratedSpec,
+              validationError: {
+                message: error.message,
+                code: error.code,
+                details: error.errors,
+              },
+            };
+            await fs.writeFile(debugPath, JSON.stringify(debugPayload, null, 2), 'utf8');
+          } catch (debugError) {
+            console.warn('[ScenarioSpec] Unable to write LLM spec debug file:', debugError);
+          }
+        }
+        fallbackReason = `[ScenarioSpec] LLM generation failed: ${error.message}${debugPath ? ` (debug: ${debugPath})` : ''}`;
+      } else {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        fallbackReason = `[ScenarioSpec] LLM generation failed: ${message}`;
+      }
+      console.error(fallbackReason);
+    }
+  } else {
+    fallbackReason = '[ScenarioSpec] OpenAI service not configured';
+    console.warn(fallbackReason);
+  }
+
+  const fallbackSpec = eventDefinition
+    ? eventDefinition.buildTestSpec({
+        moduleId: moduleDefinition.meta.id,
+        url: scenario.url,
+        config: scenario.config ?? {},
+        steps: scenario.steps ?? [],
+      })
+    : buildManualScenarioTestSpec(moduleDefinition.meta.id, scenario);
+
+  ensureCookieStep(fallbackSpec, moduleDefinition);
+  const sanitizedFallback = normalizeScenarioSpec(fallbackSpec, scenario.url, moduleDefinition);
+  const validatedFallback = validateTestSpec(sanitizedFallback) as TestSpec;
+  if (!validatedFallback.meta) {
+    validatedFallback.meta = {
+      model: eventDefinition ? 'module-definition' : 'manual-builder',
+      moduleId: moduleDefinition.meta.id,
+      scenarioId: scenario.id,
+      scenarioName: scenario.name,
+      tokens: { input: 0, output: 0 },
+    };
+  } else {
+    validatedFallback.meta.model = validatedFallback.meta.model || (eventDefinition ? 'module-definition' : 'manual-builder');
+    validatedFallback.meta.moduleId = moduleDefinition.meta.id;
+    validatedFallback.meta.scenarioId = scenario.id;
+    validatedFallback.meta.scenarioName = scenario.name;
+    validatedFallback.meta.tokens = validatedFallback.meta.tokens || { input: 0, output: 0 };
+  }
+
+  return {
+    spec: validatedFallback,
+    meta: {
+      generatedAt: generationTimestamp,
+      model: eventDefinition ? 'module-definition' : 'manual-builder',
+      tokens: { input: 0, output: 0 },
+      source: eventDefinition ? 'module' : 'manual',
+      ...(fallbackReason ? { error: fallbackReason } : {}),
+    },
+  };
+}
+
+function mergeScenarioSteps(
+  eventDefinition: ReturnType<typeof getModuleEventDefinition>,
+  rawSteps: any,
+  config: Record<string, unknown>
+): ScenarioStep[] {
+  if (!eventDefinition) {
+    if (!Array.isArray(rawSteps)) {
+      return [];
+    }
+    return sanitizeManualSteps(rawSteps);
+  }
+  const defaults = buildDefaultScenarioSteps(eventDefinition).map(step => {
+    const def = eventDefinition.steps.find(def => def.id === step.id);
+    if (def?.input?.id) {
+      const preset = config?.[def.input.id];
+      if (typeof preset === 'string') {
+        return { ...step, selector: preset };
+      }
+    }
+    return step;
+  });
+
+  if (!Array.isArray(rawSteps)) {
+    return defaults;
+  }
+
+  const rawMap = new Map<string, any>(
+    rawSteps
+      .filter((entry: any) => entry && typeof entry.id === 'string')
+      .map((entry: any) => [entry.id, entry])
+  );
+
+  return defaults.map(step => {
+    const def = eventDefinition.steps.find(def => def.id === step.id);
+    const raw = rawMap.get(step.id);
+    const selector =
+      raw && typeof raw.selector === 'string'
+        ? raw.selector
+        : def?.input?.id && typeof config?.[def.input.id] === 'string'
+        ? String(config[def.input.id])
+        : step.selector;
+    return {
+      ...step,
+      selector,
+      value: raw && typeof raw.value === 'string' ? raw.value : step.value,
+    };
+  });
+}
+
+function ensureConfigFromSteps(
+  eventDefinition: ReturnType<typeof getModuleEventDefinition>,
+  steps: ScenarioStep[],
+  config: Record<string, unknown>
+): Record<string, unknown> {
+  if (!eventDefinition) return config;
+  const updated = { ...config };
+  eventDefinition.steps.forEach(stepDef => {
+    if (stepDef.input?.id) {
+      const step = steps.find(s => s.id === stepDef.id);
+      if (stepDef.input.type === 'selector') {
+        const value = step?.selector ?? updated[stepDef.input.id];
+        if (typeof value === 'string') {
+          updated[stepDef.input.id] = value.trim();
+        }
+      } else {
+        const value = step?.value ?? updated[stepDef.input.id];
+        if (typeof value === 'string') {
+          updated[stepDef.input.id] = value;
+        }
+      }
+    }
+  });
+  return updated;
+}
+
+function parseExpectedPayload(
+  eventDefinition: ReturnType<typeof getModuleEventDefinition>,
+  rawPayload: any
+) {
+  const template = eventDefinition?.expectationTemplate?.payloadTemplate ?? null;
+  const cloneTemplate = template ? JSON.parse(JSON.stringify(template)) : null;
+
+  if (rawPayload == null) {
+    return cloneTemplate;
+  }
+
+  if (typeof rawPayload === 'string') {
+    const trimmed = rawPayload.trim();
+    if (trimmed.length === 0) {
+      return cloneTemplate;
+    }
+
+    const parsed = coerceExpectedPayloadValue(trimmed);
+
+    if (parsed == null) {
+      throw new ValidationError(
+        'Invalid expected payload definition. Provide a JSON object or a dataLayer.push snippet.',
+        'INVALID_EXPECTED_PAYLOAD'
+      );
+    }
+
+    return parsed;
+  }
+
+  if (typeof rawPayload === 'object') {
+    return rawPayload;
+  }
+
+  return cloneTemplate;
+}
+
+function ensureRequiredInputs(
+  eventDefinition: ReturnType<typeof getModuleEventDefinition>,
+  url: string,
+  config: Record<string, unknown>,
+  steps: ScenarioStep[]
+) {
+  if (!eventDefinition) {
+    return [];
+  }
+
+  const missing: string[] = [];
+
+  (eventDefinition.steps || []).forEach(stepDef => {
+    if (!stepDef.input?.required) return;
+    const step = steps.find(s => s.id === stepDef.id);
+    const value = step?.selector ?? step?.value;
+    if (!value || (typeof value === 'string' && value.trim().length === 0)) {
+      missing.push(stepDef.input.label || stepDef.input.id);
+    }
+  });
+
+  return missing;
+}
+
+app.get('/api/modules/:moduleId/events', (req, res) => {
+  try {
+    const moduleId = req.params.moduleId as ModuleId;
+    const moduleDefinition = getModule(moduleId);
+    if (!moduleDefinition) {
+      return res.status(404).json({ error: `Module '${moduleId}' not found` });
+    }
+    const events = listModuleEventDefinitions(moduleId);
+    return res.json({ moduleId, events });
+  } catch (error) {
+    console.error('[ScenarioAPI] Failed to list module events', error);
+    return res.status(500).json({ error: 'INTERNAL_ERROR' });
+  }
+});
+
+app.get('/api/modules/:moduleId/scenarios', async (req, res) => {
+  try {
+    const moduleId = req.params.moduleId as ModuleId;
+    const moduleDefinition = getModule(moduleId);
+    if (!moduleDefinition) {
+      return res.status(404).json({ error: `Module '${moduleId}' not found` });
+    }
+    const scenarios = await listModuleScenarios(moduleId);
+    return res.json({ moduleId, scenarios });
+  } catch (error) {
+    console.error('[ScenarioAPI] Failed to list scenarios', error);
+    return res.status(500).json({ error: 'INTERNAL_ERROR' });
+  }
+});
+
+app.post('/api/modules/:moduleId/scenarios', async (req, res) => {
+  try {
+    const moduleId = req.params.moduleId as ModuleId;
+    const moduleDefinition = getModule(moduleId);
+    if (!moduleDefinition) {
+      return res.status(404).json({ error: `Module '${moduleId}' not found` });
+    }
+
+    const { name, eventId, url, config = {}, steps, expectedPayload } = req.body ?? {};
+    if (typeof name !== 'string' || name.trim().length === 0) {
+      return res.status(400).json({ error: 'INVALID_NAME', message: 'Scenario name is required.' });
+    }
+    if (typeof eventId !== 'string' || eventId.trim().length === 0) {
+      return res.status(400).json({ error: 'INVALID_EVENT', message: 'eventId is required.' });
+    }
+    if (typeof url !== 'string' || url.trim().length === 0) {
+      return res.status(400).json({ error: 'INVALID_URL', message: 'Scenario URL is required.' });
+    }
+    if (!isValidUrl(url)) {
+      return res.status(400).json({ error: 'INVALID_URL', message: 'URL is not valid.' });
+    }
+
+    const eventDefinition = getModuleEventDefinition(moduleId, eventId);
+    const normalizedConfig = typeof config === 'object' && config !== null ? { ...config } : {};
+    const mergedSteps = mergeScenarioSteps(eventDefinition, steps, normalizedConfig);
+    if (!eventDefinition) {
+      const hasInvalidSelector = mergedSteps.some(step => !step.selector || step.selector.trim().length === 0);
+      if (hasInvalidSelector) {
+        return res.status(400).json({
+          error: 'INVALID_STEPS',
+          message: 'Ogni step clic deve includere un selettore CSS valido.',
+        });
+      }
+    }
+    const requiredMissing = ensureRequiredInputs(eventDefinition, url, normalizedConfig, mergedSteps);
+    if (requiredMissing.length > 0) {
+      return res.status(400).json({
+        error: 'MISSING_FIELDS',
+        message: `Missing required inputs: ${requiredMissing.join(', ')}`,
+      });
+    }
+
+    const syncedConfig = ensureConfigFromSteps(eventDefinition, mergedSteps, normalizedConfig);
+    const payload = parseExpectedPayload(eventDefinition, expectedPayload);
+
+    const now = new Date().toISOString();
+    const scenario: ModuleScenario = {
+      id: randomUUID(),
+      moduleId,
+      name: name.trim(),
+      eventId,
+      url: url.trim(),
+      config: syncedConfig,
+      steps: mergedSteps,
+      expectedPayload: payload,
+      testSpec: null,
+      testSpecMeta: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    const { spec: generatedSpec, meta: specMeta } = await generateScenarioTestSpecForScenario(
+      moduleDefinition,
+      scenario,
+      eventDefinition
+    );
+    scenario.testSpec = generatedSpec;
+    scenario.testSpecMeta = specMeta;
+
+    const stored = await upsertModuleScenario(scenario);
+    return res.status(201).json({ scenario: stored });
+  } catch (error) {
+    console.error('[ScenarioAPI] Failed to create scenario', error);
+    if (error instanceof ValidationError) {
+      return res.status(400).json({ error: error.code, message: error.message });
+    }
+    return res.status(500).json({ error: 'INTERNAL_ERROR' });
+  }
+});
+
+app.put('/api/modules/:moduleId/scenarios/:scenarioId', async (req, res) => {
+  try {
+    const moduleId = req.params.moduleId as ModuleId;
+    const scenarioId = req.params.scenarioId;
+    if (typeof scenarioId !== 'string') {
+      return res.status(400).json({ error: 'INVALID_ID', message: 'scenarioId is required.' });
+    }
+
+    const moduleDefinition = getModule(moduleId);
+    if (!moduleDefinition) {
+      return res.status(404).json({ error: `Module '${moduleId}' not found` });
+    }
+
+    const existing = await getModuleScenario(moduleId, scenarioId);
+    if (!existing) {
+      return res.status(404).json({ error: 'SCENARIO_NOT_FOUND' });
+    }
+
+    const { name, eventId, url, config = {}, steps, expectedPayload } = req.body ?? {};
+
+    const updatedEventId = typeof eventId === 'string' && eventId.trim().length > 0 ? eventId : existing.eventId;
+    const updatedUrl = typeof url === 'string' && url.trim().length > 0 ? url.trim() : existing.url;
+    if (!isValidUrl(updatedUrl)) {
+      return res.status(400).json({ error: 'INVALID_URL', message: 'URL is not valid.' });
+    }
+
+    const eventDefinition = getModuleEventDefinition(moduleId, updatedEventId);
+    const normalizedConfig = typeof config === 'object' && config !== null ? { ...config } : existing.config ?? {};
+    const mergedSteps = mergeScenarioSteps(eventDefinition, steps ?? existing.steps, normalizedConfig);
+    if (!eventDefinition) {
+      const hasInvalidSelector = mergedSteps.some(step => !step.selector || step.selector.trim().length === 0);
+      if (hasInvalidSelector) {
+        return res.status(400).json({
+          error: 'INVALID_STEPS',
+          message: 'Ogni step clic deve includere un selettore CSS valido.',
+        });
+      }
+    }
+    const requiredMissing = ensureRequiredInputs(eventDefinition, updatedUrl, normalizedConfig, mergedSteps);
+    if (requiredMissing.length > 0) {
+      return res.status(400).json({
+        error: 'MISSING_FIELDS',
+        message: `Missing required inputs: ${requiredMissing.join(', ')}`,
+      });
+    }
+
+    const syncedConfig = ensureConfigFromSteps(eventDefinition, mergedSteps, normalizedConfig);
+    const payload = parseExpectedPayload(eventDefinition, expectedPayload ?? existing.expectedPayload);
+
+    const updatedScenario: ModuleScenario = {
+      ...existing,
+      name: typeof name === 'string' && name.trim().length > 0 ? name.trim() : existing.name,
+      eventId: updatedEventId,
+      url: updatedUrl,
+      config: syncedConfig,
+      steps: mergedSteps,
+      expectedPayload: payload,
+      testSpec: existing.testSpec ?? null,
+      testSpecMeta: existing.testSpecMeta ?? null,
+      updatedAt: new Date().toISOString(),
+    };
+
+    const { spec: regeneratedSpec, meta: regeneratedMeta } = await generateScenarioTestSpecForScenario(
+      moduleDefinition,
+      updatedScenario,
+      eventDefinition
+    );
+    updatedScenario.testSpec = regeneratedSpec;
+    updatedScenario.testSpecMeta = regeneratedMeta;
+
+    const stored = await upsertModuleScenario(updatedScenario);
+    return res.json({ scenario: stored });
+  } catch (error) {
+    console.error('[ScenarioAPI] Failed to update scenario', error);
+    if (error instanceof ValidationError) {
+      return res.status(400).json({ error: error.code, message: error.message });
+    }
+    return res.status(500).json({ error: 'INTERNAL_ERROR' });
+  }
+});
+
+app.delete('/api/modules/:moduleId/scenarios/:scenarioId', async (req, res) => {
+  try {
+    const moduleId = req.params.moduleId as ModuleId;
+    const scenarioId = req.params.scenarioId;
+    if (typeof scenarioId !== 'string') {
+      return res.status(400).json({ error: 'INVALID_ID', message: 'scenarioId is required.' });
+    }
+
+    const moduleDefinition = getModule(moduleId);
+    if (!moduleDefinition) {
+      return res.status(404).json({ error: `Module '${moduleId}' not found` });
+    }
+
+    const deleted = await deleteModuleScenario(moduleId, scenarioId);
+    if (!deleted) {
+      return res.status(404).json({ error: 'SCENARIO_NOT_FOUND' });
+    }
+    return res.status(204).send();
+  } catch (error) {
+    console.error('[ScenarioAPI] Failed to delete scenario', error);
+    return res.status(500).json({ error: 'INTERNAL_ERROR' });
+  }
+});
+
+  app.post('/api/modules/:moduleId/scenarios/:scenarioId/build', async (req, res) => {
+  try {
+    const moduleId = req.params.moduleId as ModuleId;
+    const scenarioId = req.params.scenarioId;
+    if (typeof scenarioId !== 'string') {
+      return res.status(400).json({ error: 'INVALID_ID', message: 'scenarioId is required.' });
+    }
+
+    const moduleDefinition = getModule(moduleId);
+    if (!moduleDefinition) {
+      return res.status(404).json({ error: `Module '${moduleId}' not found` });
+    }
+
+    let scenario = await getModuleScenario(moduleId, scenarioId);
+    if (!scenario) {
+      return res.status(404).json({ error: 'SCENARIO_NOT_FOUND' });
+    }
+
+    const eventDefinition = getModuleEventDefinition(moduleId, scenario.eventId);
+
+    let dsl: TestSpec | null = scenario.testSpec ?? null;
+    let meta = scenario.testSpecMeta ?? null;
+    const requiresRegeneration =
+      !dsl || !meta || meta.source !== 'scenario-llm';
+
+    if (requiresRegeneration) {
+      const { spec, meta: generatedMeta } = await generateScenarioTestSpecForScenario(
+        moduleDefinition,
+        scenario,
+        eventDefinition || undefined
+      );
+      dsl = spec;
+      meta = generatedMeta;
+      scenario = {
+        ...scenario,
+        testSpec: spec,
+        testSpecMeta: generatedMeta,
+        updatedAt: new Date().toISOString(),
+      };
+      await upsertModuleScenario(scenario);
+    }
+
+    return res.json({
+      moduleId,
+      scenarioId,
+      dsl,
+      meta,
+    });
+  } catch (error) {
+    console.error('[ScenarioAPI] Failed to build scenario DSL', error);
+    if (error instanceof ValidationError) {
+      return res.status(400).json({ error: error.code, message: error.message });
+    }
+    return res.status(500).json({ error: 'INTERNAL_ERROR' });
+  }
+});
+
 // Original HTML fetch endpoint
 app.get('/api/fetchHtml', async (req, res) => {
   const targetUrl = req.query.url;
@@ -3064,14 +4730,18 @@ app.post('/api/ssd/run', async (req, res) => {
     console.log('📦 req.body full:', JSON.stringify(req.body, null, 2));
     
     const { dsl, runOptions = {}, pdfContent, pdfBufferPath } = req.body;
+    const scenarioIdFromBody =
+      typeof req.body?.scenarioId === 'string' && req.body.scenarioId.trim().length > 0
+        ? req.body.scenarioId.trim()
+        : null;
 
     const rawModuleId = typeof req.body?.moduleId === 'string' ? req.body.moduleId.trim() : '';
     const moduleId = rawModuleId.length > 0 ? rawModuleId : null;
     const rawModuleSource = typeof req.body?.moduleSource === 'string' ? req.body.moduleSource.trim() : '';
-    const moduleSourceInitial =
-      rawModuleSource === 'manifest' || rawModuleSource === 'openai'
-        ? (rawModuleSource as 'manifest' | 'openai')
-        : null;
+    const allowedModuleSources: ModuleSource[] = ['manifest', 'openai', 'scenario'];
+    const moduleSourceInitial = allowedModuleSources.includes(rawModuleSource as ModuleSource)
+      ? (rawModuleSource as ModuleSource)
+      : null;
 
     let inferredModuleId = moduleId;
     let inferredModuleSource = moduleSourceInitial;
@@ -3080,7 +4750,7 @@ app.post('/api/ssd/run', async (req, res) => {
       inferredModuleId = dsl.meta.moduleId as ModuleId;
       console.log('🧠 Inferred moduleId from DSL meta.moduleId:', inferredModuleId);
       if (!inferredModuleSource) {
-        inferredModuleSource = 'manifest';
+        inferredModuleSource = /^scenario-llm:/i.test(dsl?.meta?.model || '') ? 'scenario' : 'manifest';
       }
     }
 
@@ -3094,13 +4764,22 @@ app.post('/api/ssd/run', async (req, res) => {
         }
       }
     }
+    if (!inferredModuleSource && typeof dsl?.meta?.model === 'string' && /^scenario-llm:/i.test(dsl.meta.model)) {
+      inferredModuleSource = 'scenario';
+    }
 
+    const finalModuleSource: ModuleSource = (inferredModuleSource || moduleSourceInitial || 'scenario') as ModuleSource;
     const moduleDefinition = inferredModuleId ? getModule(inferredModuleId) : undefined;
-    const useManifestDsl = inferredModuleSource === 'manifest' && !!moduleDefinition?.manifest;
+    const useManifestDsl = finalModuleSource === 'manifest' && !!moduleDefinition?.manifest;
+    const scenarioIdFromDsl =
+      typeof dsl?.meta?.scenarioId === 'string' && dsl.meta.scenarioId.trim().length > 0
+        ? dsl.meta.scenarioId.trim()
+        : null;
+    const finalScenarioId = scenarioIdFromBody ?? scenarioIdFromDsl ?? null;
 
     console.log('🧩 Module context:', {
       moduleId: inferredModuleId,
-      moduleSource: inferredModuleSource,
+      moduleSource: finalModuleSource,
       hasManifest: !!moduleDefinition?.manifest,
       useManifestDsl,
     });
@@ -3125,14 +4804,41 @@ app.post('/api/ssd/run', async (req, res) => {
       allowedCDNs: config.puppeteerAllowedCDNs,
     };
 
-    console.log(`Starting SSD test execution for ${validatedDSL.site}`);
-    console.log(`Options:`, options);
-
-    // ============================================================================
-    // STEP 1: Prepara requestId
-    // ============================================================================
     const requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    console.log(`[${requestId}] Starting SSD test execution`);
+    console.log(`[${requestId}] Starting SSD test execution for ${validatedDSL.site}`);
+    console.log(`[${requestId}] Options:`, options);
+
+    if (finalModuleSource === 'scenario') {
+      let scenarioEntry: ModuleScenario | null = null;
+      let scenarioEventDefinition: ModuleEventDefinition | null = null;
+      if (inferredModuleId && finalScenarioId) {
+        try {
+          scenarioEntry = (await getModuleScenario(inferredModuleId, finalScenarioId)) ?? null;
+          if (!scenarioEntry) {
+            console.warn(`[ScenarioFlow] Scenario '${finalScenarioId}' not found for module '${inferredModuleId}'`);
+          } else {
+            scenarioEventDefinition = getModuleEventDefinition(inferredModuleId, scenarioEntry.eventId) ?? null;
+          }
+        } catch (scenarioLookupError) {
+          console.warn(
+            `[ScenarioFlow] Unable to load scenario '${finalScenarioId}' for module '${inferredModuleId}':`,
+            scenarioLookupError
+          );
+        }
+      }
+
+      const scenarioResponse = await runScenarioFlow({
+        requestId,
+        validatedDSL,
+        options,
+        moduleDefinition,
+        moduleId: inferredModuleId,
+        scenario: scenarioEntry ?? undefined,
+        eventDefinition: scenarioEventDefinition ?? undefined,
+      });
+      res.json(scenarioResponse);
+      return;
+    }
 
     // ============================================================================
     // STEP 2: Avvia runner → fai goto e genera snapshot HTML (P0). Ottieni htmlPath
@@ -3376,11 +5082,10 @@ app.post('/api/ssd/run', async (req, res) => {
     console.log(`✓ Cookie button outerHTML: ${cookieResult.cookieBtnOuterHTML?.substring(0, 100)}...`);
 
     // ============================================================================
-    // STEP 4: (PDF) Processing PDF Tests
-    // - Use pdfContent from req.body directly (already extracted text)
-    // - Handle empty PDF content with proper logging and status
-    // - Generate PDF spec using LLM with JSON validation
-    // - Save pdfText to disk for diagnosis purposes
+    // STEP 4: Scenario DSL execution (replaces legacy PDF flow)
+    // - Use the validated DSL from the request (already sanitized)
+    // - Execute steps with the universal runner
+    // - Reuse browser/page from cookie consent when available
     // ============================================================================
     console.log('===== STEP 4: PROCESSING PDF TESTS =====');
     
@@ -3395,7 +5100,7 @@ app.post('/api/ssd/run', async (req, res) => {
         allowed_hosts: validatedDSL.allowed_hosts,
         tests: validatedDSL.tests,
       }));
-
+      
       try {
         const pdfTestResult = await executePdfTests(manifestSpec, options, cookieConsentResult.browserInstance, cookieConsentResult.page);
         pdfResult = {
@@ -3550,24 +5255,23 @@ app.post('/api/ssd/run', async (req, res) => {
       await (browser as any).close();
       console.log('✓ Browser closed');
     }
-
-    // Clean up temporary PDF file
-    if (pdfBufferPath && fsSync.existsSync(pdfBufferPath)) {
+    if (cookieConsentResult.browserInstance) {
       try {
-        fsSync.unlinkSync(pdfBufferPath);
-        console.log('✅ Temporary PDF file cleaned up');
-      } catch (cleanupError) {
-        console.log('⚠️ Error cleaning up temporary PDF file:', cleanupError.message);
+        await cookieConsentResult.browserInstance.close();
+        console.log('✓ Cookie consent browser closed');
+      } catch (closeError) {
+        console.log('⚠️ Error closing cookie consent browser:', closeError instanceof Error ? closeError.message : closeError);
       }
     }
 
+    // Clean up temporary PDF file
     // Prepare final response
     const finalResponse = {
       requestId,
       url: validatedDSL.site,
       module: {
         id: inferredModuleId,
-        source: inferredModuleSource,
+        source: finalModuleSource,
       },
       artifacts: {
         htmlFile: htmlPath,
@@ -3586,6 +5290,7 @@ app.post('/api/ssd/run', async (req, res) => {
         challenge: cookieResult.challenge || null
       },
       pdf: pdfResult,
+      scenario: null,
       challenge: cookieResult.challenge || null
     };
 
@@ -3595,7 +5300,7 @@ app.post('/api/ssd/run', async (req, res) => {
     console.log(`Cookie Test Status: ${cookieResult.status}`);
     console.log(`PDF Test Status: ${(pdfResult as any)?.status || 'N/A'} (source: ${(pdfResult as any)?.source || 'unknown'})`);
     console.log(`HTML File: ${htmlPath}`);
-    console.log(`PDF Text File: ${pdfTextFile}`);
+    console.log(`Scenario Debug File: ${pdfTextFile}`);
     console.log('========================================');
 
     // Debug: mostra la struttura della risposta finale
