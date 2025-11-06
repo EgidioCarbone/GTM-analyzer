@@ -1,9 +1,95 @@
 {
   "version": 1,
   "modules": {
+    "genertel": [
+      {
+        "id": "ffd88cac-4ed6-422d-960a-c12d2d0c8b63",
+        "moduleId": "genertel",
+        "name": "view_item_list",
+        "eventId": "manual",
+        "url": "https://www.genertel.it/",
+        "config": {},
+        "steps": [],
+        "expectedPayload": {
+          "event": "view_item_list",
+          "ecommerce": {
+            "items": [
+              {
+                "item_name": "[NOME PRODOTTO]",
+                "item_id": "[ID PRODOTTO]",
+                "item_brand": "[BL PRODOTTO]",
+                "price": "[PREZZO PRODOTTO]",
+                "quantity": 1
+              },
+              {
+                "item_name": "[NOME PRODOTTO]",
+                "item_id": "[ID PRODOTTO]",
+                "item_brand": "[BL PRODOTTO]",
+                "price": "[PREZZO PRODOTTO]",
+                "quantity": 1
+              }
+            ]
+          }
+        },
+        "testSpec": {
+          "site": "https://www.genertel.it",
+          "allowed_hosts": [
+            "genertel.it",
+            "www.genertel.it"
+          ],
+          "consent": [
+            "accept"
+          ],
+          "tests": [
+            {
+              "section": "main",
+              "steps": [
+                {
+                  "description": "Vai al sito indicato",
+                  "action": "navigate",
+                  "target": {
+                    "kind": "href",
+                    "value": "https://www.genertel.it/"
+                  },
+                  "expect": [
+                    {
+                      "type": "navigation",
+                      "url_contains": "www.genertel.it"
+                    }
+                  ],
+                  "severity": "critical"
+                },
+                {
+                  "description": "Accetta tutti i cookie",
+                  "action": "click",
+                  "target": {
+                    "region": "main",
+                    "kind": "selector",
+                    "value": "[aria-label*='Accept'], [aria-label*='Accetta'], [aria-label*='Consenti tutti'], [aria-label*='Allow all']:not([role='dialog'])"
+                  },
+                  "severity": "critical"
+                }
+              ]
+            }
+          ]
+        },
+        "testSpecMeta": {
+          "generatedAt": "2025-11-06T16:36:48.485Z",
+          "model": "gpt-4o-mini-2024-07-18",
+          "tokens": {
+            "input": 772,
+            "output": 232
+          },
+          "source": "scenario-llm"
+        },
+        "createdAt": "2025-11-06T16:36:48.481Z",
+        "updatedAt": "2025-11-06T16:36:48.481Z"
+      }
+    ],
+    "fibra": [],
     "actalis": [
       {
-        "id": "fc42a03b-a408-48d3-800b-be7ea401a127",
+        "id": "076e5653-84a4-49fe-96ff-b31844ce6f31",
         "moduleId": "actalis",
         "name": "view_item_list",
         "eventId": "manual",
@@ -74,7 +160,7 @@
           ]
         },
         "testSpecMeta": {
-          "generatedAt": "2025-11-06T15:06:56.215Z",
+          "generatedAt": "2025-11-06T17:10:19.175Z",
           "model": "gpt-4o-mini-2024-07-18",
           "tokens": {
             "input": 802,
@@ -82,8 +168,103 @@
           },
           "source": "scenario-llm"
         },
-        "createdAt": "2025-11-06T15:06:56.215Z",
-        "updatedAt": "2025-11-06T15:06:56.215Z"
+        "createdAt": "2025-11-06T17:10:19.175Z",
+        "updatedAt": "2025-11-06T17:10:19.175Z"
+      },
+      {
+        "id": "9471c73a-5e1c-4742-9e79-5a1f3ccbd5f6",
+        "moduleId": "actalis",
+        "name": "add_to_cart",
+        "eventId": "manual",
+        "url": "https://www.actalis.com/",
+        "config": {},
+        "steps": [
+          {
+            "id": "manual_1762452058532_m3wq9a",
+            "type": "click",
+            "label": "Step 1",
+            "description": "",
+            "selector": ".btn.btn-primary-alt.add-product.bronzeplan",
+            "delayAfterMs": 10000
+          }
+        ],
+        "expectedPayload": {
+          "event": "add_to_cart",
+          "ecommerce": {
+            "items": [
+              {
+                "item_name": "[NOME PRODOTTO]",
+                "item_id": "[ID PRODOTTO]",
+                "item_brand": "[BL PRODOTTO]",
+                "price": "[PREZZO PRODOTTO]",
+                "quantity": 1
+              }
+            ]
+          }
+        },
+        "testSpec": {
+          "site": "https://www.actalis.com",
+          "allowed_hosts": [
+            "actalis.com",
+            "www.actalis.com"
+          ],
+          "consent": [
+            "accept"
+          ],
+          "tests": [
+            {
+              "section": "main",
+              "steps": [
+                {
+                  "description": "Vai al sito indicato",
+                  "action": "navigate",
+                  "target": {
+                    "kind": "href",
+                    "value": "https://www.actalis.com/"
+                  },
+                  "expect": [
+                    {
+                      "type": "navigation",
+                      "url_contains": "www.actalis.com"
+                    }
+                  ],
+                  "severity": "critical"
+                },
+                {
+                  "description": "Accetta tutti i cookie",
+                  "action": "click",
+                  "target": {
+                    "region": "any",
+                    "kind": "selector",
+                    "value": "#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll"
+                  },
+                  "severity": "critical"
+                },
+                {
+                  "description": "Click on the bronze plan add product button",
+                  "action": "click",
+                  "target": {
+                    "region": "main",
+                    "kind": "selector",
+                    "value": ".btn.btn-primary-alt.add-product.bronzeplan"
+                  },
+                  "severity": "major"
+                }
+              ]
+            }
+          ]
+        },
+        "testSpecMeta": {
+          "generatedAt": "2025-11-06T18:11:47.454Z",
+          "model": "gpt-4o-mini-2024-07-18",
+          "tokens": {
+            "input": 875,
+            "output": 284
+          },
+          "source": "scenario-llm"
+        },
+        "createdAt": "2025-11-06T18:04:35.229Z",
+        "updatedAt": "2025-11-06T18:11:47.453Z"
       }
     ]
   }

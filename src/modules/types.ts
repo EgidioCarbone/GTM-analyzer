@@ -1,6 +1,6 @@
 import type { TestSpec } from '../types/ssd';
 
-// Shared module definitions for vertical SSD Test support
+// Shared module definitions for vertical SDD Test support
 // Each module provides metadata and configuration schema used by the UI and runner
 
 export type ModuleId = 'fibra' | 'genertel' | 'actalis';

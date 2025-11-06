@@ -727,7 +727,7 @@ const allowedOrigin = process.env.CORS_ORIGIN || 'http://localhost:5173';
 const corsMiddleware = cors({
   origin: allowedOrigin,
   credentials: true,
-  methods: ['GET', 'POST', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 });
 app.use(corsMiddleware);
@@ -753,7 +753,7 @@ app.use(ga4InsightsRouter);
 // Static files for artifacts with CORS headers
 app.use('/artifacts', (req, res, next) => {
   res.header('Access-Control-Allow-Origin', allowedOrigin);
-  res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
@@ -5654,7 +5654,7 @@ app.use((error, req, res, next) => {
 // Handle OPTIONS preflight requests for screenshots
 app.options('/api/screenshot/*', (req, res) => {
   res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
   res.header('Access-Control-Allow-Credentials', 'false');
   res.status(200).end();
@@ -5684,7 +5684,7 @@ app.get('/api/screenshot/*', (req, res) => {
   
   // Aggiungi header CORS per permettere al frontend di caricare le immagini
   res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
   res.header('Access-Control-Allow-Credentials', 'false');
   res.header('Cross-Origin-Resource-Policy', 'cross-origin');

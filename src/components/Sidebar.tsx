@@ -19,8 +19,8 @@ export default function Sidebar() {
     // Solo AI Plan per AI Plan
     { to: "/plan", label: "AI Plan", icon: Target },
   ] : mode === 'ssd' ? [
-    // Solo SSD Test per SSD Test
-    { to: "/ssd-test", label: "SSD Test", icon: TestTube },
+    // Solo SDD Test per SDD Test
+    { to: "/ssd-test", label: "SDD Test", icon: TestTube },
   ] : mode === 'ai-sentinel' ? [
     // Solo AI Sentinel per AI Sentinel
     { to: "/ai-sentinel", label: "AI Sentinel", icon: CheckCircle },
@@ -29,7 +29,7 @@ export default function Sidebar() {
     { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
     { to: "/container-manager", label: "Container Manager", icon: Settings },
     { to: "/plan", label: "AI Plan", icon: Target },
-    { to: "/ssd-test", label: "SSD Test", icon: TestTube },
+    { to: "/ssd-test", label: "SDD Test", icon: TestTube },
     // { to: "/testing", label: "Testing" },
     // { to: "/migration", label: "UA → GA4" },
     { to: "/ai-sentinel", label: "AI Sentinel", icon: CheckCircle },

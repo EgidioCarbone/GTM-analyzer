@@ -1,5 +1,5 @@
-// SSD Test Reliability Tests
-// Comprehensive tests for the production-ready SSD Test pipeline improvements
+// SDD Test Reliability Tests
+// Comprehensive tests for the production-ready SDD Test pipeline improvements
 // ============================================================================
 
 import { TestSpec, Expectation, DataLayerEvent, TrackingHit } from './types/ssd';
@@ -14,7 +14,7 @@ const mockPage = {
   evaluate: async (fn: Function) => fn(),
 } as any;
 
-describe('SSD Test Reliability Improvements', () => {
+describe('SDD Test Reliability Improvements', () => {
   describe('A) Ingestion Fixes (PDF → DSL)', () => {
     describe('Exact URL Setting', () => {
       test('should set dsl.site to exact user URL', () => {

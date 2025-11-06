@@ -4,7 +4,6 @@ import {
   CheckCircle,
   ClipboardList,
   Edit3,
-  FileCode2,
   Layers,
   ListTree,
   Play,
@@ -46,8 +45,12 @@ export default function ReviewStep({
     canUndo
   } = useDisambiguation(state.dsl);
 
+  const skipAmbiguityChecks =
+    state.moduleSource === 'scenario' ||
+    (state.dsl?.meta?.model && typeof state.dsl.meta.model === 'string' && state.dsl.meta.model.startsWith('scenario-llm'));
+
   const dslToAnalyze = disambiguatedDsl || state.dsl;
-  const ambiguities = detectAmbiguities(dslToAnalyze, ambiguityMinConfidence);
+  const ambiguities = skipAmbiguityChecks ? [] : detectAmbiguities(dslToAnalyze, ambiguityMinConfidence);
 
   const [selectedAmbiguity, setSelectedAmbiguity] = useState<string | null>(null);
 
@@ -321,32 +324,6 @@ export default function ReviewStep({
         </Card>
 
         <div className="space-y-6">
-          <Card className="rounded-3xl border border-white/70 bg-white/80 p-6 text-sm text-gray-700 shadow-xl backdrop-blur">
-            <div className="flex items-center gap-3 text-purple-500">
-              <FileCode2 className="h-4 w-4" />
-              Metadati generazione
-            </div>
-            <div className="mt-4 space-y-3 text-sm">
-              <div className="flex items-center justify-between rounded-2xl border border-white/70 bg-white/70 px-4 py-3 shadow-sm">
-                <span className="text-gray-500">Modello</span>
-                <span className="font-semibold text-gray-800">
-                  {state.dsl?.meta?.model || 'sconosciuto'}
-                </span>
-              </div>
-              <div className="rounded-2xl border border-white/70 bg-white/70 px-4 py-3 shadow-sm">
-                <p className="text-gray-500">Token utilizzati</p>
-                <p className="font-semibold text-gray-800">
-                  Input {state.dsl?.meta?.tokens?.input || 0} · Output{' '}
-                  {state.dsl?.meta?.tokens?.output || 0}
-                </p>
-              </div>
-              <p className="text-xs text-gray-500">
-                I token indicano il lavoro svolto dall’LLM. Negli scenari guidati dal manifest i valori
-                restano prossimi allo zero, mentre aumentano se interviene una generazione assistita.
-              </p>
-            </div>
-          </Card>
-
           <Card className="rounded-3xl border border-white/70 bg-white/80 p-6 text-sm text-gray-700 shadow-xl backdrop-blur">
             <div className="flex items-center gap-3 text-indigo-500">
               <ClipboardList className="h-4 w-4" />

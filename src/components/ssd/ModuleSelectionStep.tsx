@@ -43,26 +43,26 @@ export default function ModuleSelectionStep({
           <div className="max-w-2xl space-y-4">
             <div className="inline-flex items-center gap-2 rounded-full border border-indigo-200/70 bg-indigo-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.25em] text-indigo-600 shadow-sm">
               <Sparkles className="h-3.5 w-3.5" />
-              SSD Vertical Modules
+              SDD Vertical Modules
             </div>
             <h1 className="text-4xl font-bold tracking-tight text-gray-900">
-              Scegli il modulo perfetto per i tuoi <span className="bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 bg-clip-text text-transparent">SSD Test</span>
+              Scegli il modulo perfetto per i tuoi <span className="bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 bg-clip-text text-transparent">SDD Test</span>
             </h1>
             <p className="text-lg leading-relaxed text-gray-600">
-              Ogni modulo è ottimizzato con configurazioni dedicate a CMP, funnel e tracciamenti specifici del brand. Scegli la base di partenza e lascia che l’automazione faccia il resto.
+              Ogni modulo raccoglie manifest cookie, URL di riferimento e suggerimenti sugli eventi più comuni della vertical. È il punto di partenza per creare scenari che generano una DSL pronta all’uso e validano il payload del dataLayer.
             </p>
             <div className="grid gap-4 sm:grid-cols-3">
               <div className="flex items-center gap-3 rounded-2xl border border-white/70 bg-white/80 px-4 py-3 text-sm text-gray-700 shadow-sm">
                 <BadgeCheck className="h-4 w-4 text-indigo-500" />
-                Script CMP preconfigurati
+                Cookie manifest inclusi
               </div>
               <div className="flex items-center gap-3 rounded-2xl border border-white/70 bg-white/80 px-4 py-3 text-sm text-gray-700 shadow-sm">
                 <Blocks className="h-4 w-4 text-purple-500" />
-                Manifest con selettori certificati
+                DSL generata dagli scenari
               </div>
               <div className="flex items-center gap-3 rounded-2xl border border-white/70 bg-white/80 px-4 py-3 text-sm text-gray-700 shadow-sm">
                 <CheckCircle2 className="h-4 w-4 text-pink-500" />
-                Test GA4 automatizzati
+                Confronto dataLayer vs payload atteso
               </div>
             </div>
           </div>

@@ -44,7 +44,7 @@ export default function UploadStep({
               Carica il PDF, imposta l’URL e lascia che il motore costruisca il test.
             </h1>
             <p className="text-lg leading-relaxed text-gray-600">
-              In questa fase analizziamo il documento SSD, normalizziamo la struttura del funnel e agganciamo l’HTML della pagina di destinazione. L’obiettivo è consegnare al runner una specifica perfettamente coerente.
+              In questa fase analizziamo il documento SDD, normalizziamo la struttura del funnel e agganciamo l’HTML della pagina di destinazione. L’obiettivo è consegnare al runner una specifica perfettamente coerente.
             </p>
             <div className="grid gap-4 sm:grid-cols-3">
               <div className="flex items-center gap-3 rounded-2xl border border-white/70 bg-white/80 px-4 py-3 text-sm text-gray-700 shadow-sm">
@@ -53,7 +53,7 @@ export default function UploadStep({
               </div>
               <div className="flex items-center gap-3 rounded-2xl border border-white/70 bg-white/80 px-4 py-3 text-sm text-gray-700 shadow-sm">
                 <Upload className="h-4 w-4 text-purple-500" />
-                Analizziamo il PDF SSD
+                Analizziamo il PDF SDD
               </div>
               <div className="flex items-center gap-3 rounded-2xl border border-white/70 bg-white/80 px-4 py-3 text-sm text-gray-700 shadow-sm">
                 <ShieldCheck className="h-4 w-4 text-pink-500" />
@@ -142,7 +142,7 @@ export default function UploadStep({
 
             <div className="space-y-3">
               <p className="text-xs font-semibold uppercase tracking-[0.35em] text-indigo-500">
-                Documento SSD
+                Documento SDD
               </p>
               <h3 className="text-2xl font-semibold text-gray-900">Carica il PDF</h3>
               <p className="text-sm leading-relaxed text-gray-600">
@@ -211,7 +211,7 @@ export default function UploadStep({
               {configLoading && (
                 <div className="flex items-center gap-3 rounded-2xl border border-indigo-100 bg-indigo-50/70 px-4 py-3 text-sm text-indigo-700">
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  Caricamento configurazione del server SSD…
+                  Caricamento configurazione del server SDD…
                 </div>
               )}
               {configError && (

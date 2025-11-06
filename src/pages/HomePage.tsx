@@ -54,8 +54,8 @@ const tools: Tool[] = [
   },
   {
     id: 'ssd-test',
-    title: 'SSD Test',
-    description: 'Test automatizzati da documenti PDF con esecuzione browser',
+    title: 'SDD Test',
+    description: 'Test automatizzati da documenti SDD con esecuzione browser',
     requiresJson: false,
     icon: TestTube,
     color: 'green',

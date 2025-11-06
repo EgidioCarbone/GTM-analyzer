@@ -1,5 +1,5 @@
-// SSD Test Improvements Validation
-// Tests for the production-ready SSD Test pipeline improvements
+// SDD Test Improvements Validation
+// Tests for the production-ready SDD Test pipeline improvements
 // ============================================================================
 
 import { TestSpec, Expectation, DataLayerEvent, TrackingHit } from './types/ssd';
@@ -14,7 +14,7 @@ const mockPage = {
   evaluate: async (fn: Function) => fn(),
 } as any;
 
-describe('SSD Test Improvements', () => {
+describe('SDD Test Improvements', () => {
   describe('DSL Post-processing', () => {
     test('should set exact site URL', () => {
       const dsl = {

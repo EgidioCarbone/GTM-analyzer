@@ -1,4 +1,4 @@
-// URL normalization utilities for SSD Test
+// URL normalization utilities for SDD Test
 // ============================================================================
 
 /**

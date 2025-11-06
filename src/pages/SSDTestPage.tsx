@@ -18,6 +18,7 @@ import { TestSpec, SSDTestState, ModuleConfig, ModuleSource } from '../types/ssd
 import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
+import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { useSSDConfig } from '../hooks/useSSDConfig';
 import { useAbortController } from '../hooks/useAbortController';
 import { useAnalysisProgress } from '../hooks/useAnalysisProgress';
@@ -269,6 +270,8 @@ export default function SSDTestPage() {
   const [scenarioModalMode, setScenarioModalMode] = useState<'create' | 'edit'>('create');
   const [scenarioDraft, setScenarioDraft] = useState<ScenarioDraft | null>(null);
   const [scenarioModalSaving, setScenarioModalSaving] = useState(false);
+  const [deleteDialogScenario, setDeleteDialogScenario] = useState<ModuleScenario | null>(null);
+  const [deleteDialogLoading, setDeleteDialogLoading] = useState(false);
   const draftExpectedEventName = useMemo(() => {
     if (!scenarioDraft) return '';
     try {
@@ -890,23 +893,34 @@ const persistScenarioDraft = useCallback(
   const handleScenarioCreate = () => openScenarioModal('create');
   const handleScenarioEdit = () => openScenarioModal('edit');
 
-  const handleDeleteScenario = async () => {
-    if (!state.moduleId) {
-      toast.error('Seleziona un modulo prima di eliminare uno scenario');
-      return;
-    }
-
+  const requestDeleteScenario = () => {
     if (!state.scenarioId) {
       toast.error('Seleziona uno scenario da eliminare');
       return;
     }
 
-    const confirmed = window.confirm('Eliminare definitivamente lo scenario selezionato?');
-    if (!confirmed) return;
+    const scenario = state.scenarios.find(s => s.id === state.scenarioId);
+    if (!scenario) {
+      toast.error('Scenario selezionato non trovato');
+      return;
+    }
+
+    setDeleteDialogScenario(scenario);
+  };
+
+  const handleDeleteScenario = async () => {
+    if (!deleteDialogScenario) return;
+
+    const moduleIdForScenario = deleteDialogScenario.moduleId ?? state.moduleId;
+    if (!moduleIdForScenario) {
+      toast.error('Impossibile determinare il modulo dello scenario');
+      setDeleteDialogScenario(null);
+      return;
+    }
 
     try {
-      setState(prev => ({ ...prev, isLoading: true }));
-      const res = await fetch(`${apiBaseUrl}/api/modules/${state.moduleId}/scenarios/${state.scenarioId}`, {
+      setDeleteDialogLoading(true);
+      const res = await fetch(`${apiBaseUrl}/api/modules/${moduleIdForScenario}/scenarios/${deleteDialogScenario.id}`, {
         method: 'DELETE',
       });
       if (!res.ok) {
@@ -915,7 +929,7 @@ const persistScenarioDraft = useCallback(
       }
 
       setState(prev => {
-        const remaining = prev.scenarios.filter(s => s.id !== state.scenarioId);
+        const remaining = prev.scenarios.filter(s => s.id !== deleteDialogScenario.id);
         const defaultUrl = moduleUrlOptions[0] || '';
         const firstScenario = remaining[0] ?? null;
         const fallbackEventId = firstScenario?.eventId ?? prev.eventDefinitions[0]?.id ?? null;
@@ -949,9 +963,10 @@ const persistScenarioDraft = useCallback(
       handleScenarioStateReset();
       toast.success('Scenario eliminato');
     } catch (error) {
-      setState(prev => ({ ...prev, isLoading: false }));
       notifyError(error, "Errore durante l'eliminazione dello scenario");
     }
+    setDeleteDialogScenario(null);
+    setDeleteDialogLoading(false);
   };
 
   const handleGenerateScenarioDsl = async () => {
@@ -1239,6 +1254,7 @@ const persistScenarioDraft = useCallback(
   const selectedEventDefinition = state.eventDefinitions.find(event => event.id === state.scenarioEventId) ?? null;
 
   return (
+    <>
     <div className="min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-pink-50 flex flex-col relative overflow-hidden">
       <SSDProgressModal
         isVisible={!!loadingType}
@@ -1258,7 +1274,7 @@ const persistScenarioDraft = useCallback(
           <div className="text-center">
             <div className="inline-flex items-center gap-2 px-4 py-1 rounded-full bg-white/80 shadow-sm text-purple-600 text-sm font-medium">
               <Tag className="w-4 h-4" />
-              Scenario-based SSD Testing
+              Scenario-based SDD Testing
             </div>
             <h1 className="mt-4 text-4xl font-semibold text-slate-900">Configura e salva scenari di tracciamento</h1>
             <p className="mt-3 text-slate-600">
@@ -1488,7 +1504,7 @@ const persistScenarioDraft = useCallback(
                       Genera DSL
                     </Button>
                     <Button
-                      onClick={handleDeleteScenario}
+                      onClick={requestDeleteScenario}
                       disabled={state.isLoading || !state.scenarioId}
                       variant="destructive"
                       className="rounded-full px-5 py-2 font-semibold shadow-sm disabled:opacity-40"
@@ -1579,7 +1595,7 @@ const persistScenarioDraft = useCallback(
               }}
             >
               <div
-                className="relative w-full max-w-4xl max-h-[90vh] overflow-hidden rounded-3xl border border-white/20 bg-white shadow-2xl"
+                className="relative w-full max-w-4xl max-h-[85vh] overflow-hidden rounded-3xl border border-white/20 bg-white shadow-2xl flex flex-col"
                 onClick={event => event.stopPropagation()}
               >
                 <div className="flex items-center justify-between border-b border-slate-200/70 px-6 py-4">
@@ -1601,7 +1617,7 @@ const persistScenarioDraft = useCallback(
                   </button>
                 </div>
 
-                <div className="overflow-y-auto px-6 py-6 space-y-6">
+                <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6">
                   <div className="space-y-1">
                     <label className="text-sm font-medium text-slate-700">Nome scenario</label>
                     <Input
@@ -1866,5 +1882,25 @@ const persistScenarioDraft = useCallback(
         </div>
       </div>
     </div>
+      <ConfirmDialog
+        open={Boolean(deleteDialogScenario)}
+        title="Elimina scenario salvato"
+        description={
+          deleteDialogScenario
+            ? `Sei sicuro di voler eliminare lo scenario "${deleteDialogScenario.name}"? L'operazione non è reversibile.`
+            : undefined
+        }
+        confirmText="Elimina"
+        cancelText="Annulla"
+        tone="danger"
+        loading={deleteDialogLoading}
+        onConfirm={handleDeleteScenario}
+        onCancel={() => {
+          if (!deleteDialogLoading) {
+            setDeleteDialogScenario(null);
+          }
+        }}
+      />
+    </>
   );
 }

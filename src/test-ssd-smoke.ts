@@ -1,4 +1,4 @@
-// SSD Test Smoke Test
+// SDD Test Smoke Test
 // Simple smoke test to verify the runner flow works end-to-end
 // ============================================================================
 
@@ -187,7 +187,7 @@ export function testNetworkAllowlist() {
  * Run all smoke tests
  */
 export function runSmokeTests() {
-  console.log('🧪 Running SSD Test Smoke Tests...\n');
+  console.log('🧪 Running SDD Test Smoke Tests...\n');
   
   console.log('1. Testing DSL Validation:');
   testDSLValidation();

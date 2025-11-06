@@ -1,4 +1,4 @@
-// Test smoke per SSD Runner
+// Test smoke per SDD Runner
 // ========================
 // Esegue un test di base per verificare che Puppeteer funzioni correttamente
 
@@ -29,7 +29,7 @@ async function runSmokeTest(): Promise<SmokeTestResult> {
   let page: puppeteer.Page | null = null;
   
   try {
-    console.log('🚀 Starting SSD Runner Smoke Test...');
+    console.log('🚀 Starting SDD Runner Smoke Test...');
     
     // Assicurati che la directory screenshots esista
     await ensureScreenshotsDir();
@@ -136,7 +136,7 @@ async function runSmokeTest(): Promise<SmokeTestResult> {
 
 function printCompactReport(result: SmokeTestResult): void {
   console.log('\n' + '='.repeat(50));
-  console.log('📊 SSD RUNNER SMOKE TEST REPORT');
+  console.log('📊 SDD RUNNER SMOKE TEST REPORT');
   console.log('='.repeat(50));
   
   // Status

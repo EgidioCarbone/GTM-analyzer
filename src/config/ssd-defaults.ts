@@ -1,4 +1,4 @@
-// SSD Test - Centralized Default Configuration
+// SDD Test - Centralized Default Configuration
 // ============================================================================
 // All hardcoded values are centralized here for easy maintenance and override
 // via environment variables.

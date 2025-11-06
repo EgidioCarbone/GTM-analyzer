@@ -392,11 +392,11 @@ export class OpenAISpecService {
    * Get the universal system prompt for DSL generation
    */
   private getSystemPrompt(): string {
-    return `You are a test-spec compiler. Convert SSD text (extracted from a PDF) into a strict JSON Test Specification for a Puppeteer-based runner.
+    return `You are a test-spec compiler. Convert SDD text (extracted from a PDF) into a strict JSON Test Specification for a Puppeteer-based runner.
 
 Universal rules:
 - Output ONLY JSON conforming to the TestSpec schema (no prose).
-- Must work on ANY site with NO brand-specific assumptions unless explicitly present in the SSD text.
+- Must work on ANY site with NO brand-specific assumptions unless explicitly present in the SDD text.
 - Targets priority: 1) "text" (visible label)  2) "aria"  3) "href" (partial/contains)  4) "selector" (last resort, generic and safe).
 - Regions allowed: "header" | "main" | "footer" | "any". Coerce anything else to "any".
 - Never emit literal placeholders like "[PRODUCT NAME]"; for variable values either omit the key or use wildcard "*".
@@ -420,7 +420,7 @@ Header target rule (generic but robust):
 - If labels are explicit in the SSD, prefer { "kind":"text", "value":"<label>" } with region "header" or "any".
 
 Allowed hosts:
-- Include ONLY the host and "www." of TARGET URL, plus subdomains explicitly present in the SSD text. Do not invent hosts.
+- Include ONLY the host and "www." of TARGET URL, plus subdomains explicitly present in the SDD text. Do not invent hosts.
 
 Confidence:
 - Set 0..1 per step. If instruction is generic (e.g., "click header link"), keep a generic target and lower confidence (~0.6–0.8).
@@ -492,7 +492,7 @@ TASK:
   }
 
   private getScenarioSystemPrompt(): string {
-    return `You are an expert SSD Test spec builder. Given scenario information (URL, module metadata, CMP selector, optional user-defined interaction steps) produce a STRICT TestSpec JSON ready for execution by a Puppeteer runner.
+    return `You are an expert SDD Test spec builder. Given scenario information (URL, module metadata, CMP selector, optional user-defined interaction steps) produce a STRICT TestSpec JSON ready for execution by a Puppeteer runner.
 
 Hard constraints:
 - Output ONLY JSON that matches the TestSpec schema (no prose or comments).
@@ -624,7 +624,7 @@ YOUR TASK:
 - Add a FIRST STEP to accept cookies (as described in the system message) to avoid overlays blocking clicks.
 - For "header menu click", if labels are missing, use the robust "header" selector from the system message (with cookie-dialog exclusions). If labels are present, use kind:"text".
 - Use subset expectations with "*" wildcards for variable values.
-- Build "allowed_hosts" from the URL host (+ "www.") and subdomains explicitly found in the SSD text only.
+- Build "allowed_hosts" from the URL host (+ "www.") and subdomains explicitly found in the SDD text only.
 - IMPORTANT: The "consent" field must be an array of strings like ["accept", "reject"] or ["accept"] - never a single string.
 - EXAMPLE: "consent": ["accept"] or "consent": ["accept", "reject"] - NOT "consent": "accept"
 - Return ONLY JSON. No comments.`;

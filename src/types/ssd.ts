@@ -1,6 +1,6 @@
 import type { ModuleId, ModuleScenario, ModuleEventDefinition, ScenarioStep } from '../modules/types';
 
-// SSD Test Types
+// SDD Test Types
 // ============================================================================
 
 export interface TestSpec {

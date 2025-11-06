@@ -421,7 +421,7 @@ export default function DetailedResultsStep({
                 if (dslWindow) {
                   dslWindow.document.write(`
                     <html>
-                      <head><title>DSL Generato - SSD Test</title></head>
+                      <head><title>DSL Generato - SDD Test</title></head>
                       <body style="font-family: monospace; padding: 20px; background: #f5f5f5;">
                         <h1>DSL Generato</h1>
                         <pre style="background: white; padding: 20px; border-radius: 8px; overflow: auto;">${JSON.stringify(state.dsl, null, 2)}</pre>
@@ -676,7 +676,7 @@ export default function DetailedResultsStep({
           <div className="space-y-2">
             <div className="flex items-center gap-3 text-sm uppercase tracking-[0.15em] text-white/70">
               <LayoutDashboard className="h-4 w-4" />
-              SSD Test Report
+              SDD Test Report
             </div>
             <div className="flex items-center gap-3">
               <div className={`flex h-12 w-12 items-center justify-center rounded-full bg-white/10 text-white`}>{heroIcon}</div>
