@@ -22,31 +22,31 @@ export const TriggerQualityCard: React.FC<TriggerQualityCardProps> = ({
     switch (message.status) {
       case 'critical':
         return {
-          bgColor: 'bg-red-50 dark:bg-red-900/20',
-          borderColor: 'border-red-200 dark:border-red-800',
-          textColor: 'text-red-600 dark:text-red-400',
-          buttonColor: 'bg-red-100 hover:bg-red-200 text-red-800 dark:bg-red-800 dark:hover:bg-red-700 dark:text-red-100'
+          bgColor: 'bg-fuchsia-50 dark:bg-fuchsia-900/20',
+          borderColor: 'border-fuchsia-200 dark:border-fuchsia-800',
+          textColor: 'text-fuchsia-700 dark:text-fuchsia-400',
+          buttonColor: 'bg-purple-600 hover:bg-purple-700 text-white'
         };
       case 'major':
         return {
-          bgColor: 'bg-orange-50 dark:bg-orange-900/20',
-          borderColor: 'border-orange-200 dark:border-orange-800',
-          textColor: 'text-orange-600 dark:text-orange-400',
-          buttonColor: 'bg-orange-100 hover:bg-orange-200 text-orange-800 dark:bg-orange-800 dark:hover:bg-orange-700 dark:text-orange-100'
+          bgColor: 'bg-purple-50 dark:bg-purple-900/20',
+          borderColor: 'border-purple-200 dark:border-purple-800',
+          textColor: 'text-purple-700 dark:text-purple-400',
+          buttonColor: 'bg-purple-600 hover:bg-purple-700 text-white'
         };
       case 'minor':
         return {
-          bgColor: 'bg-blue-50 dark:bg-blue-900/20',
-          borderColor: 'border-blue-200 dark:border-blue-800',
-          textColor: 'text-blue-600 dark:text-blue-400',
-          buttonColor: 'bg-blue-100 hover:bg-blue-200 text-blue-800 dark:bg-blue-800 dark:hover:bg-blue-700 dark:text-blue-100'
+          bgColor: 'bg-violet-50 dark:bg-violet-900/20',
+          borderColor: 'border-violet-200 dark:border-violet-800',
+          textColor: 'text-violet-700 dark:text-violet-400',
+          buttonColor: 'bg-purple-600 hover:bg-purple-700 text-white'
         };
       default: // 'ok'
         return {
-          bgColor: 'bg-green-50 dark:bg-green-900/20',
-          borderColor: 'border-green-200 dark:border-green-800',
-          textColor: 'text-green-600 dark:text-green-400',
-          buttonColor: 'bg-green-100 hover:bg-green-200 text-green-800 dark:bg-green-800 dark:hover:bg-green-700 dark:text-green-100'
+          bgColor: 'bg-indigo-50 dark:bg-indigo-900/20',
+          borderColor: 'border-indigo-200 dark:border-indigo-800',
+          textColor: 'text-indigo-700 dark:text-indigo-400',
+          buttonColor: 'bg-indigo-600 hover:bg-indigo-700 text-white'
         };
     }
   };
@@ -70,13 +70,12 @@ export const TriggerQualityCard: React.FC<TriggerQualityCardProps> = ({
             </div>
           </div>
           <InfoTooltip content="Nessun trigger è stato rilevato nel container. I trigger sono necessari per attivare i tag.">
-            <span className="text-gray-400 hover:text-gray-600 cursor-help">ℹ️</span>
           </InfoTooltip>
         </div>
         
         <div className="text-center py-4">
           <p className="text-sm text-gray-600 dark:text-gray-400">
-            ⚠️ Container senza trigger
+            Container senza trigger
           </p>
         </div>
       </div>
@@ -90,7 +89,6 @@ export const TriggerQualityCard: React.FC<TriggerQualityCardProps> = ({
       {/* Header con icona e titolo */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
-          <span className="text-2xl">{metricInfo.icon}</span>
           <div>
             <h3 className="text-lg font-semibold text-gray-800 dark:text-white">
               {message.title}
@@ -119,21 +117,19 @@ export const TriggerQualityCard: React.FC<TriggerQualityCardProps> = ({
         </div>
         
         <div className="text-center">
-          <div className="text-2xl font-bold text-green-600 dark:text-green-400">
+          <div className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">
             {trigger_quality.stats.total_triggers - trigger_quality.stats.unused_triggers}
           </div>
           <div className="text-xs text-gray-600 dark:text-gray-400 flex items-center justify-center gap-1">
-            <span>✅</span>
             <span>Utilizzati</span>
           </div>
         </div>
         
         <div className="text-center">
-          <div className="text-2xl font-bold text-red-600 dark:text-red-400">
+          <div className="text-2xl font-bold text-fuchsia-600 dark:text-fuchsia-400">
             {trigger_quality.stats.unused_triggers}
           </div>
           <div className="text-xs text-gray-600 dark:text-gray-400 flex items-center justify-center gap-1">
-            <span>⚠️</span>
             <span>Non usati</span>
           </div>
         </div>
@@ -148,25 +144,25 @@ export const TriggerQualityCard: React.FC<TriggerQualityCardProps> = ({
           <div className="grid grid-cols-2 gap-2 text-xs">
             <div className="flex justify-between">
               <span className="text-gray-600 dark:text-gray-400">Specificità:</span>
-              <span className={`font-medium ${trigger_quality.breakdown.specificity >= 0.8 ? 'text-green-600' : trigger_quality.breakdown.specificity >= 0.6 ? 'text-orange-600' : 'text-red-600'}`}>
+              <span className={`font-medium ${trigger_quality.breakdown.specificity >= 0.8 ? 'text-indigo-600' : trigger_quality.breakdown.specificity >= 0.6 ? 'text-purple-600' : 'text-fuchsia-600'}`}>
                 {Math.round(trigger_quality.breakdown.specificity * 100)}%
               </span>
             </div>
             <div className="flex justify-between">
               <span className="text-gray-600 dark:text-gray-400">Blocking:</span>
-              <span className={`font-medium ${trigger_quality.breakdown.blocking >= 0.8 ? 'text-green-600' : trigger_quality.breakdown.blocking >= 0.6 ? 'text-orange-600' : 'text-red-600'}`}>
+              <span className={`font-medium ${trigger_quality.breakdown.blocking >= 0.8 ? 'text-indigo-600' : trigger_quality.breakdown.blocking >= 0.6 ? 'text-purple-600' : 'text-fuchsia-600'}`}>
                 {Math.round(trigger_quality.breakdown.blocking * 100)}%
               </span>
             </div>
             <div className="flex justify-between">
               <span className="text-gray-600 dark:text-gray-400">Timing:</span>
-              <span className={`font-medium ${trigger_quality.breakdown.timing >= 0.8 ? 'text-green-600' : trigger_quality.breakdown.timing >= 0.6 ? 'text-orange-600' : 'text-red-600'}`}>
+              <span className={`font-medium ${trigger_quality.breakdown.timing >= 0.8 ? 'text-indigo-600' : trigger_quality.breakdown.timing >= 0.6 ? 'text-purple-600' : 'text-fuchsia-600'}`}>
                 {Math.round(trigger_quality.breakdown.timing * 100)}%
               </span>
             </div>
             <div className="flex justify-between">
               <span className="text-gray-600 dark:text-gray-400">SPA:</span>
-              <span className={`font-medium ${trigger_quality.breakdown.spa >= 0.8 ? 'text-green-600' : trigger_quality.breakdown.spa >= 0.6 ? 'text-orange-600' : 'text-red-600'}`}>
+              <span className={`font-medium ${trigger_quality.breakdown.spa >= 0.8 ? 'text-indigo-600' : trigger_quality.breakdown.spa >= 0.6 ? 'text-purple-600' : 'text-fuchsia-600'}`}>
                 {Math.round(trigger_quality.breakdown.spa * 100)}%
               </span>
             </div>
@@ -250,14 +246,14 @@ export const TriggerQualityCard: React.FC<TriggerQualityCardProps> = ({
             onAction?.();
           }}
         >
-          🧭 {message.cta}
+          {message.cta}
         </button>
       </div>
       
       {/* Indicatore espansione */}
       <div className="flex justify-center mt-2">
         <span className="text-xs text-gray-500 dark:text-gray-400">
-          {isExpanded ? '🔼 Clicca per comprimere' : '🔽 Clicca per espandere'}
+          {isExpanded ? 'Clicca per comprimere' : 'Clicca per espandere'}
         </span>
       </div>
       

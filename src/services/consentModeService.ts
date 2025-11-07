@@ -396,7 +396,6 @@ function generateConsentMessage(coverage: ConsentCoverage): ConsentModeResult['m
 export function getConsentMetricInfo(severity: 'critical' | 'major' | 'minor' | 'ok') {
   const metricInfo = {
     critical: {
-      icon: "🚨",
       title: "Consent Mode",
       subtitle: "Tag marketing senza consensi configurati",
       impact: "Tag marketing senza consensi configurati violano le normative privacy.",
@@ -407,7 +406,6 @@ export function getConsentMetricInfo(severity: 'critical' | 'major' | 'minor' | 
       textColor: "text-red-600 dark:text-red-400"
     },
     major: {
-      icon: "⚠️",
       title: "Consent Mode",
       subtitle: "Tag marketing con consensi parziali",
       impact: "Alcuni consensi mancanti possono causare problemi di compliance.",
@@ -418,7 +416,6 @@ export function getConsentMetricInfo(severity: 'critical' | 'major' | 'minor' | 
       textColor: "text-orange-600 dark:text-orange-400"
     },
     minor: {
-      icon: "ℹ️",
       title: "Consent Mode",
       subtitle: "Consensi configurati con piccole imperfezioni",
       impact: "Consensi configurati ma con piccole ottimizzazioni possibili.",
@@ -429,7 +426,6 @@ export function getConsentMetricInfo(severity: 'critical' | 'major' | 'minor' | 
       textColor: "text-blue-600 dark:text-blue-400"
     },
     ok: {
-      icon: "✅",
       title: "Consent Mode",
       subtitle: "Consensi configurati correttamente",
       impact: "Tutti i tag marketing hanno i consensi appropriati configurati.",

@@ -91,13 +91,7 @@ const ConsentDashboard: React.FC<ConsentDashboardProps> = ({
   const blockedRequests = networkRequests.filter(r => r.blocked);
 
   // Timeline steps
-  const timelineSteps = [
-    { id: 'banner', label: 'Banner', icon: Shield, status: 'completed' },
-    { id: 'scenario', label: 'Scenario', icon: Settings, status: 'completed' },
-    { id: 'consent', label: 'Consent', icon: Users, status: 'completed' },
-    { id: 'cookie', label: 'Cookie', icon: Cookie, status: 'completed' },
-    { id: 'tracking', label: 'Tracking', icon: Activity, status: 'completed' }
-  ];
+  // Timeline steps (declared later with full details)
 
   const getStatusIcon = (status: 'PASS' | 'FAIL') => {
     return status === 'PASS' ? 

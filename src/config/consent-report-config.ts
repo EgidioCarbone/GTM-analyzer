@@ -414,16 +414,5 @@ export const validateConfig = (config: ConsentReportConfig): string[] => {
 };
 
 // Esporta tutte le configurazioni
-export {
-  defaultConsentReportConfig as defaultConfig,
-  tooltipConfig,
-  cookieCategoryConfig,
-  networkCategoryConfig,
-  knownDomains,
-  urlPatterns,
-  recommendationTemplates,
-  exportConfig,
-  notificationConfig,
-  cacheConfig,
-  loggingConfig
-};
+// Individual constants are exported where they are declared above.
+// The re-export block was removed to avoid duplicate-export errors.

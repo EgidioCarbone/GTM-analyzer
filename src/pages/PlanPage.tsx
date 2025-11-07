@@ -69,7 +69,7 @@ export default function PlanPage() {
   ];
 
   const { text: typing, step } = useCyclingTypewriter(
-    steps.map((s) => s.label),
+    (Array.isArray(steps) ? steps : []).map((s) => s.label.replace("�", "")).map((s) => s.replace(/\?+$/, "…")),
     70,   // ms/carattere
     3000, // pausa
   );
@@ -87,10 +87,11 @@ export default function PlanPage() {
   }, []);
 
   /* helpers */
-  const clean = (md: string) =>
-    md.split("\n").filter((l) =>
-      !["Tags Analysis", "Triggers Analysis", "Variables Analysis"].includes(l.trim()),
-    ).join("\n");
+  const clean = (md: string) => {
+    const lines = md.split("\n");
+    const headerRe = /^#{0,6}\s*(Tags|Triggers|Variables) Analysis\s*$/i;
+    return lines.filter(l => !headerRe.test(l.trim())).join("\n");
+  };
 
   const Spinner = () => <Loader2 className="h-4 w-4 animate-spin inline-block ml-1" />;
 
@@ -102,11 +103,21 @@ export default function PlanPage() {
     toast.loading("Analisi AI in corso…", { id: "plan" });
 
     try {
-      const [tagsMd, trigMd, varsMd] = await Promise.all([
-        analyzeGtmSection("tags",      container.tag      ?? [], container.publicId).then((m) => { setStatus((s) => ({ ...s, tags: true }));      return m; }),
-        analyzeGtmSection("triggers",  container.trigger  ?? [], container.publicId).then((m) => { setStatus((s) => ({ ...s, triggers: true }));  return m; }),
-        analyzeGtmSection("variables", container.variable ?? [], container.publicId).then((m) => { setStatus((s) => ({ ...s, variables: true })); return m; }),
+      const results = await Promise.allSettled([
+        analyzeGtmSection("tags",      container.tag      ?? [], container.publicId),
+        analyzeGtmSection("triggers",  container.trigger  ?? [], container.publicId),
+        analyzeGtmSection("variables", container.variable ?? [], container.publicId),
       ]);
+
+      setStatus({
+        tags: results[0].status === "fulfilled",
+        triggers: results[1].status === "fulfilled",
+        variables: results[2].status === "fulfilled",
+      });
+
+      const tagsMd = results[0].status === "fulfilled" ? results[0].value : "### Tags Analysis\n| Nome | Criticità | Impatto | Raccomandazione |\n|------|-----------|---------|-----------------|\n| N/D | Errore | Analisi non disponibile | Riprovare |";
+      const trigMd = results[1].status === "fulfilled" ? results[1].value : "### Triggers Analysis\n| Nome | Criticità | Impatto | Raccomandazione |\n|------|-----------|---------|-----------------|\n| N/D | Errore | Analisi non disponibile | Riprovare |";
+      const varsMd = results[2].status === "fulfilled" ? results[2].value : "### Variables Analysis\n| Nome | Criticità | Impatto | Raccomandazione |\n|------|-----------|---------|-----------------|\n| N/D | Errore | Analisi non disponibile | Riprovare |";
 
       const cleaned = { tags: clean(tagsMd), triggers: clean(trigMd), variables: clean(varsMd) };
       setPreview(cleaned);
@@ -127,6 +138,7 @@ ${cleaned.variables}`;
       toast.error("Errore nella generazione del piano.", { id: "plan" });
     } finally {
       setLoading(false);
+      try { toast.dismiss("plan"); } catch {}
     }
   };
 
@@ -217,7 +229,7 @@ ${cleaned.variables}`;
         <div className="mt-12 w-full max-w-4xl animate-fade-in">
           <Tab.Group>
             <Tab.List className="flex justify-center space-x-2 mb-4">
-              {[{ label: "Tags", icon: Tag }, { label: "Triggers", icon: ToggleLeft }, { label: "Variables", icon: Code2 }].map(
+              {[{ label: "Tags" }, { label: "Triggers" }, { label: "Variables" }].map(
                 (tab) => (
                   <Tab
                     key={tab.label}
@@ -229,7 +241,7 @@ ${cleaned.variables}`;
                       }`
                     }
                   >
-                    <tab.icon className="h-4 w-4" /> {tab.label}
+                    {tab.label}
                     {loading && !status[tab.label.toLowerCase() as "tags" | "triggers" | "variables"] && <Spinner />}
                     {status[tab.label.toLowerCase() as "tags" | "triggers" | "variables"] && "✅"}
                   </Tab>

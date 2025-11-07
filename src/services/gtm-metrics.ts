@@ -18,7 +18,7 @@ export const SCORE_WEIGHTS = {
   triggerQuality: 0.14, // 14% per trigger quality
   variableQuality: 0.14, // 14% per variable quality
   htmlSecurity: 0.08, // 8% per HTML security
-  naming: 0.02, // 2% per naming issues (ridotto)
+  naming: 0.04, // 4% per naming issues (ridotto)
 };
 
 // ============================================================================
@@ -28,8 +28,8 @@ export const SCORE_WEIGHTS = {
 import { GenerateDocInput, GTMTag, GTMTrigger, GTMVariable, IssuesIndex, IssueEntry, IssueCategory, IssueSeverity } from "../types/gtm";
 import { analyzeConsentMode, ConsentModeResult } from "./consentModeService";
 import { analyzeTriggerQuality, TriggerQualityResult } from "./triggerQualityService";
-import { analyzeVariableQuality, VariableQualityResult } from "./variableQualityService";
-import { analyzeHtmlSecurity, HtmlSecurityResult } from "./htmlSecurityService";
+import { analyzeVariableQuality } from "./variableQualityService";
+import { analyzeHtmlSecurity } from "./htmlSecurityService";
 
 export interface GTMContainerVersion extends GenerateDocInput {
   // Estende GenerateDocInput per compatibilità
@@ -73,12 +73,31 @@ const RX_VAR = /\{\{\s*([^}]+?)\s*\}\}/g;
 function extractVarRefsFromAny(obj: any): Set<string> {
   const hits = new Set<string>();
   deepStringValues(obj).forEach(s => {
-    let m;
+    // Evita problemi con lastIndex dei regex globali su stringhe successive
+    RX_VAR.lastIndex = 0;
+    let m: RegExpExecArray | null;
     while ((m = RX_VAR.exec(s))) {
-      hits.add(m[1]);
+      if (m && typeof m[1] === 'string') hits.add(m[1]);
     }
   });
   return hits;
+}
+
+// Safe clone to avoid structuredClone compatibility issues
+// Falls back to JSON-based clone for older browsers/environments
+function safeClone<T>(obj: T): T {
+  try {
+    // @ts-ignore
+    if (typeof structuredClone === 'function') {
+      // @ts-ignore
+      return structuredClone(obj);
+    }
+  } catch {}
+  try {
+    return JSON.parse(JSON.stringify(obj));
+  } catch {
+    return obj;
+  }
 }
 
 // 1.3 Indici rapidi
@@ -190,7 +209,14 @@ function calculateNamingIssues(cv: GTMContainerVersion) {
 }
 
 // 2.5 Doppio Page View (CRITICA)
-function calculateDoublePageView(cv: GTMContainerVersion) {
+function calculateDoublePageView(cv: GTMContainerVersion): {
+  status: 'critical' | 'ok';
+  isDoublePageView: boolean;
+  configTags: Array<{ id: any; name: string; type: string; send_page_view: boolean; firingTriggers: string[] }>;
+  manualPageViewTags: Array<{ id: any; name: string; type: string; firingTriggers: string[] }>;
+  overlap: { sharedTriggers: string[]; hasHistoryChange: boolean };
+  action: string;
+} {
   const tags = cv.tag || [];
   const triggers = cv.trigger || [];
 
@@ -593,7 +619,8 @@ function assert(cond: boolean, msg: string): void {
 
 function runConsistencyChecks(metrics: any, distribution: any, counts: any) {
   // Somma delle famiglie deve essere uguale al totale tag
-  const familySum = Object.values(distribution.byFamily).reduce((a: number, b: number) => a + b, 0);
+  const familyValues = Object.values(distribution.byFamily) as number[];
+  const familySum = familyValues.reduce((a: number, b: number) => a + b, 0);
   assert(familySum === counts.tags, `Tag distribution mismatch: ${familySum} vs ${counts.tags}`);
   
   // Paused non può essere maggiore del totale tag
@@ -629,8 +656,8 @@ export type GtmMetrics = {
     };
     consentMode: ConsentModeResult;
     triggerQuality: TriggerQualityResult;
-    variableQuality: VariableQualityResult;
-    htmlSecurity: HtmlSecurityResult;
+  variableQuality: ReturnType<typeof analyzeVariableQuality>;
+  htmlSecurity: ReturnType<typeof analyzeHtmlSecurity>;
   };
   counts: { tags: number; triggers: number; variables: number };
   distribution: { 
@@ -773,7 +800,7 @@ function buildIssuesIndex(cv: GTMContainerVersion, deps: {
     push(d.id, {
       id: d.id, itemType: 'tag', name: d.name,
       categories: [cat], severity: d.severity,
-      reason: d.issues.map(i => i.type).join(', '), suggestion: d.suggestion
+      reason: d.issues.map((i: any) => i.type).join(', '), suggestion: d.suggestion
     });
   }
 
@@ -830,8 +857,8 @@ export function calculateGtmMetrics(cv: GTMContainerVersion): GtmMetrics {
       namingIssues: namingIssues,
       doublePageView: doublePageView.isDoublePageView,
       consentMode: consentMode.consent_coverage.missing + consentMode.consent_coverage.not_configured,
-      triggerQuality: triggerQualityAnalysis.trigger_quality.issues.filter(issue => issue.severity === 'major' || issue.severity === 'critical').length,
-      variableQuality: variableQualityAnalysis.variable_quality.issues.filter(issue => issue.severity === 'major' || issue.severity === 'critical').length,
+  triggerQuality: triggerQualityAnalysis.trigger_quality.issues.filter((issue: any) => issue.severity === 'major' || issue.severity === 'critical').length,
+  variableQuality: variableQualityAnalysis.variable_quality.issues.filter((issue: any) => issue.severity === 'major' || issue.severity === 'critical').length,
       htmlSecurity: htmlSecurityAnalysis.html_security.critical + htmlSecurityAnalysis.html_security.major
     });
     
@@ -1011,7 +1038,7 @@ function calculateTransparentScore(quality: { tags: number; triggers: number; va
 
 // Funzione per simulare la chiusura di un task e calcolare l'impatto
 function simulateFix(current: GtmMetrics, taskType: string): { delta: number; newScore: number } {
-  const next = structuredClone(current);
+  const next = safeClone(current);
   
   switch (taskType) {
     case 'uaObsolete':
@@ -1052,7 +1079,6 @@ function simulateFix(current: GtmMetrics, taskType: string): { delta: number; ne
 export function getMetricInfo(type: string) {
   const metricInfo = {
     paused: {
-      icon: "🛑",
       title: "In Pausa",
       subtitle: "Tag presenti ma disattivati",
       impact: "Mantenerli appesantisce il container, valuta se eliminarli.",
@@ -1063,7 +1089,6 @@ export function getMetricInfo(type: string) {
       textColor: "text-red-600 dark:text-red-400"
     },
     unused: {
-      icon: "🗑️",
       title: "Non Utilizzati",
       subtitle: "Trigger o variabili mai richiamati",
       impact: "Elementi inutili creano rumore e confusione.",
@@ -1074,7 +1099,6 @@ export function getMetricInfo(type: string) {
       textColor: "text-orange-600 dark:text-orange-400"
     },
     uaObsolete: {
-      icon: "⏳",
       title: "UA Obsoleti",
       subtitle: "Tag Universal Analytics",
       impact: "UA è dismesso, serve migrare a GA4.",
@@ -1085,7 +1109,6 @@ export function getMetricInfo(type: string) {
       textColor: "text-yellow-600 dark:text-yellow-400"
     },
     namingIssues: {
-      icon: "📝",
       title: "Naming Issues",
       subtitle: "Nomi non standardizzati",
       impact: "Nomi incoerenti complicano la manutenzione in team.",
@@ -1096,7 +1119,6 @@ export function getMetricInfo(type: string) {
       textColor: "text-blue-600 dark:text-blue-400"
     },
     doublePageView: {
-      icon: "🔄",
       title: "Doppio Page View",
       subtitle: "Duplicazione eventi page_view",
       impact: "GA4 riceve page_view duplicati, distorcendo le metriche.",
@@ -1107,7 +1129,6 @@ export function getMetricInfo(type: string) {
       textColor: "text-red-600 dark:text-red-400"
     },
     consentMode: {
-      icon: "🔒",
       title: "Consent Mode",
       subtitle: "Tag marketing senza consensi configurati",
       impact: "Tag marketing senza consensi configurati violano le normative privacy.",
@@ -1118,7 +1139,6 @@ export function getMetricInfo(type: string) {
       textColor: "text-red-600 dark:text-red-400"
     },
     triggerQuality: {
-      icon: "⚡",
       title: "Qualità Trigger",
       subtitle: "Trigger con problemi di configurazione",
       impact: "Trigger mal configurati possono causare problemi di performance e tracking.",
@@ -1129,7 +1149,6 @@ export function getMetricInfo(type: string) {
       textColor: "text-orange-600 dark:text-orange-400"
     },
     variableQuality: {
-      icon: "🧩",
       title: "Qualità Variabili",
       subtitle: "Variabili con problemi di configurazione",
       impact: "Variabili mal configurate possono causare errori di tracking e performance.",
@@ -1140,7 +1159,6 @@ export function getMetricInfo(type: string) {
       textColor: "text-orange-600 dark:text-orange-400"
     },
     htmlSecurity: {
-      icon: "🔒",
       title: "Sicurezza Custom HTML",
       subtitle: "Tag HTML con problemi di sicurezza",
       impact: "Tag HTML con vulnerabilità che possono compromettere la sicurezza del sito.",
@@ -1176,31 +1194,24 @@ export function getQualityInfo(type: string) {
   const qualityInfo = {
     tags: {
       description: "% di tag con trigger attivi e senza duplicati.",
-      icon: "🏷️"
     },
     triggers: {
       description: "% di trigger effettivamente usati da almeno un tag.",
-      icon: "⚡"
     },
     variables: {
       description: "% di variabili usate in almeno un tag o trigger.",
-      icon: "🧩"
     },
     consent: {
       description: "% di tag marketing con consensi configurati correttamente.",
-      icon: "🔒"
     },
     triggerQuality: {
       description: "% di trigger configurati in modo ottimale (specificità, timing, blocking).",
-      icon: "⚡"
     },
     variableQuality: {
       description: "% di variabili configurate in modo ottimale (DLV, regex, selettori, JS, lookup).",
-      icon: "🧩"
     },
     htmlSecurity: {
       description: "% di tag HTML custom configurati in modo sicuro (no eval, HTTPS, try/catch).",
-      icon: "🔒"
     }
   };
   return qualityInfo[type as keyof typeof qualityInfo];
@@ -1214,11 +1225,11 @@ export function runQuickTest() {
   console.log('🧪 Running GTM Metrics quick test...');
   
   // Test container di esempio
-  const testContainer: GTMContainerVersion = {
+  const testContainer = {
     tag: [
-      { tagId: 1, name: "UA_Test", type: "ua", paused: false, firingTriggerId: ["tr1"] },
-      { tagId: 2, name: "GA4_Test", type: "gaawe", paused: false, firingTriggerId: ["tr2"] },
-      { tagId: 3, name: "HTML_Test", type: "html", paused: true, firingTriggerId: [] }
+      { tagId: '1', name: "UA_Test", type: "ua", paused: false, firingTriggerId: ["tr1"] },
+      { tagId: '2', name: "GA4_Test", type: "gaawe", paused: false, firingTriggerId: ["tr2"] },
+      { tagId: '3', name: "HTML_Test", type: "html", paused: true, firingTriggerId: [] }
     ],
     trigger: [
       { triggerId: "tr1", name: "TRG_Test1", type: "pageview" },
@@ -1226,10 +1237,10 @@ export function runQuickTest() {
       { triggerId: "tr3", name: "TRG_Test3", type: "custom" }
     ],
     variable: [
-      { variableId: 1, name: "DLV_Test", type: "constant" },
-      { variableId: 2, name: "JS_Test", type: "javascript" }
+      { variableId: '1', name: "DLV_Test", type: "constant" },
+      { variableId: '2', name: "JS_Test", type: "javascript" }
     ]
-  };
+  } as unknown as GTMContainerVersion;
   
   try {
     const metrics = calculateGtmMetrics(testContainer);
@@ -1261,10 +1272,10 @@ export function runDoublePageViewTests() {
   console.log('🧪 Running Double Page View Tests...');
   
   // TC1: Deve segnalare - GA4 Config + GA4 Event page_view con stesso trigger
-  const tc1Container: GTMContainerVersion = {
+  const tc1Container = {
     tag: [
       { 
-        tagId: 1, 
+        tagId: '1', 
         name: "GA4 Config", 
         type: "gaawc", 
         firingTriggerId: ["all_pages"],
@@ -1274,7 +1285,7 @@ export function runDoublePageViewTests() {
         ]
       },
       { 
-        tagId: 2, 
+        tagId: '2', 
         name: "GA4 Event page_view", 
         type: "gaawe", 
         firingTriggerId: ["all_pages"],
@@ -1287,13 +1298,13 @@ export function runDoublePageViewTests() {
       { triggerId: "all_pages", name: "All Pages", type: "pageview" }
     ],
     variable: []
-  };
+  } as unknown as GTMContainerVersion;
   
   // TC2: Deve segnalare - SPA con HISTORY_CHANGE
-  const tc2Container: GTMContainerVersion = {
+  const tc2Container = {
     tag: [
       { 
-        tagId: 1, 
+        tagId: '1', 
         name: "GA4 Config", 
         type: "gaawc", 
         firingTriggerId: ["all_pages"],
@@ -1303,7 +1314,7 @@ export function runDoublePageViewTests() {
         ]
       },
       { 
-        tagId: 2, 
+        tagId: '2', 
         name: "GA4 Event page_view SPA", 
         type: "gaawe", 
         firingTriggerId: ["history_change"],
@@ -1317,13 +1328,13 @@ export function runDoublePageViewTests() {
       { triggerId: "history_change", name: "History Change", type: "HISTORY_CHANGE" }
     ],
     variable: []
-  };
+  } as unknown as GTMContainerVersion;
   
   // TC3: Non deve segnalare - GA4 Config con send_page_view:false
-  const tc3Container: GTMContainerVersion = {
+  const tc3Container = {
     tag: [
       { 
-        tagId: 1, 
+        tagId: '1', 
         name: "GA4 Config", 
         type: "gaawc", 
         firingTriggerId: ["all_pages"],
@@ -1333,7 +1344,7 @@ export function runDoublePageViewTests() {
         ]
       },
       { 
-        tagId: 2, 
+        tagId: '2', 
         name: "GA4 Event page_view", 
         type: "gaawe", 
         firingTriggerId: ["all_pages"],
@@ -1346,13 +1357,13 @@ export function runDoublePageViewTests() {
       { triggerId: "all_pages", name: "All Pages", type: "pageview" }
     ],
     variable: []
-  };
+  } as unknown as GTMContainerVersion;
   
   // TC4: Non deve segnalare - Trigger diversi senza overlap
-  const tc4Container: GTMContainerVersion = {
+  const tc4Container = {
     tag: [
       { 
-        tagId: 1, 
+        tagId: '1', 
         name: "GA4 Config", 
         type: "gaawc", 
         firingTriggerId: ["all_pages"],
@@ -1361,7 +1372,7 @@ export function runDoublePageViewTests() {
         ]
       },
       { 
-        tagId: 2, 
+        tagId: '2', 
         name: "GA4 Event page_view thank you", 
         type: "gaawe", 
         firingTriggerId: ["thank_you_page"],
@@ -1375,7 +1386,7 @@ export function runDoublePageViewTests() {
       { triggerId: "thank_you_page", name: "Thank You Page", type: "pageview" }
     ],
     variable: []
-  };
+  } as unknown as GTMContainerVersion;
   
   try {
     // Test TC1

@@ -1,6 +1,7 @@
 // src/hooks/useWebsiteChecklist.ts
 import { useState } from "react";
-import { runWebsiteChecklist, WebsiteChecklistResult } from "../services/websiteChecklist";
+import { runWebsiteChecklist } from "../services/websiteChecklist";
+import type { WebsiteChecklistResult } from "../types/websiteChecklist";
 
 export function useWebsiteChecklist() {
   const [data, setData] = useState<WebsiteChecklistResult | null>(null);

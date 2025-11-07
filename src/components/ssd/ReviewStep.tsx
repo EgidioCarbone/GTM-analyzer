@@ -43,15 +43,15 @@ export default function ReviewStep({
   const handleDisambiguationChoice = (stepPath: string, choice: any, reason: string) => {
     // Trova il target originale nel DSL
     const pathParts = stepPath.split('.');
-    let current = state.dsl;
+  let current: any = state.dsl;
     
     for (const part of pathParts) {
       if (part.includes('[') && part.includes(']')) {
         const [key, indexStr] = part.split('[');
         const index = parseInt(indexStr.replace(']', ''));
-        current = current[key][index];
+        current = (current as any)[key] ? (current as any)[key][index] : undefined;
       } else {
-        current = current[part];
+        current = (current as any)[part];
       }
     }
     

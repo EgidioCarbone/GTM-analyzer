@@ -20,11 +20,11 @@ export const QualityOfContainer: React.FC<QualityOfContainerProps> = ({
   // Funzione per determinare lo stato della qualità
   const getQualityStatus = (score: number) => {
     const safeScore = Number(score) || 0;
-    if (safeScore >= 90) return { status: 'Eccellente', color: 'bg-green-100 text-green-800', icon: '🏆' };
-    if (safeScore >= 75) return { status: 'Ottimo', color: 'bg-blue-100 text-blue-800', icon: '⭐' };
-    if (safeScore >= 60) return { status: 'Buono', color: 'bg-yellow-100 text-yellow-800', icon: '👍' };
-    if (safeScore >= 40) return { status: 'Accettabile', color: 'bg-orange-100 text-orange-800', icon: '⚠️' };
-    return { status: 'Da migliorare', color: 'bg-red-100 text-red-800', icon: '🚨' };
+    if (safeScore >= 90) return { status: 'Eccellente', color: 'bg-green-100 text-green-800' };
+    if (safeScore >= 75) return { status: 'Ottimo', color: 'bg-blue-100 text-blue-800' };
+    if (safeScore >= 60) return { status: 'Buono', color: 'bg-yellow-100 text-yellow-800' };
+    if (safeScore >= 40) return { status: 'Accettabile', color: 'bg-orange-100 text-orange-800' };
+    return { status: 'Da migliorare', color: 'bg-red-100 text-red-800' };
   };
 
   // Usa lo score trasparente
@@ -90,16 +90,13 @@ export const QualityOfContainer: React.FC<QualityOfContainerProps> = ({
             const bullets = (
               <div className="space-y-2">
                 <div className="flex items-start gap-2">
-                  <span className="text-blue-500 mt-0.5">🔹</span>
                   <span className="text-sm font-medium">{info.subtitle}</span>
                 </div>
                 <div className="flex items-start gap-2">
-                  <span className="text-yellow-500 mt-0.5">👉</span>
                   <span className="text-sm">{info.impact}</span>
                 </div>
                 <div className="mt-3 p-3 bg-white/20 rounded border-l-2 border-red-400">
                   <div className="flex items-start gap-2">
-                    <span className="text-red-500 mt-0.5">⚠️</span>
                     <span className="text-sm italic font-medium">{info.risk}</span>
                   </div>
                 </div>
@@ -158,31 +155,31 @@ export const QualityOfContainer: React.FC<QualityOfContainerProps> = ({
             let defaultExpanded = false;
             switch (metric.type) {
               case 'doublePageView':
-                ctaLabel = '🔧 Risolvi doppio page_view';
+                ctaLabel = 'Risolvi doppio page_view';
                 break;
               case 'consentMode':
-                ctaLabel = '🔒 Rivedi impostazioni Consent';
+                ctaLabel = 'Rivedi impostazioni Consent';
                 break;
               case 'triggerQuality':
-                ctaLabel = '⚡ Ottimizza Trigger';
+                ctaLabel = 'Ottimizza Trigger';
                 break;
               case 'variableQuality':
-                ctaLabel = '🧩 Ottimizza Variabili';
+                ctaLabel = 'Ottimizza Variabili';
                 break;
               case 'htmlSecurity':
-                ctaLabel = '🔒 Rivedi Sicurezza HTML';
+                ctaLabel = 'Rivedi Sicurezza HTML';
                 break;
               case 'uaObsolete':
-                ctaLabel = '📜 Vedi lista UA obsoleti';
+                ctaLabel = 'Vedi lista UA obsoleti';
                 break;
               case 'unused':
-                ctaLabel = '🗑️ Elimina elementi inutili';
+                ctaLabel = 'Elimina elementi inutili';
                 break;
               case 'paused':
-                ctaLabel = '🗂️ Rivedi tag in pausa';
+                ctaLabel = 'Rivedi tag in pausa';
                 break;
               case 'namingIssues':
-                ctaLabel = '✏️ Rinomina elementi';
+                ctaLabel = 'Rinomina elementi';
                 break;
             }
 
@@ -240,7 +237,6 @@ export const QualityOfContainer: React.FC<QualityOfContainerProps> = ({
                 key={metric.type}
                 title={info.title}
                 count={metric.count}
-                icon={info.icon}
                 bullets={bullets}
                 ctaLabel={ctaLabel}
                 onCta={() => onMetricAction(metric.type)}

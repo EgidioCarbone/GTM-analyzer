@@ -390,7 +390,7 @@ export default function DetailedResultsStep({
       : [];
 
   const cookieEvents = extractEventNames(report.cookie?.dataLayerEvents);
-  const pdfSummary = report.pdf?.result?.summary || report.pdf?.result || null;
+  const pdfSummary: any = report.pdf?.result?.summary || report.pdf?.result || null;
 
   const timelineItems: TimelineItem[] = [];
 
@@ -452,9 +452,9 @@ export default function DetailedResultsStep({
   if (report.pdf) {
     const pdfTone = statusToTone(report.pdf.status);
     const pdfMetrics: TimelineMetric[] = [
-      { label: 'Durata', value: formatDuration(report.pdf.duration || pdfSummary?.duration), tone: 'info' },
-      { label: 'Step eseguiti', value: String(report.pdf.steps?.length ?? pdfSummary?.steps ?? 0) },
-      { label: 'Passi superati', value: String(pdfSummary?.passed ?? (report.pdf.steps ? report.pdf.steps.filter((s: any) => s.status === 'PASS').length : 0)), tone: 'success' }
+      { label: 'Durata', value: formatDuration(report.pdf?.duration ?? pdfSummary?.duration ?? undefined), tone: 'info' },
+      { label: 'Step eseguiti', value: String(report.pdf?.steps?.length ?? pdfSummary?.steps ?? 0) },
+      { label: 'Passi superati', value: String(pdfSummary?.passed ?? (report.pdf?.steps ? report.pdf.steps.filter((s: any) => s.status === 'PASS').length : 0)), tone: 'success' }
     ];
 
     const badges: string[] = [];
@@ -464,10 +464,10 @@ export default function DetailedResultsStep({
 
     const body = (
       <div className="space-y-3">
-        {report.pdf.details && (
-          <p className="text-sm text-gray-600">{report.pdf.details}</p>
+        {(report.pdf as any)?.details && (
+          <p className="text-sm text-gray-600">{(report.pdf as any).details}</p>
         )}
-        {renderPdfStepHighlights(report.pdf.steps)}
+        {renderPdfStepHighlights(report.pdf?.steps)}
       </div>
     );
 

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { VariableQualityResult, getVariableMetricInfo } from '../services/variableQualityService';
+import { getVariableMetricInfo } from '../services/variableQualityService';
+import { VariableQualityResult } from '../types/gtm';
 import { InfoTooltip } from './ui/InfoTooltip';
 
 interface VariableQualityCardProps {
@@ -22,31 +23,31 @@ export const VariableQualityCard: React.FC<VariableQualityCardProps> = ({
     switch (message.status) {
       case 'critical':
         return {
-          bgColor: 'bg-red-50 dark:bg-red-900/20',
-          borderColor: 'border-red-200 dark:border-red-800',
-          textColor: 'text-red-600 dark:text-red-400',
-          buttonColor: 'bg-red-100 hover:bg-red-200 text-red-800 dark:bg-red-800 dark:hover:bg-red-700 dark:text-red-100'
+          bgColor: 'bg-fuchsia-50 dark:bg-fuchsia-900/20',
+          borderColor: 'border-fuchsia-200 dark:border-fuchsia-800',
+          textColor: 'text-fuchsia-700 dark:text-fuchsia-400',
+          buttonColor: 'bg-purple-600 hover:bg-purple-700 text-white'
         };
       case 'major':
         return {
-          bgColor: 'bg-orange-50 dark:bg-orange-900/20',
-          borderColor: 'border-orange-200 dark:border-orange-800',
-          textColor: 'text-orange-600 dark:text-orange-400',
-          buttonColor: 'bg-orange-100 hover:bg-orange-200 text-orange-800 dark:bg-orange-800 dark:hover:bg-orange-700 dark:text-orange-100'
+          bgColor: 'bg-purple-50 dark:bg-purple-900/20',
+          borderColor: 'border-purple-200 dark:border-purple-800',
+          textColor: 'text-purple-700 dark:text-purple-400',
+          buttonColor: 'bg-purple-600 hover:bg-purple-700 text-white'
         };
       case 'minor':
         return {
-          bgColor: 'bg-blue-50 dark:bg-blue-900/20',
-          borderColor: 'border-blue-200 dark:border-blue-800',
-          textColor: 'text-blue-600 dark:text-blue-400',
-          buttonColor: 'bg-blue-100 hover:bg-blue-200 text-blue-800 dark:bg-blue-800 dark:hover:bg-blue-700 dark:text-blue-100'
+          bgColor: 'bg-violet-50 dark:bg-violet-900/20',
+          borderColor: 'border-violet-200 dark:border-violet-800',
+          textColor: 'text-violet-700 dark:text-violet-400',
+          buttonColor: 'bg-purple-600 hover:bg-purple-700 text-white'
         };
       default: // 'ok'
         return {
-          bgColor: 'bg-green-50 dark:bg-green-900/20',
-          borderColor: 'border-green-200 dark:border-green-800',
-          textColor: 'text-green-600 dark:text-green-400',
-          buttonColor: 'bg-green-100 hover:bg-green-200 text-green-800 dark:bg-green-800 dark:hover:bg-green-700 dark:text-green-100'
+          bgColor: 'bg-indigo-50 dark:bg-indigo-900/20',
+          borderColor: 'border-indigo-200 dark:border-indigo-800',
+          textColor: 'text-indigo-700 dark:text-indigo-400',
+          buttonColor: 'bg-indigo-600 hover:bg-indigo-700 text-white'
         };
     }
   };
@@ -59,7 +60,6 @@ export const VariableQualityCard: React.FC<VariableQualityCardProps> = ({
       <div className={`${cardStyle.bgColor} ${cardStyle.borderColor} border-2 rounded-xl p-6 shadow-md hover:shadow-lg transition-all duration-200`}>
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
-            <span className="text-2xl">🧩</span>
             <div>
               <h3 className="text-lg font-semibold text-gray-800 dark:text-white">
                 Qualità Variabili
@@ -70,13 +70,12 @@ export const VariableQualityCard: React.FC<VariableQualityCardProps> = ({
             </div>
           </div>
           <InfoTooltip content="Nessuna variabile è stata rilevata nel container. Le variabili sono necessarie per gestire i dati dinamici.">
-            <span className="text-gray-400 hover:text-gray-600 cursor-help">ℹ️</span>
           </InfoTooltip>
         </div>
         
         <div className="text-center py-4">
           <p className="text-sm text-gray-600 dark:text-gray-400">
-            ⚠️ Container senza variabili
+            Container senza variabili
           </p>
         </div>
       </div>
@@ -90,7 +89,6 @@ export const VariableQualityCard: React.FC<VariableQualityCardProps> = ({
       {/* Header con icona e titolo */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
-          <span className="text-2xl">{metricInfo.icon}</span>
           <div>
             <h3 className="text-lg font-semibold text-gray-800 dark:text-white">
               {message.title}
@@ -119,21 +117,19 @@ export const VariableQualityCard: React.FC<VariableQualityCardProps> = ({
         </div>
         
         <div className="text-center">
-          <div className="text-2xl font-bold text-green-600 dark:text-green-400">
+          <div className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">
             {variable_quality.stats.total - variable_quality.stats.unused}
           </div>
           <div className="text-xs text-gray-600 dark:text-gray-400 flex items-center justify-center gap-1">
-            <span>✅</span>
             <span>Utilizzate</span>
           </div>
         </div>
         
         <div className="text-center">
-          <div className="text-2xl font-bold text-red-600 dark:text-red-400">
+          <div className="text-2xl font-bold text-fuchsia-600 dark:text-fuchsia-400">
             {variable_quality.stats.unused}
           </div>
           <div className="text-xs text-gray-600 dark:text-gray-400 flex items-center justify-center gap-1">
-            <span>⚠️</span>
             <span>Non usate</span>
           </div>
         </div>
@@ -143,32 +139,32 @@ export const VariableQualityCard: React.FC<VariableQualityCardProps> = ({
       <div className="flex flex-wrap gap-2 mb-4">
         {variable_quality.stats.dlv_missing_fallback > 0 && (
           <span className="px-2 py-1 text-xs bg-orange-100 text-orange-800 rounded-full flex items-center gap-1">
-            ⚠️ DLV senza fallback ({variable_quality.stats.dlv_missing_fallback})
+            DLV senza fallback ({variable_quality.stats.dlv_missing_fallback})
           </span>
         )}
         {variable_quality.stats.lookup_without_default > 0 && (
           <span className="px-2 py-1 text-xs bg-red-100 text-red-800 rounded-full flex items-center gap-1">
-            ❌ Lookup senza default ({variable_quality.stats.lookup_without_default})
+            Lookup senza default ({variable_quality.stats.lookup_without_default})
           </span>
         )}
         {variable_quality.stats.duplicates > 0 && (
           <span className="px-2 py-1 text-xs bg-yellow-100 text-yellow-800 rounded-full flex items-center gap-1">
-            🔄 Duplicati ({variable_quality.stats.duplicates})
+            Duplicati ({variable_quality.stats.duplicates})
           </span>
         )}
         {variable_quality.stats.regex_malformed > 0 && (
           <span className="px-2 py-1 text-xs bg-red-100 text-red-800 rounded-full flex items-center gap-1">
-            🚫 Regex malformate ({variable_quality.stats.regex_malformed})
+            Regex malformate ({variable_quality.stats.regex_malformed})
           </span>
         )}
         {variable_quality.stats.css_fragile_selectors > 0 && (
           <span className="px-2 py-1 text-xs bg-yellow-100 text-yellow-800 rounded-full flex items-center gap-1">
-            🎯 Selettori fragili ({variable_quality.stats.css_fragile_selectors})
+            Selettori fragili ({variable_quality.stats.css_fragile_selectors})
           </span>
         )}
         {variable_quality.stats.js_unsafe_code > 0 && (
           <span className="px-2 py-1 text-xs bg-red-100 text-red-800 rounded-full flex items-center gap-1">
-            ⚡ JS non sicuro ({variable_quality.stats.js_unsafe_code})
+            JS non sicuro ({variable_quality.stats.js_unsafe_code})
           </span>
         )}
       </div>
@@ -244,7 +240,7 @@ export const VariableQualityCard: React.FC<VariableQualityCardProps> = ({
           <div className="space-y-1">
             {variable_quality.issues
               .slice(0, 3) // Mostra solo i primi 3
-              .map((issue, index) => (
+                .map((issue: any, index: number) => (
                 <div key={`examples-${issue.variable_id || 'unknown'}-${index}`} className="text-xs text-gray-600 dark:text-gray-400">
                   <span className="font-bold text-gray-800 dark:text-gray-200">{issue.name}</span>
                   <span className="ml-2">→ {issue.reason}</span>
@@ -292,7 +288,7 @@ export const VariableQualityCard: React.FC<VariableQualityCardProps> = ({
           <div className="space-y-1">
             {variable_quality.issues
               .slice(0, 3) // Mostra solo i primi 3
-              .map((issue, index) => (
+              .map((issue: any, index: number) => (
                 <div key={`detailed-${issue.variable_id || 'unknown'}-${index}`} className="text-xs text-gray-600 dark:text-gray-400">
                   <span className="font-bold text-gray-800 dark:text-gray-200">{issue.name}</span>
                   <span className="ml-2">— {issue.reason}</span>
@@ -376,24 +372,24 @@ export const VariableQualityCard: React.FC<VariableQualityCardProps> = ({
           {(() => {
             // Determina il CTA più specifico basandosi sui problemi più critici
             if (variable_quality.stats.lookup_without_default > 0) {
-              return '❌ Esamina Lookup senza default';
+              return 'Esamina Lookup senza default';
             }
             if (variable_quality.stats.dlv_missing_fallback > 0) {
-              return '⚠️ Esamina DLV senza fallback';
+              return 'Esamina DLV senza fallback';
             }
             if (variable_quality.stats.js_unsafe_code > 0) {
-              return '⚡ Esamina JS non sicuro';
+              return 'Esamina JS non sicuro';
             }
             if (variable_quality.stats.regex_malformed > 0) {
-              return '🚫 Esamina Regex malformate';
+              return 'Esamina Regex malformate';
             }
             if (variable_quality.stats.duplicates > 0) {
-              return '🔄 Esamina Duplicati';
+              return 'Esamina Duplicati';
             }
             if (variable_quality.stats.unused > 0) {
-              return '🗑️ Esamina Variabili non usate';
+              return 'Esamina Variabili non usate';
             }
-            return '🧩 Rivedi variabili';
+            return 'Rivedi variabili';
           })()}
         </button>
       </div>
@@ -401,7 +397,7 @@ export const VariableQualityCard: React.FC<VariableQualityCardProps> = ({
       {/* Indicatore espansione */}
       <div className="flex justify-center mt-2">
         <span className="text-xs text-gray-500 dark:text-gray-400">
-          {isExpanded ? '🔼 Clicca per comprimere' : '🔽 Clicca per espandere'}
+          {isExpanded ? 'Clicca per comprimere' : 'Clicca per espandere'}
         </span>
       </div>
       

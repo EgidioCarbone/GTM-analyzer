@@ -12,7 +12,7 @@ export const getImpactTheme = (count: number) => {
       text: 'text-green-800',
       icon: 'text-green-600',
       badge: 'bg-green-100 text-green-800',
-      severity: 'OK'
+      severity: 'SeverityOK'
     };
   }
   
@@ -24,7 +24,7 @@ export const getImpactTheme = (count: number) => {
       text: 'text-yellow-800',
       icon: 'text-yellow-600',
       badge: 'bg-yellow-100 text-yellow-800',
-      severity: 'Bassa'
+      severity: 'Severity: Bassa'
     };
   }
   
@@ -36,7 +36,7 @@ export const getImpactTheme = (count: number) => {
       text: 'text-orange-800',
       icon: 'text-orange-600',
       badge: 'bg-orange-100 text-orange-800',
-      severity: 'Media'
+      severity: 'Severity: Media'
     };
   }
   
@@ -48,7 +48,7 @@ export const getImpactTheme = (count: number) => {
     text: 'text-red-800',
     icon: 'text-red-600',
     badge: 'bg-red-100 text-red-800',
-    severity: 'Critica'
+    severity: ' Priorità: Critica'
   };
 };
 

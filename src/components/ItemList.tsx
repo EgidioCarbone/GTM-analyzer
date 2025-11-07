@@ -27,7 +27,7 @@ export default function ItemList({
   const [selectedRows, setSelectedRows] = useState<Set<string | number>>(new Set());
   const [bulkModal, setBulkModal] = useState(false);
 
-  const idKey = type + "Id" as const;
+  const idKey = type + "Id";
 
   const typesFound = Array.from(new Set(items.map((i) => i.type).filter(Boolean))).sort();
 

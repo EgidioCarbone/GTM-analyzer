@@ -584,7 +584,6 @@ function generateVariableMessage(stats: {
 export function getVariableMetricInfo(severity: 'critical' | 'major' | 'minor' | 'ok') {
   const metricInfo = {
     critical: {
-      icon: "🚨",
       title: "Qualità Variabili",
       subtitle: "Variabili con problemi critici di configurazione",
       impact: "Variabili mal configurate possono causare errori di tracking e performance.",
@@ -595,7 +594,6 @@ export function getVariableMetricInfo(severity: 'critical' | 'major' | 'minor' |
       textColor: "text-red-600 dark:text-red-400"
     },
     major: {
-      icon: "⚠️",
       title: "Qualità Variabili",
       subtitle: "Variabili con problemi di configurazione",
       impact: "Alcune variabili potrebbero essere ottimizzate per migliori performance.",
@@ -606,7 +604,6 @@ export function getVariableMetricInfo(severity: 'critical' | 'major' | 'minor' |
       textColor: "text-orange-600 dark:text-orange-400"
     },
     minor: {
-      icon: "ℹ️",
       title: "Qualità Variabili",
       subtitle: "Variabili con piccole ottimizzazioni possibili",
       impact: "Variabili configurate correttamente con margini di miglioramento.",
@@ -617,7 +614,6 @@ export function getVariableMetricInfo(severity: 'critical' | 'major' | 'minor' |
       textColor: "text-blue-600 dark:text-blue-400"
     },
     ok: {
-      icon: "✅",
       title: "Qualità Variabili",
       subtitle: "Variabili configurate correttamente",
       impact: "Tutte le variabili sono configurate in modo ottimale.",

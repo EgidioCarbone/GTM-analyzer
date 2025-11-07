@@ -451,39 +451,39 @@ function generateTechnicalSummary(params: {
   lines.push("");
 
   // GTM Analysis
-  lines.push("#### 📊 Google Tag Manager");
+  lines.push("#### Google Tag Manager");
   if (gtmIds.length > 0) {
-    lines.push(`✅ **Container GTM rilevati**: ${gtmIds.join(', ')}`);
-    lines.push(`✅ **DataLayer inizializzato**: ${dataLayerSummary.count} eventi totali`);
-    lines.push(`✅ **Eventi unici**: ${dataLayerSummary.uniqueEvents.slice(0, 5).join(', ')}`);
+    lines.push(`**Container GTM rilevati**: ${gtmIds.join(', ')}`);
+    lines.push(`**DataLayer inizializzato**: ${dataLayerSummary.count} eventi totali`);
+    lines.push(`**Eventi unici**: ${dataLayerSummary.uniqueEvents.slice(0, 5).join(', ')}`);
   } else {
-    lines.push("❌ **Nessun container GTM rilevato**");
+    lines.push("**Nessun container GTM rilevato**");
   }
   lines.push("");
 
   // Consent Mode Analysis
-  lines.push("#### 🍪 Gestione Consensi");
+  lines.push("#### Gestione Consensi");
   if (consentModePresent) {
-    lines.push("✅ **Consent Mode attivo**");
+    lines.push("**Consent Mode attivo**");
   } else {
-    lines.push("⚠️ **Consent Mode non rilevato**");
+    lines.push("**Consent Mode non rilevato**");
   }
   
   if (cookieBannerLibs.length > 0) {
-    lines.push(`✅ **Cookie Banner rilevati**: ${cookieBannerLibs.join(', ')}`);
+    lines.push(`**Cookie Banner rilevati**: ${cookieBannerLibs.join(', ')}`);
   } else {
-    lines.push("⚠️ **Nessun cookie banner rilevato**");
+    lines.push("**Nessun cookie banner rilevato**");
   }
   
   if (consentCallsFoundInHtml.length > 0) {
-    lines.push(`✅ **Chiamate gtag('consent') nell'HTML**: ${consentCallsFoundInHtml.length} rilevate`);
+    lines.push(`**Chiamate gtag('consent') nell'HTML**: ${consentCallsFoundInHtml.length} rilevate`);
   } else {
-    lines.push("ℹ️ **Nessuna chiamata gtag('consent') rilevata nell'HTML**");
+    lines.push("**Nessuna chiamata gtag('consent') rilevata nell'HTML**");
   }
   lines.push("");
 
   // Performance Analysis
-  lines.push("#### ⚡ Performance");
+  lines.push("#### Performance");
   const perfStatus = performanceScore >= 80 ? "✅" : performanceScore >= 60 ? "⚠️" : "❌";
   lines.push(`${perfStatus} **Score Performance**: ${performanceScore}/100`);
   

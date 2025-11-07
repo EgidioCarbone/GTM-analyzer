@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { HtmlSecurityResult, getHtmlSecurityMetricInfo } from '../services/htmlSecurityService';
+import { getHtmlSecurityMetricInfo } from '../services/htmlSecurityService';
+import { HtmlSecurityResult } from '../types/gtm';
 import { InfoTooltip } from './ui/InfoTooltip';
 
 interface HtmlSecurityCardProps {
@@ -22,35 +23,31 @@ export const HtmlSecurityCard: React.FC<HtmlSecurityCardProps> = ({
     switch (message.status) {
       case 'critical':
         return {
-          bgColor: 'bg-red-50 dark:bg-red-900/20',
-          borderColor: 'border-red-200 dark:border-red-800',
-          textColor: 'text-red-600 dark:text-red-400',
-          buttonColor:
-            'bg-red-100 hover:bg-red-200 text-red-800 dark:bg-red-800 dark:hover:bg-red-700 dark:text-red-100',
+          bgColor: 'bg-fuchsia-50 dark:bg-fuchsia-900/20',
+          borderColor: 'border-fuchsia-200 dark:border-fuchsia-800',
+          textColor: 'text-fuchsia-700 dark:text-fuchsia-400',
+          buttonColor: 'bg-purple-600 hover:bg-purple-700 text-white',
         };
       case 'major':
         return {
-          bgColor: 'bg-orange-50 dark:bg-orange-900/20',
-          borderColor: 'border-orange-200 dark:border-orange-800',
-          textColor: 'text-orange-600 dark:text-orange-400',
-          buttonColor:
-            'bg-orange-100 hover:bg-orange-200 text-orange-800 dark:bg-orange-800 dark:hover:bg-orange-700 dark:text-orange-100',
+          bgColor: 'bg-purple-50 dark:bg-purple-900/20',
+          borderColor: 'border-purple-200 dark:border-purple-800',
+          textColor: 'text-purple-700 dark:text-purple-400',
+          buttonColor: 'bg-purple-600 hover:bg-purple-700 text-white',
         };
       case 'minor':
         return {
-          bgColor: 'bg-blue-50 dark:bg-blue-900/20',
-          borderColor: 'border-blue-200 dark:border-blue-800',
-          textColor: 'text-blue-600 dark:text-blue-400',
-          buttonColor:
-            'bg-blue-100 hover:bg-blue-200 text-blue-800 dark:bg-blue-800 dark:hover:bg-blue-700 dark:text-blue-100',
+          bgColor: 'bg-violet-50 dark:bg-violet-900/20',
+          borderColor: 'border-violet-200 dark:border-violet-800',
+          textColor: 'text-violet-700 dark:text-violet-400',
+          buttonColor: 'bg-purple-600 hover:bg-purple-700 text-white',
         };
       default:
         return {
-          bgColor: 'bg-green-50 dark:bg-green-900/20',
-          borderColor: 'border-green-200 dark:border-green-800',
-          textColor: 'text-green-600 dark:text-green-400',
-          buttonColor:
-            'bg-green-100 hover:bg-green-200 text-green-800 dark:bg-green-800 dark:hover:bg-green-700 dark:text-green-100',
+          bgColor: 'bg-indigo-50 dark:bg-indigo-900/20',
+          borderColor: 'border-indigo-200 dark:border-indigo-800',
+          textColor: 'text-indigo-700 dark:text-indigo-400',
+          buttonColor: 'bg-indigo-600 hover:bg-indigo-700 text-white',
         };
     }
   };
@@ -62,14 +59,12 @@ export const HtmlSecurityCard: React.FC<HtmlSecurityCardProps> = ({
       <div className={`${cardStyle.bgColor} ${cardStyle.borderColor} border-2 rounded-xl p-6 shadow-md hover:shadow-lg transition-all duration-200`}>
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
-            <span className="text-2xl">🔒</span>
             <div>
               <h3 className="text-lg font-semibold text-gray-800 dark:text-white">Sicurezza Custom HTML</h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">Nessun tag HTML custom rilevato</p>
             </div>
           </div>
           <InfoTooltip content="Nessun tag HTML custom è stato rilevato nel container. I tag HTML custom richiedono particolare attenzione per la sicurezza.">
-            <span className="text-gray-400 hover:text-gray-600 cursor-help">ℹ️</span>
           </InfoTooltip>
         </div>
         <div className="text-center py-4">
@@ -80,21 +75,20 @@ export const HtmlSecurityCard: React.FC<HtmlSecurityCardProps> = ({
   }
 
   const scorePct = Number(((html_security.score ?? 0) * 100).toFixed(1));
-  const pausedCount = html_security.details.filter(d => d.paused).length;
+  const pausedCount = html_security.details.filter((d: any) => d.paused).length;
 
   return (
     <div className={`${cardStyle.bgColor} ${cardStyle.borderColor} border-2 rounded-xl p-6 shadow-md hover:shadow-lg transition-all duration-200`}>
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
-          <span className="text-2xl">{metricInfo.icon}</span>
           <div>
             <h3 className="text-lg font-semibold text-gray-800 dark:text-white">{message.title}</h3>
             <p className="text-sm text-gray-600 dark:text-gray-400">{message.summary}</p>
           </div>
         </div>
         <div className={`px-3 py-1 rounded-full text-xs font-medium ${metricInfo.priorityColor}`}>
-          Priorità: {metricInfo.priority}
+          {metricInfo.priority}
         </div>
       </div>
 
@@ -105,19 +99,19 @@ export const HtmlSecurityCard: React.FC<HtmlSecurityCardProps> = ({
           <div className="text-xs text-gray-600 dark:text-gray-400">Tag HTML</div>
         </div>
         <div className="text-center">
-          <div className="text-2xl font-bold text-red-600 dark:text-red-400">{html_security.critical}</div>
+          <div className="text-2xl font-bold text-fuchsia-600 dark:text-fuchsia-400">{html_security.critical}</div>
           <div className="text-xs text-gray-600 dark:text-gray-400 flex items-center justify-center gap-1">
            <span>Critici</span>
           </div>
         </div>
         <div className="text-center">
-          <div className="text-2xl font-bold text-orange-600 dark:text-orange-400">{html_security.major}</div>
+          <div className="text-2xl font-bold text-purple-600 dark:text-purple-400">{html_security.major}</div>
           <div className="text-xs text-gray-600 dark:text-gray-400 flex items-center justify-center gap-1">
            <span>Maggiori</span>
           </div>
         </div>
         <div className="text-center">
-          <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">{html_security.minor}</div>
+          <div className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">{html_security.minor}</div>
           <div className="text-xs text-gray-600 dark:text-gray-400 flex items-center justify-center gap-1">
             <span>Minori</span>
           </div>
@@ -126,21 +120,18 @@ export const HtmlSecurityCard: React.FC<HtmlSecurityCardProps> = ({
 
       {/* ⬇️ Riquadro blu con Score / Domini / Pausa */}
       <div className="mb-4">
-        <div className="rounded-xl border border-blue-200 bg-blue-100/70 text-blue-900 px-4 py-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+        <div className="rounded-xl border border-purple-200 bg-purple-100/70 text-purple-900 px-4 py-3 flex flex-wrap items-center gap-x-4 gap-y-2">
           <div className="flex items-center gap-2">
-            <span className="text-blue-700">🛡️</span>
             <span className="text-sm font-semibold">Score sicurezza:</span>
             <span className="text-sm font-bold">{scorePct}%</span>
           </div>
-          <div className="hidden sm:block w-px h-4 bg-blue-300" />
+          <div className="hidden sm:block w-px h-4 bg-purple-300" />
           <div className="flex items-center gap-2">
-            <span className="text-blue-700">🌐</span>
             <span className="text-sm">Domini terzi:</span>
             <span className="text-sm font-semibold">{html_security.third_parties.length}</span>
           </div>
-          <div className="hidden sm:block w-px h-4 bg-blue-300" />
+          <div className="hidden sm:block w-px h-4 bg-purple-300" />
           <div className="flex items-center gap-2">
-            <span className="text-blue-700">⏸️</span>
             <span className="text-sm">Tag in pausa:</span>
             <span className="text-sm font-semibold">{pausedCount}</span>
           </div>
@@ -157,7 +148,7 @@ export const HtmlSecurityCard: React.FC<HtmlSecurityCardProps> = ({
             </span>
           </div>
           <div className="flex flex-wrap gap-1">
-            {html_security.third_parties.slice(0, 5).map((domain, index) => (
+            {html_security.third_parties.slice(0, 5).map((domain: any, index: number) => (
               <span key={index} className="px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded">
                 {domain}
               </span>
@@ -176,10 +167,10 @@ export const HtmlSecurityCard: React.FC<HtmlSecurityCardProps> = ({
         <div className="mb-4">
           <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Esempi di problemi:</h4>
           <div className="space-y-1">
-            {html_security.details.slice(0, 3).map((detail, index) => (
+            {html_security.details.slice(0, 3).map((detail: any, index: number) => (
               <div key={`examples-${detail.id}-${index}`} className="text-xs text-gray-600 dark:text-gray-400">
                 <span className="font-bold text-gray-800 dark:text-gray-200">{detail.name}</span>
-                <span className="ml-2">— {detail.issues.slice(0, 2).map(i => i.message).join(', ')}</span>
+                <span className="ml-2">— {detail.issues.slice(0, 2).map((i: any) => i.message).join(', ')}</span>
               </div>
             ))}
           </div>
@@ -234,7 +225,7 @@ export const HtmlSecurityCard: React.FC<HtmlSecurityCardProps> = ({
             </div>
 
             <div className="p-4 max-h-[70vh] overflow-y-auto space-y-3">
-              {html_security.details.map((detail, index) => (
+              {html_security.details.map((detail: any, index: number) => (
                 <div key={`modal-row-${detail.id}-${index}`} className="p-3 bg-white dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600">
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
@@ -254,7 +245,7 @@ export const HtmlSecurityCard: React.FC<HtmlSecurityCardProps> = ({
                   </div>
 
                   <div className="space-y-1 mb-2">
-                    {detail.issues.map((issue, idx) => (
+                    {detail.issues.map((issue: any, idx: number) => (
                       <div key={idx} className="text-xs text-gray-600 dark:text-gray-300">
                         • {issue.message}
                         {issue.url && (

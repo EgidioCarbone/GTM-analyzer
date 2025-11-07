@@ -21,20 +21,20 @@ export default function ResultsStep({
         <h2 className="text-xl font-semibold mb-4">Test Results Summary</h2>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div className="text-center">
-            <div className="text-2xl font-bold text-gray-900">{state.report.summary.steps}</div>
+              <div className="text-2xl font-bold text-gray-900">{state.report.summary?.steps ?? 0}</div>
             <div className="text-sm text-gray-600">Total Steps</div>
           </div>
           <div className="text-center">
-            <div className="text-2xl font-bold text-green-600">{state.report.summary.passed}</div>
+            <div className="text-2xl font-bold text-green-600">{state.report.summary?.passed ?? 0}</div>
             <div className="text-sm text-gray-600">Passed</div>
           </div>
           <div className="text-center">
-            <div className="text-2xl font-bold text-red-600">{state.report.summary.failed}</div>
+            <div className="text-2xl font-bold text-red-600">{state.report.summary?.failed ?? 0}</div>
             <div className="text-sm text-gray-600">Failed</div>
           </div>
           <div className="text-center">
             <div className="text-2xl font-bold text-blue-600">
-              {Math.round(state.report.summary.duration / 1000)}s
+              {Math.round((state.report.summary?.duration ?? 0) / 1000)}s
             </div>
             <div className="text-sm text-gray-600">Duration</div>
           </div>

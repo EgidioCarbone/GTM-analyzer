@@ -525,7 +525,6 @@ function generateHtmlMessage(result: any): HtmlSecurityResult['message'] {
 export function getHtmlSecurityMetricInfo(severity: 'critical' | 'major' | 'minor' | 'ok') {
   const metricInfo = {
     critical: {
-      icon: "🚨",
       title: "Sicurezza Custom HTML",
       subtitle: "Tag HTML con problemi critici di sicurezza",
       impact: "Tag HTML con vulnerabilità critiche che possono compromettere la sicurezza.",
@@ -536,7 +535,6 @@ export function getHtmlSecurityMetricInfo(severity: 'critical' | 'major' | 'mino
       textColor: "text-red-600 dark:text-red-400"
     },
     major: {
-      icon: "⚠️",
       title: "Sicurezza Custom HTML",
       subtitle: "Tag HTML con problemi di sicurezza",
       impact: "Tag HTML con problemi che possono impattare performance e sicurezza.",
@@ -547,7 +545,6 @@ export function getHtmlSecurityMetricInfo(severity: 'critical' | 'major' | 'mino
       textColor: "text-orange-600 dark:text-orange-400"
     },
     minor: {
-      icon: "ℹ️",
       title: "Sicurezza Custom HTML",
       subtitle: "Tag HTML con piccole ottimizzazioni possibili",
       impact: "Tag HTML configurati correttamente con margini di miglioramento.",
@@ -558,7 +555,6 @@ export function getHtmlSecurityMetricInfo(severity: 'critical' | 'major' | 'mino
       textColor: "text-blue-600 dark:text-blue-400"
     },
     ok: {
-      icon: "✅",
       title: "Sicurezza Custom HTML",
       subtitle: "Tag HTML configurati correttamente",
       impact: "Tutti i tag HTML sono configurati in modo sicuro.",

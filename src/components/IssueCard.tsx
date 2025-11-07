@@ -19,34 +19,70 @@ export interface ImpactTheme {
 
 const THEMES: Record<ImpactLevel, ImpactTheme> = {
   critical: {
-    bg: "bg-red-50 dark:bg-red-900/20",
-    border: "border-red-200 dark:border-red-800",
-    text: "text-red-700 dark:text-red-300",
-    badge: "bg-red-100 text-red-800",
+    bg: "bg-fuchsia-50 dark:bg-fuchsia-900/20",
+    border: "border-fuchsia-200 dark:border-fuchsia-800",
+    text: "text-fuchsia-700 dark:text-fuchsia-300",
+    badge: "bg-fuchsia-100 text-fuchsia-800",
     type: "critical",
     severity: "Critica",
   },
   high: {
-    bg: "bg-orange-50 dark:bg-orange-900/20",
-    border: "border-orange-200 dark:border-orange-800",
-    text: "text-orange-700 dark:text-orange-300",
-    badge: "bg-orange-100 text-orange-800",
+    bg: "bg-purple-50 dark:bg-purple-900/20",
+    border: "border-purple-200 dark:border-purple-800",
+    text: "text-purple-700 dark:text-purple-300",
+    badge: "bg-purple-100 text-purple-800",
     type: "high",
     severity: "Maggiore",
   },
   warning: {
-    bg: "bg-yellow-50 dark:bg-yellow-900/20",
-    border: "border-yellow-200 dark:border-yellow-800",
-    text: "text-yellow-700 dark:text-yellow-300",
-    badge: "bg-yellow-100 text-yellow-800",
+    bg: "bg-violet-50 dark:bg-violet-900/20",
+    border: "border-violet-200 dark:border-violet-800",
+    text: "text-violet-700 dark:text-violet-300",
+    badge: "bg-violet-100 text-violet-800",
     type: "warning",
     severity: "Minore",
   },
   ok: {
-    bg: "bg-green-50 dark:bg-green-900/20",
-    border: "border-green-200 dark:border-green-800",
-    text: "text-green-700 dark:text-green-300",
-    badge: "bg-green-100 text-green-800",
+    bg: "bg-indigo-50 dark:bg-indigo-900/20",
+    border: "border-indigo-200 dark:border-indigo-800",
+    text: "text-indigo-700 dark:text-indigo-300",
+    badge: "bg-indigo-100 text-indigo-800",
+    type: "ok",
+    severity: "OK",
+  },
+};
+
+// Palette alternativa in sfumature del lilla/viola
+const LILAC_THEMES: Record<ImpactLevel, ImpactTheme> = {
+  critical: {
+    bg: "bg-fuchsia-50 dark:bg-fuchsia-900/20",
+    border: "border-fuchsia-200 dark:border-fuchsia-800",
+    text: "text-fuchsia-700 dark:text-fuchsia-300",
+    badge: "bg-fuchsia-100 text-fuchsia-800",
+    type: "critical",
+    severity: "Critica",
+  },
+  high: {
+    bg: "bg-purple-50 dark:bg-purple-900/20",
+    border: "border-purple-200 dark:border-purple-800",
+    text: "text-purple-700 dark:text-purple-300",
+    badge: "bg-purple-100 text-purple-800",
+    type: "high",
+    severity: "Maggiore",
+  },
+  warning: {
+    bg: "bg-violet-50 dark:bg-violet-900/20",
+    border: "border-violet-200 dark:border-violet-800",
+    text: "text-violet-700 dark:text-violet-300",
+    badge: "bg-violet-100 text-violet-800",
+    type: "warning",
+    severity: "Minore",
+  },
+  ok: {
+    bg: "bg-indigo-50 dark:bg-indigo-900/20",
+    border: "border-indigo-200 dark:border-indigo-800",
+    text: "text-indigo-700 dark:text-indigo-300",
+    badge: "bg-indigo-100 text-indigo-800",
     type: "ok",
     severity: "OK",
   },
@@ -94,6 +130,8 @@ interface IssueCardProps {
   defaultExpanded?: boolean;
   /** Opzionale: forza lo stato visuale (usalo per Doppio Page View) */
   status?: Status;
+  /** Palette cromatica opzionale (default = semaforo) */
+  palette?: "default" | "lilac";
 }
 
 /* ------------------------------------------------------------------ */
@@ -138,12 +176,12 @@ export const IssueCard: React.FC<IssueCardProps> = ({
 
   const dotClass =
     theme.type === "critical"
-      ? "bg-red-500"
+      ? "bg-fuchsia-500"
       : theme.type === "high"
-      ? "bg-orange-500"
+      ? "bg-purple-500"
       : theme.type === "warning"
-      ? "bg-yellow-500"
-      : "bg-green-500";
+      ? "bg-violet-500"
+      : "bg-indigo-500";
 
   const ariaLabel = `${title} – severità ${derivedSeverity} – ${count} elementi`;
 
@@ -151,7 +189,7 @@ export const IssueCard: React.FC<IssueCardProps> = ({
   if (isZeroOk) {
     return (
       <div
-        className={`${theme.bg} rounded-lg p-3 border-l-4 ${theme.border} border-l-current`}
+        className={`${theme.bg} rounded-lg p-3`}
         aria-label={ariaLabel}
         role="article"
       >
@@ -169,7 +207,7 @@ export const IssueCard: React.FC<IssueCardProps> = ({
             <span className={`px-2 py-1 text-xs font-medium rounded-full ${theme.badge}`}>
               OK
             </span>
-            <div className="w-3 h-3 bg-green-500 rounded-full" />
+            <div className="w-3 h-3 bg-indigo-500 rounded-full" />
           </div>
         </div>
       </div>
@@ -179,7 +217,7 @@ export const IssueCard: React.FC<IssueCardProps> = ({
   /* ---------- Layout esteso (problemi presenti o status forzato) ---------- */
   return (
     <div
-      className={`${theme.bg} rounded-lg p-5 border-l-4 ${theme.border} border-l-current flex flex-col h-full`}
+      className={`${theme.bg} rounded-lg p-5 flex flex-col h-full`}
       aria-label={ariaLabel}
       role="article"
     >
@@ -252,15 +290,7 @@ export const IssueCard: React.FC<IssueCardProps> = ({
       {count > 0 && ctaLabel && onCta && (
         <div className="mt-5 pt-4 border-t border-white/20">
           <button
-            className={`w-full text-sm px-4 py-2.5 rounded-lg transition-all duration-200 font-semibold shadow-md hover:shadow-lg transform hover:scale-[1.02] ${
-              theme.type === "critical"
-                ? "bg-red-500 hover:bg-red-600 text-white border-2 border-red-600 shadow-lg hover:shadow-xl"
-                : theme.type === "high"
-                ? "bg-orange-500 hover:bg-orange-600 text-white border-2 border-orange-600 shadow-md hover:shadow-lg"
-                : theme.type === "warning"
-                ? "bg-yellow-500 hover:bg-yellow-600 text-white border-2 border-yellow-600 shadow-md hover:shadow-lg"
-                : "bg-blue-500 hover:bg-blue-600 text-white border-2 border-blue-600 shadow-md hover:shadow-lg"
-            }`}
+            className={`w-full text-sm px-4 py-2.5 rounded-lg transition-all duration-200 font-semibold shadow-md hover:shadow-lg transform hover:scale-[1.02] bg-purple-600 hover:bg-purple-700 text-white border-2 border-purple-700`}
             onClick={(e) => {
               e.stopPropagation();
               onCta();
