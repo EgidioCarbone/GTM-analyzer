@@ -1,4 +1,10 @@
-import type { ModuleId, ModuleScenario, ModuleEventDefinition, ScenarioStep } from '../modules/types';
+import type {
+  ModuleId,
+  ModuleScenario,
+  ModuleEventDefinition,
+  ScenarioStep,
+  ModuleSettings,
+} from '../modules/types';
 
 // SDD Test Types
 // ============================================================================
@@ -275,6 +281,7 @@ export interface SSDTestState {
   report: TestReport | null;
   isLoading: boolean;
   error: string | null;
+  moduleSettings: ModuleSettings | null;
   scenarios: ModuleScenario[];
   eventDefinitions: ModuleEventDefinition[];
   scenarioId: string | null;

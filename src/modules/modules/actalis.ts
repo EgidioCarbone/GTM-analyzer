@@ -1,5 +1,4 @@
 import { SSDModule } from '../types';
-import manifest from './actalis.manifest.json';
 
 export const actalisModule: SSDModule = {
   meta: {
@@ -19,5 +18,4 @@ export const actalisModule: SSDModule = {
   ],
   configFields: [],
   defaultConfig: {},
-  manifest,
 };

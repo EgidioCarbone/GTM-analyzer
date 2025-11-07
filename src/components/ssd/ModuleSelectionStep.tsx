@@ -49,12 +49,12 @@ export default function ModuleSelectionStep({
               Scegli il modulo perfetto per i tuoi <span className="bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 bg-clip-text text-transparent">SDD Test</span>
             </h1>
             <p className="text-lg leading-relaxed text-gray-600">
-              Ogni modulo raccoglie manifest cookie, URL di riferimento e suggerimenti sugli eventi più comuni della vertical. È il punto di partenza per creare scenari che generano una DSL pronta all’uso e validano il payload del dataLayer.
+              Ogni modulo definisce la pagina di riferimento, i suggerimenti sugli eventi più comuni e centralizza la configurazione della CMP. È il punto di partenza per creare scenari che generano una DSL pronta all’uso e validano il payload del dataLayer.
             </p>
             <div className="grid gap-4 sm:grid-cols-3">
               <div className="flex items-center gap-3 rounded-2xl border border-white/70 bg-white/80 px-4 py-3 text-sm text-gray-700 shadow-sm">
                 <BadgeCheck className="h-4 w-4 text-indigo-500" />
-                Cookie manifest inclusi
+                CMP configurabile per modulo
               </div>
               <div className="flex items-center gap-3 rounded-2xl border border-white/70 bg-white/80 px-4 py-3 text-sm text-gray-700 shadow-sm">
                 <Blocks className="h-4 w-4 text-purple-500" />

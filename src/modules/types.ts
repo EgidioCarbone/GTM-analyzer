@@ -33,68 +33,11 @@ export interface ModuleConfigField {
   options?: ModuleConfigOption[];
 }
 
-export interface ModuleCMPConfig {
-  vendor: string;
-  actions: {
-    acceptAllButton?: string;
-    rejectAllButton?: string;
-    preferencesButton?: string;
-  };
-  notes?: string;
-}
-
-export interface ModuleSelectorEntry {
-  selector: string;
-  description?: string;
-  expectedEvent?: string;
-  dataLayer?: Record<string, string>;
-  notes?: string;
-}
-
-export interface ModuleSelectors {
-  [key: string]: string | ModuleSelectorEntry[] | ModuleSelectorEntry | ModuleSelectors;
-}
-
-export interface ModuleUseCaseStepEvent {
-  event: string;
-  payload?: Record<string, unknown>;
-}
-
-export interface ModuleUseCaseStep {
-  action: 'click' | 'input' | 'waitFor' | 'navigate' | 'assertEvent';
-  description?: string;
-  targetSelector?: string;
-  value?: string;
-  waitForSelector?: string;
-  expectEvents?: ModuleUseCaseStepEvent[];
-  expectUrlContains?: string;
-  notes?: string;
-}
-
-export interface ModuleUseCase {
-  id: string;
-  label: string;
-  description?: string;
-  steps: ModuleUseCaseStep[];
-  trackingEvents?: string[];
-  artifacts?: {
-    screenshot?: string;
-  };
-}
-
-export interface ModuleManifest {
-  cmp?: ModuleCMPConfig;
-  selectors?: ModuleSelectors;
-  useCases?: ModuleUseCase[];
-  notes?: string;
-}
-
 export interface SSDModule {
   meta: ModuleMeta;
   supportedHosts: string[];
   configFields: ModuleConfigField[];
   defaultConfig?: Record<string, unknown>;
-  manifest?: ModuleManifest;
   defaultUrls?: string[];
 }
 
@@ -175,4 +118,29 @@ export interface ScenarioStep {
   description?: string;
   value?: string;
   delayAfterMs?: number;
+}
+
+export type CMPValidationStatus = 'ACCEPTED' | 'REJECTED' | 'UNKNOWN' | 'ERROR';
+
+export interface ModuleCMPValidation {
+  status: CMPValidationStatus;
+  reasoning: string;
+  executedAt: string;
+  evidence?: string[];
+  eventsCaptured?: number;
+  sampleEvents?: any[];
+}
+
+export interface ModuleCMPSettings {
+  selector: string;
+  vendor?: string;
+  testUrl?: string;
+  validatedAt: string;
+  lastValidation: ModuleCMPValidation;
+}
+
+export interface ModuleSettings {
+  moduleId: ModuleId;
+  updatedAt: string;
+  cmp?: ModuleCMPSettings;
 }

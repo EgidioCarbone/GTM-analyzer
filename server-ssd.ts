@@ -32,10 +32,18 @@ import ga4InsightsRouter from './src/services/ga4-insights.server.ts';
 import { modelSupportsCustomTemperature } from './src/utils/openaiCapabilities.ts';
 import { SSD_DEFAULTS, getConfigValue, parseArray } from './src/config/ssd-defaults.js';
 import { getModule } from './src/modules/index.js';
-import { buildTestSpecFromManifest } from './src/modules/dslBuilder.js';
 import { listModuleEventDefinitions, getModuleEventDefinition } from './src/modules/eventDefinitions.js';
 import { listModuleScenarios, getModuleScenario, upsertModuleScenario, deleteModuleScenario } from './src/modules/scenarioStore.js';
-import type { ModuleId, ModuleScenario, ScenarioStep, ModuleEventDefinition, SSDModule } from './src/modules/types.js';
+import { getModuleSettings, setModuleCmpSettings } from './src/modules/moduleSettingsStore.js';
+import type {
+  ModuleId,
+  ModuleScenario,
+  ScenarioStep,
+  ModuleEventDefinition,
+  SSDModule,
+  ModuleCMPSettings,
+  CMPValidationStatus
+} from './src/modules/types.js';
 import type { TestSpec, Step, TestResult, ModuleSource, ScenarioValidationOutcome } from './src/types/ssd.js';
 import { extractExpectedPayloadExpression } from './shared/expectedPayload.ts';
 
@@ -202,6 +210,21 @@ function valueIsPresent(value: any): boolean {
     return Object.keys(value).length > 0;
   }
   return true;
+}
+
+function resolveModuleDefaultUrl(moduleDefinition?: SSDModule): string | null {
+  if (!moduleDefinition) return null;
+  const candidates = [...(moduleDefinition.defaultUrls ?? []), ...(moduleDefinition.supportedHosts ?? [])];
+  for (const entry of candidates) {
+    if (!entry) continue;
+    const trimmed = entry.trim();
+    if (!trimmed) continue;
+    const candidateUrl = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed.replace(/^\/+/, '')}`;
+    if (isValidUrl(candidateUrl)) {
+      return candidateUrl;
+    }
+  }
+  return null;
 }
 
 type Difference = { path: string; type: 'missing' | 'mismatch'; expected?: any; actual?: any };
@@ -2413,17 +2436,17 @@ async function runScenarioFlow(params: {
   requestId: string;
   validatedDSL: TestSpec;
   options: RunOptions;
-  moduleDefinition?: SSDModule;
   moduleId?: ModuleId | null;
   scenario?: ModuleScenario;
   eventDefinition?: ModuleEventDefinition;
+  cmpSelector?: string | null;
 }): Promise<any> {
-  const { requestId, validatedDSL, options, moduleDefinition, moduleId, scenario, eventDefinition } =
+  const { requestId, validatedDSL, options, moduleId, scenario, eventDefinition, cmpSelector } =
     params;
 
   console.log('===== SCENARIO FLOW START =====');
 
-  const scenarioSpec = normalizeScenarioSpec(validatedDSL, validatedDSL.site, moduleDefinition);
+  const scenarioSpec = normalizeScenarioSpec(validatedDSL, validatedDSL.site, cmpSelector);
   const flatSteps: Array<{
     section: string;
     testIndex: number;
@@ -3747,8 +3770,8 @@ function sanitizeTestSpecPlaceholders(spec: TestSpec): TestSpec {
   return cloned;
 }
 
-function ensureCookieStep(spec: TestSpec, moduleDefinition?: SSDModule): void {
-  const selector = moduleDefinition?.manifest?.cmp?.actions?.acceptAllButton;
+function ensureCookieStep(spec: TestSpec, cmpSelector?: string | null): void {
+  const selector = typeof cmpSelector === 'string' ? cmpSelector.trim() : '';
   if (!selector) {
     return;
   }
@@ -3856,7 +3879,7 @@ function ensureNavigationStep(spec: TestSpec, scenarioUrl?: string): void {
   }
 }
 
-function normalizeScenarioSpec(spec: TestSpec, siteUrl?: string, moduleDefinition?: SSDModule): TestSpec {
+function normalizeScenarioSpec(spec: TestSpec, siteUrl?: string, cmpSelector?: string | null): TestSpec {
   const sanitized = sanitizeTestSpecPlaceholders(spec);
   const normalizedSite = siteUrl || sanitized.site;
   if (!sanitized.site && normalizedSite) {
@@ -3870,7 +3893,7 @@ function normalizeScenarioSpec(spec: TestSpec, siteUrl?: string, moduleDefinitio
         steps: (test.steps ?? []).filter(step => step.action !== 'custom'),
       })) ?? [];
   ensureNavigationStep(sanitized, normalizedSite);
-  ensureCookieStep(sanitized, moduleDefinition);
+  ensureCookieStep(sanitized, cmpSelector);
   ensureAllowedHosts(sanitized, normalizedSite);
   if (!sanitized.consent || sanitized.consent.length === 0) {
     sanitized.consent = ['accept'];
@@ -3939,16 +3962,24 @@ function buildManualScenarioTestSpec(moduleId: ModuleId, scenario: ModuleScenari
   };
 }
 
+interface ScenarioCmpContext {
+  selector: string;
+  vendor?: string | null;
+}
+
 async function generateScenarioTestSpecForScenario(
   moduleDefinition: SSDModule,
   scenario: ModuleScenario,
-  eventDefinition?: ModuleEventDefinition
+  eventDefinition?: ModuleEventDefinition,
+  cmpContext?: ScenarioCmpContext | null
 ): Promise<{ spec: TestSpec; meta: NonNullable<ModuleScenario['testSpecMeta']> }> {
   const generationTimestamp = new Date().toISOString();
   let fallbackReason: string | undefined;
 
-  const cmp = moduleDefinition.manifest?.cmp;
-  const cmpAcceptSelector = cmp?.actions?.acceptAllButton;
+  const cmpAcceptSelector =
+    typeof cmpContext?.selector === 'string' && cmpContext.selector.trim().length > 0
+      ? cmpContext.selector.trim()
+      : null;
   let rawGeneratedSpec: TestSpec | null = null;
   let sanitizedGeneratedSpec: TestSpec | null = null;
 
@@ -3959,12 +3990,10 @@ async function generateScenarioTestSpecForScenario(
         moduleName: moduleDefinition.meta.title,
         moduleDescription: moduleDefinition.meta.description,
         targetUrl: scenario.url,
-        cmp: cmp
+        cmp: cmpAcceptSelector
           ? {
-              vendor: cmp.vendor,
+              vendor: cmpContext?.vendor ?? null,
               acceptAllSelector: cmpAcceptSelector,
-              rejectAllSelector: cmp.actions?.rejectAllButton,
-              notes: cmp.notes,
             }
           : undefined,
         scenarioName: scenario.name,
@@ -3986,8 +4015,12 @@ async function generateScenarioTestSpecForScenario(
 
       const response = await openaiService.buildScenarioTestSpec(llmInput);
       rawGeneratedSpec = response.dsl as TestSpec;
-      ensureCookieStep(rawGeneratedSpec, moduleDefinition);
-      sanitizedGeneratedSpec = normalizeScenarioSpec(rawGeneratedSpec, scenario.url, moduleDefinition);
+      ensureCookieStep(rawGeneratedSpec, cmpAcceptSelector);
+      sanitizedGeneratedSpec = normalizeScenarioSpec(
+        rawGeneratedSpec,
+        scenario.url,
+        cmpAcceptSelector
+      );
 
       if (!sanitizedGeneratedSpec.meta) {
         sanitizedGeneratedSpec.meta = {
@@ -4062,8 +4095,12 @@ async function generateScenarioTestSpecForScenario(
       })
     : buildManualScenarioTestSpec(moduleDefinition.meta.id, scenario);
 
-  ensureCookieStep(fallbackSpec, moduleDefinition);
-  const sanitizedFallback = normalizeScenarioSpec(fallbackSpec, scenario.url, moduleDefinition);
+  ensureCookieStep(fallbackSpec, cmpAcceptSelector);
+  const sanitizedFallback = normalizeScenarioSpec(
+    fallbackSpec,
+    scenario.url,
+    cmpAcceptSelector
+  );
   const validatedFallback = validateTestSpec(sanitizedFallback) as TestSpec;
   if (!validatedFallback.meta) {
     validatedFallback.meta = {
@@ -4140,6 +4177,28 @@ function mergeScenarioSteps(
       value: raw && typeof raw.value === 'string' ? raw.value : step.value,
     };
   });
+}
+
+async function requireVerifiedCmpContext(moduleId: ModuleId): Promise<ScenarioCmpContext> {
+  const settings = await getModuleSettings(moduleId);
+  if (!settings?.cmp) {
+    throw new ValidationError(
+      'Configura la CMP del modulo prima di creare, modificare o eliminare scenari.',
+      'CMP_NOT_CONFIGURED'
+    );
+  }
+
+  if (settings.cmp.lastValidation.status !== 'ACCEPTED') {
+    throw new ValidationError(
+      'La CMP non è stata validata con successo. Completa la verifica per continuare.',
+      'CMP_NOT_VERIFIED'
+    );
+  }
+
+  return {
+    selector: settings.cmp.selector,
+    vendor: settings.cmp.vendor ?? null,
+  };
 }
 
 function ensureConfigFromSteps(
@@ -4258,6 +4317,188 @@ app.get('/api/modules/:moduleId/scenarios', async (req, res) => {
   }
 });
 
+app.post('/api/modules/:moduleId/cmp/validate', async (req, res) => {
+  try {
+    const moduleId = req.params.moduleId as ModuleId;
+    const moduleDefinition = getModule(moduleId);
+    if (!moduleDefinition) {
+      return res.status(404).json({ error: `Module '${moduleId}' not found` });
+    }
+
+    const selector =
+      typeof req.body?.selector === 'string' ? req.body.selector.trim() : '';
+    if (!selector) {
+      return res.status(400).json({
+        error: 'INVALID_SELECTOR',
+        message: 'Fornisci il selettore della CTA per accettare i cookie.',
+      });
+    }
+
+    if (!openaiService) {
+      return res.status(503).json({
+        error: 'OPENAI_NOT_CONFIGURED',
+        message: 'Configura OPENAI_API_KEY per validare automaticamente la CMP.',
+      });
+    }
+
+    let rawTestUrl = typeof req.body?.testUrl === 'string' ? req.body.testUrl.trim() : '';
+    if (rawTestUrl && !/^https?:\/\//i.test(rawTestUrl)) {
+      rawTestUrl = `https://${rawTestUrl.replace(/^\/+/, '')}`;
+    }
+
+    const fallbackUrl = resolveModuleDefaultUrl(moduleDefinition);
+    const testUrl = rawTestUrl || fallbackUrl;
+    if (!testUrl || !isValidUrl(testUrl)) {
+      return res.status(400).json({
+        error: 'INVALID_URL',
+        message: 'Specifica un URL di test valido per verificare la CMP.',
+      });
+    }
+
+    let host: string;
+    try {
+      host = new URL(testUrl).host;
+    } catch {
+      return res.status(400).json({
+        error: 'INVALID_URL',
+        message: 'Impossibile analizzare il dominio dell’URL indicato.',
+      });
+    }
+
+    const cmpSpec: TestSpec = {
+      site: testUrl,
+      allowed_hosts: [host],
+      consent: ['accept'],
+      tests: [
+        {
+          section: 'cmp-validation',
+          steps: [
+            {
+              description: 'Vai alla pagina del modulo',
+              action: 'navigate',
+              target: {
+                kind: 'href',
+                value: testUrl,
+              },
+              expect: [
+                {
+                  type: 'navigation',
+                  url_contains: host,
+                },
+              ],
+              severity: 'critical',
+            },
+            {
+              description: 'Accetta tutti i cookie',
+              action: 'click',
+              target: {
+                kind: 'selector',
+                value: selector,
+              },
+              severity: 'critical',
+            },
+          ],
+        },
+      ],
+      meta: {
+        model: 'cmp-validation',
+        moduleId,
+        tokens: { input: 0, output: 0 },
+      },
+    };
+
+    const runOptions: RunOptions = {
+      headless: req.body?.headless !== false,
+      consent: 'accept',
+      timeout: config.runnerStepTimeoutMs,
+      screenshotDir: 'screenshots',
+      allowedHosts: [host],
+      allowedTracking: config.puppeteerAllowedTracking,
+      allowedCDNs: config.puppeteerAllowedCDNs,
+    };
+
+    const requestId = `cmp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const scenarioResponse = await runScenarioFlow({
+      requestId,
+      validatedDSL: cmpSpec,
+      options: runOptions,
+      moduleId,
+      cmpSelector: selector,
+    });
+
+    const capturedEvents = scenarioResponse?.scenario?.events ?? [];
+    const evaluation = await openaiService.evaluateConsentValidation({
+      site: testUrl,
+      cmpVendor: typeof req.body?.vendor === 'string' ? req.body.vendor.trim() : moduleDefinition.meta.title,
+      selector,
+      capturedEvents,
+    });
+
+    const runnerStatus = scenarioResponse?.scenario?.status ?? 'ERROR';
+    const runnerError = scenarioResponse?.scenario?.error ?? null;
+    const finalStatus: CMPValidationStatus =
+      runnerStatus === 'ERROR' || runnerStatus === 'FAIL'
+        ? 'ERROR'
+        : evaluation.status;
+    const reasoning =
+      runnerStatus === 'ERROR' || runnerStatus === 'FAIL'
+        ? runnerError || 'Il runner non è riuscito a completare il test CMP.'
+        : evaluation.reasoning;
+
+    const cmpSettings: ModuleCMPSettings = {
+      selector,
+      vendor: typeof req.body?.vendor === 'string' && req.body.vendor.trim().length > 0 ? req.body.vendor.trim() : undefined,
+      testUrl,
+      validatedAt: new Date().toISOString(),
+      lastValidation: {
+        status: finalStatus,
+        reasoning,
+        executedAt: new Date().toISOString(),
+        evidence: evaluation.evidence,
+        eventsCaptured: capturedEvents.length,
+        sampleEvents: capturedEvents.slice(-5).map(event => event.payload),
+      },
+    };
+
+    const savedSettings = await setModuleCmpSettings(moduleId, cmpSettings);
+
+    return res.json({
+      moduleId,
+      settings: savedSettings,
+      runner: {
+        status: runnerStatus,
+        error: runnerError,
+      },
+      validation: savedSettings.cmp?.lastValidation ?? null,
+      scenario: scenarioResponse?.scenario ?? null,
+    });
+  } catch (error) {
+    console.error('[CMP] Validation failed', error);
+    if (error instanceof ValidationError) {
+      return res.status(400).json({ error: error.code, message: error.message });
+    }
+    return res.status(500).json({
+      error: 'INTERNAL_ERROR',
+      message: error instanceof Error ? error.message : 'Unexpected error',
+    });
+  }
+});
+
+app.get('/api/modules/:moduleId/settings', async (req, res) => {
+  try {
+    const moduleId = req.params.moduleId as ModuleId;
+    const moduleDefinition = getModule(moduleId);
+    if (!moduleDefinition) {
+      return res.status(404).json({ error: `Module '${moduleId}' not found` });
+    }
+    const settings = await getModuleSettings(moduleId);
+    return res.json({ moduleId, settings });
+  } catch (error) {
+    console.error('[ModuleSettings] Failed to load settings', error);
+    return res.status(500).json({ error: 'INTERNAL_ERROR' });
+  }
+});
+
 app.post('/api/modules/:moduleId/scenarios', async (req, res) => {
   try {
     const moduleId = req.params.moduleId as ModuleId;
@@ -4265,6 +4506,7 @@ app.post('/api/modules/:moduleId/scenarios', async (req, res) => {
     if (!moduleDefinition) {
       return res.status(404).json({ error: `Module '${moduleId}' not found` });
     }
+    const cmpContext = await requireVerifiedCmpContext(moduleId);
 
     const { name, eventId, url, config = {}, steps, expectedPayload } = req.body ?? {};
     if (typeof name !== 'string' || name.trim().length === 0) {
@@ -4322,7 +4564,8 @@ app.post('/api/modules/:moduleId/scenarios', async (req, res) => {
     const { spec: generatedSpec, meta: specMeta } = await generateScenarioTestSpecForScenario(
       moduleDefinition,
       scenario,
-      eventDefinition
+      eventDefinition,
+      cmpContext
     );
     scenario.testSpec = generatedSpec;
     scenario.testSpecMeta = specMeta;
@@ -4350,6 +4593,7 @@ app.put('/api/modules/:moduleId/scenarios/:scenarioId', async (req, res) => {
     if (!moduleDefinition) {
       return res.status(404).json({ error: `Module '${moduleId}' not found` });
     }
+    const cmpContext = await requireVerifiedCmpContext(moduleId);
 
     const existing = await getModuleScenario(moduleId, scenarioId);
     if (!existing) {
@@ -4403,7 +4647,8 @@ app.put('/api/modules/:moduleId/scenarios/:scenarioId', async (req, res) => {
     const { spec: regeneratedSpec, meta: regeneratedMeta } = await generateScenarioTestSpecForScenario(
       moduleDefinition,
       updatedScenario,
-      eventDefinition
+      eventDefinition,
+      cmpContext
     );
     updatedScenario.testSpec = regeneratedSpec;
     updatedScenario.testSpecMeta = regeneratedMeta;
@@ -4455,6 +4700,7 @@ app.delete('/api/modules/:moduleId/scenarios/:scenarioId', async (req, res) => {
     if (!moduleDefinition) {
       return res.status(404).json({ error: `Module '${moduleId}' not found` });
     }
+    const cmpContext = await requireVerifiedCmpContext(moduleId);
 
     let scenario = await getModuleScenario(moduleId, scenarioId);
     if (!scenario) {
@@ -4472,7 +4718,8 @@ app.delete('/api/modules/:moduleId/scenarios/:scenarioId', async (req, res) => {
       const { spec, meta: generatedMeta } = await generateScenarioTestSpecForScenario(
         moduleDefinition,
         scenario,
-        eventDefinition || undefined
+        eventDefinition || undefined,
+        cmpContext
       );
       dsl = spec;
       meta = generatedMeta;
@@ -4583,7 +4830,6 @@ app.post('/api/spec/generate', upload.single('pdf'), async (req, res) => {
     const moduleDefinition = moduleId ? getModule(moduleId) : undefined;
     console.log(`[${correlationId}] Module selection`, {
       moduleId,
-      hasManifest: !!moduleDefinition?.manifest,
     });
 
     // Magic number validation - check PDF signature
@@ -4619,62 +4865,39 @@ app.post('/api/spec/generate', upload.single('pdf'), async (req, res) => {
     console.log(`[${correlationId}] PDF text extracted successfully: ${extractionResult.text.length} characters`);
 
     let generatedDsl: any | null = null;
-    let metaSource: 'manifest' | 'openai' = 'openai';
+    let metaSource: 'openai' = 'openai';
     let openaiMeta: { model?: string; tokens?: any } | null = null;
+    if (!config.openaiApiKey) {
+      return sendError(res, 500, 'OPENAI_NOT_CONFIGURED', 'OpenAI API key not configured. Please set OPENAI_API_KEY environment variable.');
+    }
 
-    if (moduleDefinition?.manifest) {
-      generatedDsl = buildTestSpecFromManifest(moduleDefinition, {
-        site: targetOrigin,
-        moduleConfig,
+    if (!openaiService) {
+      return sendError(res, 503, 'SERVICE_UNAVAILABLE', 'OpenAI service is not configured. Please set VITE_OPENAI_API_KEY environment variable.');
+    }
+
+    const openaiResponse = await Promise.race([
+      openaiService.convertPDFToTestSpec(extractionResult.text, targetOrigin),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('OpenAI request timeout')), 60000)
+      )
+    ]);
+
+    const rawInputUrl = String(req.body?.url ?? req.body?.site ?? '').trim();
+    if (!rawInputUrl) {
+      return res.status(400).json({
+        error: 'Missing target URL',
+        code: 'INVALID_URL'
       });
-      if (generatedDsl) {
-        metaSource = 'manifest';
-        console.log(`[${correlationId}] Generated DSL from manifest for module ${moduleDefinition.meta.id}`);
-      } else {
-        console.warn(
-          `[${correlationId}] Manifest DSL generation returned null for module ${moduleDefinition.meta.id}, falling back to OpenAI`
-        );
-      }
     }
 
-    if (!generatedDsl) {
-      if (!config.openaiApiKey) {
-        return sendError(res, 500, 'OPENAI_NOT_CONFIGURED', 'OpenAI API key not configured. Please set OPENAI_API_KEY environment variable.');
-      }
-
-      if (!openaiService) {
-        return sendError(res, 503, 'SERVICE_UNAVAILABLE', 'OpenAI service is not configured. Please set VITE_OPENAI_API_KEY environment variable.');
-      }
-
-      const openaiResponse = await Promise.race([
-        openaiService.convertPDFToTestSpec(extractionResult.text, targetOrigin),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('OpenAI request timeout')), 60000)
-        )
-      ]);
-
-      const rawInputUrl = String(req.body?.url ?? req.body?.site ?? '').trim();
-      if (!rawInputUrl) {
-        return res.status(400).json({
-          error: 'Missing target URL',
-          code: 'INVALID_URL'
-        });
-      }
-
-      const dslFromLLM = (openaiResponse as any).dsl ?? {};
-      generatedDsl = { ...dslFromLLM, site: targetOrigin };
-      openaiMeta = (openaiResponse as any).meta ?? null;
-      console.info('[SSD] validating DSL with site (LLM):', generatedDsl?.site);
-    } else {
-      console.info('[SSD] validating DSL with site (manifest):', generatedDsl?.site);
-    }
+    const dslFromLLM = (openaiResponse as any).dsl ?? {};
+    generatedDsl = { ...dslFromLLM, site: targetOrigin };
+    openaiMeta = (openaiResponse as any).meta ?? null;
+    console.info('[SSD] validating DSL with site (LLM):', generatedDsl?.site);
 
     const validatedDSL = validateTestSpec(generatedDsl);
     const existingMeta = validatedDSL.meta ?? {};
-    const metaModel =
-      metaSource === 'manifest'
-        ? `module-manifest${moduleId ? `:${moduleId}` : ''}`
-        : existingMeta.model ?? openaiMeta?.model ?? 'openai';
+    const metaModel = existingMeta.model ?? openaiMeta?.model ?? 'openai';
     const metaTokens = existingMeta.tokens ?? openaiMeta?.tokens ?? { input: 0, output: 0 };
 
     validatedDSL.meta = {
@@ -4699,9 +4922,7 @@ app.post('/api/spec/generate', upload.single('pdf'), async (req, res) => {
       pdfContent: extractionResult.text,
       pdfBufferPath: pdfBufferPath, // Add path to saved PDF buffer
       meta: {
-        model: metaSource === 'manifest'
-          ? `module-manifest${moduleId ? `:${moduleId}` : ''}`
-          : openaiMeta?.model ?? 'openai',
+        model: openaiMeta?.model ?? 'openai',
         tokens: openaiMeta?.tokens ?? { input: 0, output: 0 },
       },
       moduleId,
@@ -4770,7 +4991,8 @@ app.post('/api/ssd/run', async (req, res) => {
 
     const finalModuleSource: ModuleSource = (inferredModuleSource || moduleSourceInitial || 'scenario') as ModuleSource;
     const moduleDefinition = inferredModuleId ? getModule(inferredModuleId) : undefined;
-    const useManifestDsl = finalModuleSource === 'manifest' && !!moduleDefinition?.manifest;
+    const moduleSettings = inferredModuleId ? await getModuleSettings(inferredModuleId) : null;
+    const useManifestDsl = finalModuleSource === 'manifest';
     const scenarioIdFromDsl =
       typeof dsl?.meta?.scenarioId === 'string' && dsl.meta.scenarioId.trim().length > 0
         ? dsl.meta.scenarioId.trim()
@@ -4780,7 +5002,7 @@ app.post('/api/ssd/run', async (req, res) => {
     console.log('🧩 Module context:', {
       moduleId: inferredModuleId,
       moduleSource: finalModuleSource,
-      hasManifest: !!moduleDefinition?.manifest,
+      cmpConfigured: moduleSettings?.cmp?.lastValidation?.status === 'ACCEPTED',
       useManifestDsl,
     });
 
@@ -4831,10 +5053,10 @@ app.post('/api/ssd/run', async (req, res) => {
         requestId,
         validatedDSL,
         options,
-        moduleDefinition,
         moduleId: inferredModuleId,
         scenario: scenarioEntry ?? undefined,
         eventDefinition: scenarioEventDefinition ?? undefined,
+        cmpSelector: moduleSettings?.cmp?.selector ?? null,
       });
       res.json(scenarioResponse);
       return;

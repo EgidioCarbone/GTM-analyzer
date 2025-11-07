@@ -97,6 +97,19 @@ export interface ScenarioPayloadMatchResponse {
   confidence?: number | null;
 }
 
+export interface ConsentValidationRequest {
+  site: string;
+  cmpVendor?: string | null;
+  selector?: string | null;
+  capturedEvents: Array<{ timestamp: number; payload: any }>;
+}
+
+export interface ConsentValidationResponse {
+  status: 'ACCEPTED' | 'REJECTED' | 'UNKNOWN';
+  reasoning: string;
+  evidence?: string[];
+}
+
 export class OpenAISpecService {
   private client: OpenAI;
   private model: string;
@@ -341,6 +354,80 @@ export class OpenAISpecService {
     };
   }
 
+  async evaluateConsentValidation(
+    request: ConsentValidationRequest
+  ): Promise<ConsentValidationResponse> {
+    const sliceLimit = Math.min(
+      Number.parseInt(process.env.SSD_SCENARIO_EVENT_LIMIT ?? '25', 10),
+      50
+    );
+    const startIndex =
+      request.capturedEvents.length > sliceLimit
+        ? request.capturedEvents.length - sliceLimit
+        : 0;
+    const truncatedEvents = request.capturedEvents.slice(startIndex);
+
+    const payload = {
+      site: request.site,
+      cmpVendor: request.cmpVendor ?? null,
+      selector: request.selector ?? null,
+      totalCapturedEvents: request.capturedEvents.length,
+      startIndex,
+      events: truncatedEvents,
+    };
+
+    const response = await this.client.chat.completions.create({
+      model: this.model,
+      messages: [
+        { role: 'system', content: this.getConsentValidationSystemPrompt() },
+        { role: 'user', content: this.buildConsentValidationPrompt(payload) },
+      ],
+      response_format: { type: 'json_object' },
+      temperature: SSD_DEFAULTS.llm.temperature.evaluation ?? 0,
+      max_tokens: 600,
+    });
+
+    const content = response.choices[0]?.message?.content;
+    if (!content) {
+      throw new OpenAIError('Empty response from OpenAI during consent validation', 'INVALID_RESPONSE');
+    }
+
+    let parsed: any;
+    try {
+      parsed = JSON.parse(content);
+    } catch (error) {
+      throw new OpenAIError(
+        `Invalid JSON response from OpenAI consent validation: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`,
+        'INVALID_RESPONSE'
+      );
+    }
+
+    const normalizedStatus =
+      typeof parsed.status === 'string' ? parsed.status.toUpperCase() : 'UNKNOWN';
+    const status: ConsentValidationResponse['status'] =
+      normalizedStatus === 'ACCEPTED'
+        ? 'ACCEPTED'
+        : normalizedStatus === 'REJECTED'
+        ? 'REJECTED'
+        : 'UNKNOWN';
+
+    const evidence =
+      Array.isArray(parsed.evidence) && parsed.evidence.length > 0
+        ? parsed.evidence.filter((item: unknown) => typeof item === 'string')
+        : undefined;
+
+    return {
+      status,
+      reasoning:
+        typeof parsed.reasoning === 'string'
+          ? parsed.reasoning
+          : 'Nessuna motivazione fornita.',
+      evidence,
+    };
+  }
+
   async buildScenarioTestSpec(input: ScenarioSpecBuildInput): Promise<OpenAISpecResponse> {
     const systemPrompt = this.getScenarioSystemPrompt();
     const userPrompt = this.buildScenarioPrompt(input);
@@ -489,6 +576,55 @@ TASK:
 - Includi "matched_event" con il payload dell'evento compatibile se trovato.
 - Fornisci una breve spiegazione in italiano nel campo "reasoning".
 - Opzionalmente assegna "confidence" tra 0 e 1.`;
+  }
+
+  private getConsentValidationSystemPrompt(): string {
+    return `Sei un assistente QA per la gestione del consenso. Analizza la sequenza di eventi dataLayer e stabilisci se il banner cookie è stato accettato con successo.
+
+Linee guida:
+- "ACCEPTED": esistono segnali che confermano la concessione dei consensi (es. eventi come "cookie_consent_update" con valori granted, GTM consent mode impostato su granted per tutti gli storage, ecc.).
+- "REJECTED": trovi eventi che indicano rifiuto o assenza di consensi (es. stati denied/pending).
+- "UNKNOWN": i dati non permettono di derivare l'esito.
+- Riassumi i segnali più rilevanti in "evidence".
+
+Rispondi SOLO con JSON:
+{
+  "status": "ACCEPTED" | "REJECTED" | "UNKNOWN",
+  "reasoning": "string",
+  "evidence": ["signal1", "signal2"]
+}`;
+  }
+
+  private buildConsentValidationPrompt(payload: {
+    site: string;
+    cmpVendor: string | null;
+    selector: string | null;
+    totalCapturedEvents: number;
+    startIndex: number;
+    events: any[];
+  }): string {
+    return `Valuta se il banner cookie risulta accettato.
+
+CONTESTO:
+${JSON.stringify(
+  {
+    site: payload.site,
+    cmpVendor: payload.cmpVendor,
+    selector: payload.selector,
+    totalCapturedEvents: payload.totalCapturedEvents,
+    startIndex: payload.startIndex,
+  },
+  null,
+  2
+)}
+
+EVENTI CATTURATI (in ordine cronologico):
+${JSON.stringify(payload.events, null, 2)}
+
+ISTRUZIONI:
+- Analizza gli eventi e determina lo stato complessivo del consenso.
+- Elenca nella proprietà "evidence" i segnali più significativi (es. nome evento o proprietà rilevati).
+- Scrivi il reasoning in italiano, conciso e diretto.`;
   }
 
   private getScenarioSystemPrompt(): string {

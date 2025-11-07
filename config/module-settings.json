@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "modules": {
+    "actalis": {
+      "moduleId": "actalis",
+      "updatedAt": "2025-11-07T14:26:09.799Z",
+      "cmp": {
+        "selector": "#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll",
+        "testUrl": "https://www.actalis.com/",
+        "validatedAt": "2025-11-07T14:26:09.798Z",
+        "lastValidation": {
+          "status": "ACCEPTED",
+          "reasoning": "Il consenso è stato accettato con successo, come indicato dall'evento 'consent update' con tutti i valori impostati su 'granted' per gli storage. Inoltre, l'evento 'cookie_consent_update' conferma l'aggiornamento del consenso.",
+          "executedAt": "2025-11-07T14:26:09.798Z",
+          "evidence": [
+            "consent update: ad_storage: granted",
+            "cookie_consent_update"
+          ],
+          "eventsCaptured": 15,
+          "sampleEvents": [
+            {
+              "0": "set",
+              "1": "ads_data_redaction",
+              "2": false
+            },
+            {
+              "event": "cookie_consent_update"
+            },
+            {
+              "event": "cookie_consent_preferences"
+            },
+            {
+              "event": "cookie_consent_statistics"
+            },
+            {
+              "event": "cookie_consent_marketing"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

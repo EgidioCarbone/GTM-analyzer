@@ -13,6 +13,7 @@ import {
   RotateCcw,
   PencilLine,
   X,
+  Settings2,
 } from 'lucide-react';
 import { TestSpec, SSDTestState, ModuleConfig, ModuleSource } from '../types/ssd';
 import { Card } from '../components/ui/card';
@@ -231,6 +232,7 @@ const createInitialState = (
   report: null,
   isLoading: false,
   error: null,
+  moduleSettings: null,
   scenarios: [],
   eventDefinitions: [],
   scenarioId: null,
@@ -272,6 +274,10 @@ export default function SSDTestPage() {
   const [scenarioModalSaving, setScenarioModalSaving] = useState(false);
   const [deleteDialogScenario, setDeleteDialogScenario] = useState<ModuleScenario | null>(null);
   const [deleteDialogLoading, setDeleteDialogLoading] = useState(false);
+  const [isCmpModalOpen, setCmpModalOpen] = useState(false);
+  const [cmpForm, setCmpForm] = useState({ selector: '', testUrl: '', vendor: '' });
+  const [cmpModalSaving, setCmpModalSaving] = useState(false);
+  const [cmpModalError, setCmpModalError] = useState<string | null>(null);
   const draftExpectedEventName = useMemo(() => {
     if (!scenarioDraft) return '';
     try {
@@ -291,6 +297,16 @@ export default function SSDTestPage() {
     if (!selectedScenarioDetails || selectedScenarioDetails.eventId !== 'manual') return '';
     return extractEventNameFromPayload(selectedScenarioDetails.expectedPayload);
   }, [selectedScenarioDetails]);
+  const cmpStatus = state.moduleSettings?.cmp ?? null;
+  const cmpReady = cmpStatus?.lastValidation?.status === 'ACCEPTED';
+  const formatDateTime = useCallback((value?: string | null) => {
+    if (!value) return '—';
+    try {
+      return new Date(value).toLocaleString('it-IT', { dateStyle: 'short', timeStyle: 'short' });
+    } catch {
+      return value;
+    }
+  }, []);
   const draftEventDefinition = useMemo(
     () => (scenarioDraft ? findEventDefinition(state.eventDefinitions, scenarioDraft.eventId) : null),
     [scenarioDraft, state.eventDefinitions]
@@ -350,6 +366,14 @@ export default function SSDTestPage() {
     setOriginalDsl(null);
   }, []);
 
+  const ensureCmpConfigured = useCallback(() => {
+    if (cmpReady) {
+      return true;
+    }
+    toast.error('Configura e verifica la CMP del modulo prima di lavorare sugli scenari');
+    return false;
+  }, [cmpReady]);
+
   const handleModuleSelect = (moduleId: ModuleId) => {
     const moduleDefinition = getModule(moduleId);
     const defaultConfig = moduleDefinition?.defaultConfig ?? {};
@@ -396,14 +420,25 @@ export default function SSDTestPage() {
     return data.scenarios ?? [];
   }, [apiBaseUrl]);
 
+  const fetchModuleSettings = useCallback(async (moduleId: ModuleId) => {
+    const res = await fetch(`${apiBaseUrl}/api/modules/${moduleId}/settings`);
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.error || `Unable to load settings for module ${moduleId}`);
+    }
+    const data = await res.json();
+    return data.settings ?? null;
+  }, [apiBaseUrl]);
+
   const loadModuleData = useCallback(async (moduleId: ModuleId, moduleUrls: string[]) => {
     setState(prev => ({ ...prev, isLoading: true, error: null }));
     handleScenarioStateReset();
 
     try {
-      const [events, scenarios] = await Promise.all([
+      const [events, scenarios, settings] = await Promise.all([
         fetchModuleEvents(moduleId),
         fetchModuleScenarios(moduleId),
+        fetchModuleSettings(moduleId),
       ]);
 
       const defaultUrl = moduleUrls[0] || '';
@@ -425,6 +460,7 @@ export default function SSDTestPage() {
         ...prev,
         isLoading: false,
         currentStep: 'scenario',
+        moduleSettings: settings,
         eventDefinitions: events,
         scenarios,
         scenarioId: firstScenario?.id ?? null,
@@ -445,7 +481,7 @@ export default function SSDTestPage() {
       setState(prev => ({ ...prev, isLoading: false }));
       notifyError(error, 'Impossibile caricare gli scenari del modulo selezionato');
     }
-  }, [fetchModuleEvents, fetchModuleScenarios, handleScenarioStateReset]);
+  }, [fetchModuleEvents, fetchModuleScenarios, fetchModuleSettings, handleScenarioStateReset]);
 
   const handleModuleProceed = () => {
     if (!state.moduleId) {
@@ -629,6 +665,89 @@ export default function SSDTestPage() {
         steps: [...draft.steps, newStep],
       };
     });
+  };
+
+  const openCmpModal = useCallback(() => {
+    console.log('[SSD][CMP] openCmpModal click', {
+      moduleId: state.moduleId,
+      hasSettings: !!state.moduleSettings,
+      cmpStatus: state.moduleSettings?.cmp,
+    });
+    if (!state.moduleId) {
+      toast.error('Seleziona un modulo');
+      return;
+    }
+    const defaultUrl =
+      state.moduleSettings?.cmp?.testUrl || state.scenarioUrl || moduleUrlOptions[0] || '';
+    setCmpForm({
+      selector: state.moduleSettings?.cmp?.selector ?? '',
+      testUrl: defaultUrl,
+      vendor: state.moduleSettings?.cmp?.vendor ?? '',
+    });
+    setCmpModalError(null);
+    setCmpModalOpen(true);
+  }, [state.moduleId, state.moduleSettings, state.scenarioUrl, moduleUrlOptions]);
+
+  const closeCmpModal = () => {
+    if (cmpModalSaving) return;
+    setCmpModalOpen(false);
+    setCmpModalError(null);
+  };
+
+  const handleCmpFieldChange = (field: keyof typeof cmpForm, value: string) => {
+    setCmpForm(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleCmpValidate = async () => {
+    if (!state.moduleId) {
+      toast.error('Seleziona un modulo');
+      return;
+    }
+    if (!cmpForm.selector.trim()) {
+      setCmpModalError('Inserisci un selettore valido per il bottone di accettazione.');
+      return;
+    }
+    if (!cmpForm.testUrl.trim()) {
+      setCmpModalError('Specifica l’URL da utilizzare per il test della CMP.');
+      return;
+    }
+    setCmpModalSaving(true);
+    setCmpModalError(null);
+    try {
+      const res = await fetch(`${apiBaseUrl}/api/modules/${state.moduleId}/cmp/validate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          selector: cmpForm.selector.trim(),
+          testUrl: cmpForm.testUrl.trim(),
+          vendor: cmpForm.vendor.trim() || undefined,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data?.message || data?.error || 'Impossibile validare la CMP');
+      }
+      setState(prev => ({
+        ...prev,
+        moduleSettings: data.settings ?? prev.moduleSettings,
+      }));
+      const status = data.settings?.cmp?.lastValidation?.status;
+      if (status === 'ACCEPTED') {
+        toast.success('CMP validata con successo');
+        setCmpModalOpen(false);
+      } else {
+        toast.error('La CMP non risulta ancora accettata');
+        setCmpModalError(
+          data.validation?.reasoning ||
+            data.settings?.cmp?.lastValidation?.reasoning ||
+            'Il sistema non ha rilevato l’accettazione dei cookie.'
+        );
+      }
+    } catch (error) {
+      setCmpModalError(error instanceof Error ? error.message : 'Errore inatteso durante la validazione');
+    } finally {
+      setCmpModalSaving(false);
+    }
   };
 
   const handleDraftRemoveStep = (stepId: string) => {
@@ -886,14 +1005,22 @@ const persistScenarioDraft = useCallback(
 );
 
   const handleScenarioModalSave = async () => {
+    if (!ensureCmpConfigured()) return;
     if (!scenarioDraft) return;
     await persistScenarioDraft(scenarioDraft);
   };
 
-  const handleScenarioCreate = () => openScenarioModal('create');
-  const handleScenarioEdit = () => openScenarioModal('edit');
+  const handleScenarioCreate = () => {
+    if (!ensureCmpConfigured()) return;
+    openScenarioModal('create');
+  };
+  const handleScenarioEdit = () => {
+    if (!ensureCmpConfigured()) return;
+    openScenarioModal('edit');
+  };
 
   const requestDeleteScenario = () => {
+    if (!ensureCmpConfigured()) return;
     if (!state.scenarioId) {
       toast.error('Seleziona uno scenario da eliminare');
       return;
@@ -909,6 +1036,7 @@ const persistScenarioDraft = useCallback(
   };
 
   const handleDeleteScenario = async () => {
+    if (!ensureCmpConfigured()) return;
     if (!deleteDialogScenario) return;
 
     const moduleIdForScenario = deleteDialogScenario.moduleId ?? state.moduleId;
@@ -974,6 +1102,7 @@ const persistScenarioDraft = useCallback(
       toast.error('Seleziona prima un modulo');
       return;
     }
+    if (!ensureCmpConfigured()) return;
 
     if (!state.scenarioId) {
       toast.error('Crea o seleziona uno scenario prima di generare la DSL');
@@ -1213,6 +1342,7 @@ const persistScenarioDraft = useCallback(
       toast.error('Genera la DSL dello scenario prima di eseguire i test');
       return;
     }
+    if (!ensureCmpConfigured()) return;
 
     await handleRunTestsWithData(
       state.dsl,
@@ -1349,10 +1479,76 @@ const persistScenarioDraft = useCallback(
           )}
 
           {state.currentStep === 'scenario' && (
-            <div className="grid gap-6 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
-              <Card className="p-6 space-y-6 bg-white/90 backdrop-blur border border-white/60 shadow-lg">
-                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <>
+              <Card className="p-6 bg-white/90 border border-white/60 shadow-lg space-y-4">
+                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                   <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">
+                      CMP del modulo
+                    </p>
+                    <h3 className="text-xl font-semibold text-slate-900">Cookie consent</h3>
+                    <p className="mt-2 text-sm text-slate-600 max-w-2xl">
+                      Il selettore inserito verrà utilizzato automaticamente in tutti gli scenari di questo modulo.
+                      Verifica la CMP almeno una volta per sbloccare la creazione e l&apos;esecuzione dei test.
+                    </p>
+                  </div>
+                <div className="flex flex-wrap items-center gap-3">
+                  <span
+                    className={`inline-flex items-center gap-2 rounded-full px-4 py-1 text-xs font-semibold ${
+                      cmpReady ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' : 'bg-amber-100 text-amber-700 border border-amber-200'
+                    }`}
+                  >
+                    {cmpReady ? 'Verificata' : 'Da configurare'}
+                  </span>
+                  <Button
+                    type="button"
+                    onClick={openCmpModal}
+                    className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-slate-800"
+                  >
+                    <Settings2 className="h-4 w-4" />
+                    Configura CMP
+                  </Button>
+                </div>
+                </div>
+                {cmpStatus ? (
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <div className="rounded-2xl border border-slate-200 bg-white/80 p-4">
+                      <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">
+                        Selettore
+                      </p>
+                      <p className="mt-2 font-mono text-sm text-slate-800 break-all">{cmpStatus.selector}</p>
+                    </div>
+                    <div className="rounded-2xl border border-slate-200 bg-white/80 p-4">
+                      <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">
+                        Pagina di test
+                      </p>
+                      <p className="mt-2 text-sm text-slate-800 break-all">{cmpStatus.testUrl || '—'}</p>
+                    </div>
+                    <div className="rounded-2xl border border-slate-200 bg-white/80 p-4">
+                      <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">
+                        Ultima verifica
+                      </p>
+                      <p className="mt-2 text-sm font-medium text-slate-800">
+                        {formatDateTime(cmpStatus.lastValidation?.executedAt)}
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        {cmpStatus.lastValidation?.status === 'ACCEPTED'
+                          ? 'Tutti i consensi risultano concessi.'
+                          : cmpStatus.lastValidation?.reasoning || 'Nessuna motivazione disponibile.'}
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50/80 p-4 text-sm text-slate-600">
+                    Nessuna configurazione salvata. Definisci il selettore della CMP per procedere con gli scenari.
+                  </div>
+                )}
+              </Card>
+
+              <div className="grid gap-6 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
+                <Card className="p-6 space-y-6 bg-white/90 backdrop-blur border border-white/60 shadow-lg">
+                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <div>
                     <h2 className="text-xl font-semibold text-slate-900">Gestisci gli scenari salvati</h2>
                     <p className="text-sm text-slate-600">
                       Scegli uno use case configurato o apri la modale per crearne uno nuovo. Ogni scenario memorizza URL, step e payload atteso.
@@ -1362,7 +1558,7 @@ const persistScenarioDraft = useCallback(
                     <Button
                       variant="outline"
                       onClick={handleScenarioEdit}
-                      disabled={!state.scenarioId || state.isLoading}
+                      disabled={!state.scenarioId || state.isLoading || !cmpReady}
                       className="rounded-full border-indigo-200 bg-indigo-50 px-4 py-2 text-indigo-600 shadow-sm transition hover:border-indigo-300 hover:bg-indigo-100 hover:text-indigo-700 disabled:opacity-40"
                     >
                       <PencilLine className="w-4 h-4 mr-2" />
@@ -1370,7 +1566,7 @@ const persistScenarioDraft = useCallback(
                     </Button>
                     <Button
                       onClick={handleScenarioCreate}
-                      disabled={state.isLoading}
+                      disabled={state.isLoading || !cmpReady}
                       className="rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-fuchsia-500 px-4 py-2 font-semibold text-white shadow-lg transition hover:from-indigo-600 hover:via-purple-600 hover:to-fuchsia-600 disabled:opacity-40"
                     >
                       <Plus className="w-4 h-4 mr-2" />
@@ -1497,7 +1693,7 @@ const persistScenarioDraft = useCallback(
                   <div className="flex flex-wrap gap-3">
                     <Button
                       onClick={handleGenerateScenarioDsl}
-                      disabled={state.isLoading || !state.scenarioId}
+                      disabled={state.isLoading || !state.scenarioId || !cmpReady}
                       className="rounded-full bg-slate-900 px-5 py-2 font-semibold text-white shadow-lg transition hover:bg-slate-800 disabled:opacity-40"
                     >
                       <Play className="w-4 h-4 mr-2" />
@@ -1505,7 +1701,7 @@ const persistScenarioDraft = useCallback(
                     </Button>
                     <Button
                       onClick={requestDeleteScenario}
-                      disabled={state.isLoading || !state.scenarioId}
+                      disabled={state.isLoading || !state.scenarioId || !cmpReady}
                       variant="destructive"
                       className="rounded-full px-5 py-2 font-semibold shadow-sm disabled:opacity-40"
                     >
@@ -1530,7 +1726,7 @@ const persistScenarioDraft = useCallback(
                   <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-[0.2em]">Suggerimenti</h3>
                   <ul className="mt-3 text-sm text-slate-600 space-y-2 list-disc list-inside">
                     <li>Compila i selettori con classi o ID univoci per evitare ambiguità nei click.</li>
-                    <li>Usa <code>*</code> nel payload per indicare valori dinamici; lascia vuoto per usare il template del manifest.</li>
+                    <li>Usa <code>*</code> nel payload per indicare valori dinamici; lascia vuoto per usare il template suggerito dall&apos;evento.</li>
                     <li>Versiona il file <code className="text-slate-700">config/module-scenarios.json</code> per condividere gli scenari con il team.</li>
                   </ul>
                 </div>
@@ -1539,7 +1735,8 @@ const persistScenarioDraft = useCallback(
                   Le configurazioni degli scenari sono salvate sul filesystem locale. Puoi committare il file per mantenerle allineate tra i diversi ambienti.
                 </div>
               </Card>
-            </div>
+              </div>
+            </>
           )}
 
           {state.currentStep === 'review' && state.dsl && (
@@ -1585,19 +1782,19 @@ const persistScenarioDraft = useCallback(
           )}
 
 
-          {isScenarioModalOpen && scenarioDraft && (
-            <div
-              className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur"
-              onClick={() => {
-                if (!scenarioModalSaving) {
-                  closeScenarioModal();
-                }
-              }}
-            >
-              <div
-                className="relative w-full max-w-4xl max-h-[85vh] overflow-hidden rounded-3xl border border-white/20 bg-white shadow-2xl flex flex-col"
-                onClick={event => event.stopPropagation()}
-              >
+      {isScenarioModalOpen && scenarioDraft && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur"
+          onClick={() => {
+            if (!scenarioModalSaving) {
+              closeScenarioModal();
+            }
+          }}
+        >
+          <div
+            className="relative w-full max-w-4xl max-h-[85vh] overflow-hidden rounded-3xl border border-white/20 bg-white shadow-2xl flex flex-col"
+            onClick={event => event.stopPropagation()}
+          >
                 <div className="flex items-center justify-between border-b border-slate-200/70 px-6 py-4">
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-[0.28em] text-purple-500">
@@ -1656,6 +1853,7 @@ const persistScenarioDraft = useCallback(
                       ))}
                     </div>
                   )}
+
 
                   <div className="space-y-4">
                     <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
@@ -1840,7 +2038,7 @@ const persistScenarioDraft = useCallback(
                       </div>
                     ) : (
                       <div className="text-xs text-slate-500">
-                        Lascia vuoto per utilizzare il template del manifest. Inserisci lo snippet completo con valori di esempio: il sistema verificherà solo la struttura e l&apos;evento.
+                        Lascia vuoto per utilizzare il template suggerito dall&apos;evento. Inserisci lo snippet completo con valori di esempio: il sistema verificherà solo la struttura e l&apos;evento.
                       </div>
                     )}
                   </div>
@@ -1882,7 +2080,95 @@ const persistScenarioDraft = useCallback(
         </div>
       </div>
     </div>
-      <ConfirmDialog
+
+    {isCmpModalOpen && (
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur"
+        onClick={closeCmpModal}
+      >
+        <div
+          className="relative w-full max-w-lg max-h-[80vh] overflow-auto rounded-3xl border border-white/20 bg-white shadow-2xl"
+          onClick={event => event.stopPropagation()}
+        >
+          <div className="border-b border-slate-200/70 px-6 py-4">
+            <h3 className="text-lg font-semibold text-slate-900">Configura la CMP del modulo</h3>
+            <p className="mt-1 text-sm text-slate-600">
+              Inserisci il selettore della CTA &quot;Accetta tutti i cookie&quot; e l&apos;URL da utilizzare per il test automatico.
+            </p>
+          </div>
+            <div className="space-y-5 px-6 py-5">
+              <div className="space-y-1">
+                <label className="text-sm font-medium text-slate-700">Selettore CSS</label>
+                <Input
+                  value={cmpForm.selector}
+                  onChange={event => handleCmpFieldChange('selector', event.target.value)}
+                placeholder="#cookie-banner button.accept"
+                disabled={cmpModalSaving}
+              />
+              <p className="text-xs text-slate-500">
+                Usa un selettore univoco che punti direttamente al pulsante &quot;Accetta&quot; del banner.
+              </p>
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm font-medium text-slate-700">URL di test</label>
+              <Input
+                value={cmpForm.testUrl}
+                onChange={event => handleCmpFieldChange('testUrl', event.target.value)}
+                placeholder="https://www.example.com/"
+                disabled={cmpModalSaving}
+              />
+              <p className="text-xs text-slate-500">
+                È la pagina su cui eseguire il controllo della CMP. Deve contenere il banner.
+              </p>
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm font-medium text-slate-700">Vendor (opzionale)</label>
+              <select
+                value={cmpForm.vendor}
+                onChange={event => handleCmpFieldChange('vendor', event.target.value)}
+                disabled={cmpModalSaving}
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+              >
+                <option value="">Seleziona il vendor CMP</option>
+                <option value="cookiebot">Cookiebot</option>
+                <option value="onetrust">OneTrust</option>
+                <option value="didomi">Didomi</option>
+                <option value="iubenda">Iubenda</option>
+                <option value="quantcast">Quantcast</option>
+                <option value="trustarc">TrustArc</option>
+              </select>
+            </div>
+            {cmpModalError && (
+              <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+                {cmpModalError}
+              </div>
+            )}
+          </div>
+          <div className="flex items-center justify-end gap-3 border-t border-slate-200/70 px-6 py-4">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={closeCmpModal}
+                disabled={cmpModalSaving}
+                className="rounded-full border border-slate-200 px-5 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-40"
+              >
+                Annulla
+              </Button>
+              <Button
+                type="button"
+                onClick={handleCmpValidate}
+                disabled={cmpModalSaving}
+                className="inline-flex items-center gap-2 rounded-full bg-indigo-600 px-5 py-2 text-sm font-semibold text-white shadow hover:bg-indigo-700 disabled:opacity-40"
+              >
+                {cmpModalSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Verifica e salva
+              </Button>
+            </div>
+        </div>
+      </div>
+    )}
+
+    <ConfirmDialog
         open={Boolean(deleteDialogScenario)}
         title="Elimina scenario salvato"
         description={

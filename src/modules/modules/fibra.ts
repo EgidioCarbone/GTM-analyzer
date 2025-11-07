@@ -1,5 +1,4 @@
 import { SSDModule } from '../types';
-import manifest from './fibra.manifest.json';
 
 export const fibraModule: SSDModule = {
   meta: {
@@ -19,5 +18,4 @@ export const fibraModule: SSDModule = {
   ],
   configFields: [],
   defaultConfig: {},
-  manifest,
 };
