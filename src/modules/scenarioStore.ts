@@ -128,6 +128,14 @@ export async function deleteModuleScenario(moduleId: ModuleId, scenarioId: strin
   return deleted;
 }
 
+export async function deleteModuleScenarios(moduleId: ModuleId): Promise<void> {
+  const file = await readScenarioFile();
+  if (file.modules[moduleId]) {
+    delete file.modules[moduleId];
+    await writeScenarioFile(file);
+  }
+}
+
 export async function overwriteModuleScenarios(
   moduleId: ModuleId,
   scenarios: ModuleScenario[]

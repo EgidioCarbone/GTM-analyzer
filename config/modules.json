@@ -1,0 +1,132 @@
+{
+  "version": 1,
+  "modules": [
+    {
+      "meta": {
+        "id": "actalis",
+        "title": "Actalis",
+        "description": "Pipeline verticale per flussi Actalis focalizzata su journey SSL.",
+        "tags": [
+          "SSL",
+          "Navigation"
+        ],
+        "accentColor": "#0ea5e9",
+        "icon": "ShieldCheck"
+      },
+      "supportedHosts": [
+        "www.actalis.com"
+      ],
+      "defaultUrls": [
+        "https://www.actalis.com/",
+        "https://www.actalis.com/it/abbonamento"
+      ],
+      "configFields": [],
+      "defaultConfig": {}
+    },
+    {
+      "meta": {
+        "id": "fibra",
+        "title": "Fibra",
+        "description": "Test verticali per funnel Fibra con focus su CMP, menu e lead form.",
+        "tags": [
+          "CMP",
+          "Lead",
+          "Navigation"
+        ],
+        "accentColor": "#2563eb",
+        "icon": "Antenna"
+      },
+      "supportedHosts": [
+        "fibra.aruba.it",
+        "fibra-preprod.example.com"
+      ],
+      "defaultUrls": [
+        "https://fibra.aruba.it/"
+      ],
+      "configFields": [],
+      "defaultConfig": {}
+    },
+    {
+      "meta": {
+        "id": "genertel",
+        "title": "Genertel",
+        "description": "Scenario verticalizzato per journey preventivo Genertel e validazioni tracking.",
+        "tags": [
+          "Quote",
+          "Tracking",
+          "Form"
+        ],
+        "accentColor": "#f97316",
+        "icon": "Shield"
+      },
+      "supportedHosts": [
+        "www.genertel.it",
+        "preventivi.genertel.it"
+      ],
+      "defaultUrls": [
+        "https://www.genertel.it/",
+        "https://preventivi.genertel.it/"
+      ],
+      "configFields": [
+        {
+          "id": "productLine",
+          "label": "Linea prodotto",
+          "type": "select",
+          "required": true,
+          "options": [
+            {
+              "value": "auto",
+              "label": "Auto"
+            },
+            {
+              "value": "casa",
+              "label": "Casa"
+            },
+            {
+              "value": "moto",
+              "label": "Moto"
+            }
+          ],
+          "defaultValue": "auto"
+        },
+        {
+          "id": "useDemoAccount",
+          "label": "Usa account demo",
+          "type": "checkbox",
+          "defaultValue": true,
+          "helperText": "Se deselezionato il runner richiederà credenziali manuali prima di proseguire."
+        },
+        {
+          "id": "trackingDataset",
+          "label": "Dataset tracking atteso",
+          "type": "textarea",
+          "helperText": "JSON con eventi attesi per la linea selezionata. Lascia vuoto per usare il default del modulo."
+        }
+      ],
+      "defaultConfig": {
+        "productLine": "auto",
+        "useDemoAccount": true
+      }
+    },
+    {
+      "meta": {
+        "id": "italgas",
+        "title": "Italgas",
+        "description": "eventi di italgas come navigazione e click di cta",
+        "tags": [
+          "navigation"
+        ],
+        "accentColor": "#ab7344",
+        "icon": "Antenna"
+      },
+      "supportedHosts": [
+        "www.italgas.it"
+      ],
+      "defaultUrls": [
+        "https://www.italgas.it/"
+      ],
+      "configFields": [],
+      "defaultConfig": {}
+    }
+  ]
+}

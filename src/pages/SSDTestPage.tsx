@@ -30,7 +30,6 @@ import DetailedResultsStep from '../components/ssd/DetailedResultsStep';
 import { SSDProgressModal } from '../components/ssd/SSDProgressModal';
 import ModuleSelectionStep from '../components/ssd/ModuleSelectionStep';
 import ModuleConfigForm from '../components/ssd/ModuleConfigForm';
-import { getModule } from '../modules';
 import type { ModuleId, ModuleScenario, ModuleEventDefinition, ScenarioStep, EventStepType } from '../modules/types';
 import type { SSDModule } from '../modules/types';
 import { isModuleFieldEmpty } from '../modules/utils';
@@ -61,6 +60,12 @@ const normalizeModuleUrls = (module?: SSDModule | null): string[] => {
   const normalized = sourceList.map(ensureAbsoluteUrl).filter(Boolean) as string[];
   return Array.from(new Set(normalized));
 };
+
+const splitInputList = (value: string): string[] =>
+  value
+    .split(/[\n,]/)
+    .map(entry => entry.trim())
+    .filter(Boolean);
 
 const parseLooseExpectedPayload = (input: string): any | null => {
   const expression = extractExpectedPayloadExpression(input);
@@ -216,6 +221,35 @@ type ScenarioDraft = {
   expectedPayloadError: string | null;
 };
 
+type ModuleBuilderDraft = {
+  title: string;
+  description: string;
+  supportedHosts: string;
+  defaultUrls: string;
+  tags: string;
+  accentColor: string;
+  icon: string;
+};
+
+const MODULE_BUILDER_DEFAULT: ModuleBuilderDraft = {
+  title: '',
+  description: '',
+  supportedHosts: '',
+  defaultUrls: '',
+  tags: '',
+  accentColor: '#6366f1',
+  icon: 'ShieldCheck',
+};
+
+const MODULE_ICON_OPTIONS = [
+  { value: 'ShieldCheck', label: 'Shield Check' },
+  { value: 'Shield', label: 'Shield' },
+  { value: 'Antenna', label: 'Antenna' },
+  { value: 'Sparkles', label: 'Sparkles' },
+  { value: 'Layers', label: 'Layers' },
+  { value: 'Rocket', label: 'Rocket' },
+] as const;
+
 const createInitialState = (
   moduleId: ModuleId | null = null,
   moduleConfig: ModuleConfig = {},
@@ -261,7 +295,21 @@ const normalizeUrl = (input: string): string => {
   }
 };
 
+const toValidUrl = (input: string): string | null => {
+  if (!input) return null;
+  const normalized = normalizeUrl(input);
+  try {
+    const url = new URL(normalized);
+    return url.toString();
+  } catch {
+    return null;
+  }
+};
+
 export default function SSDTestPage() {
+  const apiBaseUrl =
+    import.meta.env.VITE_API_BASE ||
+    (window.location.origin === 'http://localhost:5173' ? 'http://localhost:3001' : '');
   const [state, setState] = useState<SSDTestState>(() => createInitialState());
   const [loadingType, setLoadingType] = useState<'pdf' | 'test' | null>(null);
   const [editableDsl, setEditableDsl] = useState<string>('');
@@ -278,6 +326,13 @@ export default function SSDTestPage() {
   const [cmpForm, setCmpForm] = useState({ selector: '', testUrl: '', vendor: '' });
   const [cmpModalSaving, setCmpModalSaving] = useState(false);
   const [cmpModalError, setCmpModalError] = useState<string | null>(null);
+  const [modules, setModules] = useState<SSDModule[]>([]);
+  const [modulesLoading, setModulesLoading] = useState(false);
+  const [modulesError, setModulesError] = useState<string | null>(null);
+  const [isModuleBuilderOpen, setModuleBuilderOpen] = useState(false);
+  const [moduleBuilderDraft, setModuleBuilderDraft] = useState<ModuleBuilderDraft>({ ...MODULE_BUILDER_DEFAULT });
+  const [moduleBuilderSaving, setModuleBuilderSaving] = useState(false);
+  const [moduleBuilderError, setModuleBuilderError] = useState<string | null>(null);
   const draftExpectedEventName = useMemo(() => {
     if (!scenarioDraft) return '';
     try {
@@ -287,7 +342,7 @@ export default function SSDTestPage() {
     }
   }, [scenarioDraft]);
 
-  const selectedModule = state.moduleId ? getModule(state.moduleId) : undefined;
+  const selectedModule = state.moduleId ? modules.find(module => module.meta.id === state.moduleId) : undefined;
   const moduleUrlOptions = useMemo(() => normalizeModuleUrls(selectedModule), [selectedModule]);
   const selectedScenarioDetails = useMemo(
     () => state.scenarios.find(s => s.id === state.scenarioId) ?? null,
@@ -366,6 +421,101 @@ export default function SSDTestPage() {
     setOriginalDsl(null);
   }, []);
 
+  const handleModuleSelect = useCallback(
+    (module: SSDModule) => {
+      const defaultConfig = module.defaultConfig ?? {};
+      const moduleUrls = normalizeModuleUrls(module);
+      const initialState = createInitialState(module.meta.id, defaultConfig, moduleUrls);
+      setState(initialState);
+      handleScenarioStateReset();
+    },
+    [handleScenarioStateReset]
+  );
+
+  const openModuleBuilder = useCallback(() => {
+    setModuleBuilderDraft({ ...MODULE_BUILDER_DEFAULT });
+    setModuleBuilderError(null);
+    setModuleBuilderOpen(true);
+  }, []);
+
+  const closeModuleBuilder = useCallback(() => {
+    if (moduleBuilderSaving) return;
+    setModuleBuilderOpen(false);
+    setModuleBuilderError(null);
+  }, [moduleBuilderSaving]);
+
+  const handleModuleBuilderFieldChange = useCallback((field: keyof ModuleBuilderDraft, value: string) => {
+    setModuleBuilderDraft(prev => ({ ...prev, [field]: value }));
+    setModuleBuilderError(null);
+  }, []);
+
+  const handleModuleBuilderSave = useCallback(async () => {
+    const title = moduleBuilderDraft.title.trim();
+    if (!title) {
+      setModuleBuilderError('Inserisci un nome per il modulo');
+      return;
+    }
+
+    const description = moduleBuilderDraft.description.trim();
+    if (!description) {
+      setModuleBuilderError('Inserisci una descrizione per il modulo');
+      return;
+    }
+
+    const normalizedUrls = Array.from(
+      new Set(
+        splitInputList(moduleBuilderDraft.defaultUrls)
+          .map(entry => toValidUrl(entry))
+          .filter((url): url is string => Boolean(url))
+      )
+    );
+    if (normalizedUrls.length === 0) {
+      setModuleBuilderError('Inserisci almeno un URL valido (uno per linea o separati da virgola).');
+      return;
+    }
+
+    const payload = {
+      title,
+      description,
+      tags: moduleBuilderDraft.tags,
+      accentColor: moduleBuilderDraft.accentColor,
+      icon: moduleBuilderDraft.icon,
+      supportedHosts: splitInputList(moduleBuilderDraft.supportedHosts),
+      defaultUrls: normalizedUrls,
+    };
+
+    setModuleBuilderSaving(true);
+    try {
+      const res = await fetch(`${apiBaseUrl}/api/modules`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.message || data.error || 'Impossibile creare il modulo');
+      }
+      const created: SSDModule = data.module;
+      setModules(prev => {
+        const filtered = prev.filter(module => module.meta.id !== created.meta.id);
+        const next = [...filtered, created];
+        next.sort((a, b) => a.meta.title.localeCompare(b.meta.title, 'it', { sensitivity: 'base' }));
+        return next;
+      });
+      toast.success(`Modulo "${created.meta.title}" creato`);
+      setModuleBuilderOpen(false);
+      setModuleBuilderError(null);
+      setModuleBuilderDraft({ ...MODULE_BUILDER_DEFAULT });
+      handleModuleSelect(created);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Errore sconosciuto';
+      setModuleBuilderError(message);
+      notifyError(error, 'Impossibile creare il modulo');
+    } finally {
+      setModuleBuilderSaving(false);
+    }
+  }, [apiBaseUrl, handleModuleSelect, moduleBuilderDraft]);
+
   const ensureCmpConfigured = useCallback(() => {
     if (cmpReady) {
       return true;
@@ -374,17 +524,7 @@ export default function SSDTestPage() {
     return false;
   }, [cmpReady]);
 
-  const handleModuleSelect = (moduleId: ModuleId) => {
-    const moduleDefinition = getModule(moduleId);
-    const defaultConfig = moduleDefinition?.defaultConfig ?? {};
-    const moduleUrls = normalizeModuleUrls(moduleDefinition);
-    const initialState = createInitialState(moduleId, defaultConfig, moduleUrls);
-    setState(initialState);
-    handleScenarioStateReset();
-  };
-
-  const { config: ssdConfig, loading: configLoading, error: configError } = useSSDConfig(import.meta.env.VITE_API_BASE || (window.location.origin === 'http://localhost:5173' ? 'http://localhost:3001' : ''));
-  const apiBaseUrl = import.meta.env.VITE_API_BASE || (window.location.origin === 'http://localhost:5173' ? 'http://localhost:3001' : '');
+  const { config: ssdConfig, loading: configLoading, error: configError } = useSSDConfig(apiBaseUrl);
 
   const { createNewController, abortCurrentRequest } = useAbortController();
   const { 
@@ -398,7 +538,38 @@ export default function SSDTestPage() {
     hideAnalysis 
   } = useAnalysisProgress();
 
+  const loadModules = useCallback(async () => {
+    setModulesLoading(true);
+    setModulesError(null);
+    try {
+      const res = await fetch(`${apiBaseUrl}/api/modules`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.message || data.error || 'Impossibile caricare i moduli disponibili');
+      }
+      const fetched: SSDModule[] = Array.isArray(data.modules) ? data.modules : [];
+      fetched.sort((a, b) => a.meta.title.localeCompare(b.meta.title, 'it', { sensitivity: 'base' }));
+      setModules(fetched);
+      setState(prev => {
+        if (!prev.moduleId) return prev;
+        if (fetched.some(module => module.meta.id === prev.moduleId)) {
+          return prev;
+        }
+        return createInitialState();
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Errore sconosciuto';
+      setModulesError(message);
+      notifyError(error, 'Impossibile caricare i moduli disponibili');
+    } finally {
+      setModulesLoading(false);
+    }
+  }, [apiBaseUrl]);
+
   useEffect(() => () => abortCurrentRequest(), [state.currentStep, abortCurrentRequest]);
+  useEffect(() => {
+    loadModules();
+  }, [loadModules]);
 
   const fetchModuleEvents = useCallback(async (moduleId: ModuleId): Promise<ModuleEventDefinition[]> => {
     const res = await fetch(`${apiBaseUrl}/api/modules/${moduleId}/events`);
@@ -1431,9 +1602,13 @@ const persistScenarioDraft = useCallback(
 
           {state.currentStep === 'module' ? (
             <ModuleSelectionStep
+              modules={modules}
+              loading={modulesLoading}
+              error={modulesError}
               currentModuleId={state.moduleId}
               onModuleSelect={handleModuleSelect}
               onModuleProceed={handleModuleProceed}
+              onCreateModule={openModuleBuilder}
             />
           ) : (
             selectedModule && (
@@ -1781,6 +1956,161 @@ const persistScenarioDraft = useCallback(
             </Card>
           )}
 
+
+      {isModuleBuilderOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur"
+          onClick={closeModuleBuilder}
+        >
+          <div
+            className="relative w-full max-w-3xl max-h-[85vh] overflow-hidden rounded-3xl border border-white/30 bg-white shadow-2xl flex flex-col"
+            onClick={event => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-slate-200/70 px-6 py-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.28em] text-indigo-500">Nuovo modulo</p>
+                <h2 className="mt-1 text-xl font-semibold text-slate-900">Configura una nuova verticalizzazione</h2>
+                <p className="text-sm text-slate-500">
+                  Inserisci le informazioni minime: potrai aggiungere scenari e CMP subito dopo la creazione.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="rounded-full p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100"
+                onClick={closeModuleBuilder}
+                disabled={moduleBuilderSaving}
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-6 py-6 space-y-5">
+              <div className="space-y-1">
+                <label className="text-sm font-medium text-slate-700">Nome modulo</label>
+                <Input
+                  value={moduleBuilderDraft.title}
+                  onChange={event => handleModuleBuilderFieldChange('title', event.target.value)}
+                  placeholder="Es. Nuovo ecommerce"
+                  disabled={moduleBuilderSaving}
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-sm font-medium text-slate-700">Descrizione</label>
+                <textarea
+                  value={moduleBuilderDraft.description}
+                  onChange={event => handleModuleBuilderFieldChange('description', event.target.value)}
+                  placeholder="Descrivi obiettivo e pagina principale monitorata"
+                  className="min-h-[90px] w-full rounded-xl border border-slate-200 bg-white/80 px-3 py-2 text-sm text-slate-800 shadow-inner focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                  disabled={moduleBuilderSaving}
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-sm font-medium text-slate-700">Domini supportati</label>
+                <textarea
+                  value={moduleBuilderDraft.supportedHosts}
+                  onChange={event => handleModuleBuilderFieldChange('supportedHosts', event.target.value)}
+                  placeholder="www.example.com, app.example.com"
+                  className="min-h-[70px] w-full rounded-xl border border-slate-200 bg-white/80 px-3 py-2 text-sm text-slate-800 shadow-inner focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                  disabled={moduleBuilderSaving}
+                />
+                <p className="text-xs text-slate-500">Un dominio per riga oppure separato da virgole. Puoi lasciare vuoto: useremo gli URL per inferirli.</p>
+              </div>
+              <div className="space-y-1">
+                <label className="text-sm font-medium text-slate-700">URL principali</label>
+                <textarea
+                  value={moduleBuilderDraft.defaultUrls}
+                  onChange={event => handleModuleBuilderFieldChange('defaultUrls', event.target.value)}
+                  placeholder={`https://www.example.com\nhttps://www.example.com/prodotto`}
+                  className="min-h-[90px] w-full rounded-xl border border-slate-200 bg-white/80 px-3 py-2 text-sm text-slate-800 shadow-inner focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                  disabled={moduleBuilderSaving}
+                />
+                <p className="text-xs text-slate-500">Inserisci almeno un URL. Verrà utilizzato come suggerimento durante la creazione degli scenari.</p>
+              </div>
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-1">
+                  <label className="text-sm font-medium text-slate-700">Tag (opzionali)</label>
+                  <Input
+                    value={moduleBuilderDraft.tags}
+                    onChange={event => handleModuleBuilderFieldChange('tags', event.target.value)}
+                    placeholder="Tracking, Ecommerce"
+                    disabled={moduleBuilderSaving}
+                  />
+                  <p className="text-xs text-slate-500">Separali con virgole per mostrarli come badge.</p>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-1">
+                    <label className="text-sm font-medium text-slate-700">Icona</label>
+                    <select
+                      value={moduleBuilderDraft.icon}
+                      onChange={event => handleModuleBuilderFieldChange('icon', event.target.value)}
+                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                      disabled={moduleBuilderSaving}
+                    >
+                      {MODULE_ICON_OPTIONS.map(option => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-sm font-medium text-slate-700">Colore accento</label>
+                    <Input
+                      type="color"
+                      value={moduleBuilderDraft.accentColor}
+                      onChange={event => handleModuleBuilderFieldChange('accentColor', event.target.value)}
+                      disabled={moduleBuilderSaving}
+                      className="h-10 w-full cursor-pointer rounded-lg border border-slate-200 p-1"
+                    />
+                  </div>
+                </div>
+              </div>
+              {moduleBuilderError && (
+                <div className="rounded-xl border border-rose-200 bg-rose-50/80 px-4 py-2 text-sm text-rose-700 shadow-inner">
+                  {moduleBuilderError}
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between border-t border-slate-200/70 bg-slate-50/80 px-6 py-4">
+              <div className="text-xs text-slate-500">
+                {moduleBuilderSaving ? (
+                  <span className="inline-flex items-center gap-2 text-indigo-600">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Salvataggio in corso...
+                  </span>
+                ) : (
+                  'Potrai configurare CMP e scenari subito dopo aver creato il modulo.'
+                )}
+              </div>
+              <div className="flex gap-3">
+                <Button
+                  variant="outline"
+                  className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100"
+                  onClick={closeModuleBuilder}
+                  disabled={moduleBuilderSaving}
+                >
+                  Annulla
+                </Button>
+                <Button
+                  className="rounded-xl bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 px-5 py-2 text-sm font-semibold text-white shadow-lg shadow-purple-200/80 hover:opacity-95 disabled:opacity-50"
+                  onClick={handleModuleBuilderSave}
+                  disabled={moduleBuilderSaving}
+                >
+                  {moduleBuilderSaving ? (
+                    <span className="inline-flex items-center gap-2">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Salvataggio
+                    </span>
+                  ) : (
+                    'Salva modulo'
+                  )}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {isScenarioModalOpen && scenarioDraft && (
         <div

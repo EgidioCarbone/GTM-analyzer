@@ -38,6 +38,205 @@
           ]
         }
       }
+    },
+    "italgas": {
+      "moduleId": "italgas",
+      "updatedAt": "2025-11-07T17:13:44.246Z",
+      "cmp": {
+        "selector": "#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll",
+        "vendor": "cookiebot",
+        "testUrl": "https://www.italgas.it/",
+        "validatedAt": "2025-11-07T17:13:44.243Z",
+        "lastValidation": {
+          "status": "ACCEPTED",
+          "reasoning": "Il consenso è stato accettato con successo, come indicato dall'evento 'consent update' che mostra tutti i tipi di storage impostati su 'granted'. Inoltre, l'evento 'cookie_consent_update' conferma l'accettazione del consenso.",
+          "executedAt": "2025-11-07T17:13:44.243Z",
+          "evidence": [
+            "consent update: ad_storage: granted",
+            "cookie_consent_update",
+            "gtm.click: consentProcessed: 1"
+          ],
+          "eventsCaptured": 18,
+          "sampleEvents": [
+            {
+              "event": "initialDelivery",
+              "postMessageData": {
+                "event": "initialDelivery",
+                "info": {
+                  "apiInterface": [
+                    "cueVideoById",
+                    "loadVideoById",
+                    "cueVideoByUrl",
+                    "loadVideoByUrl",
+                    "playVideo",
+                    "pauseVideo",
+                    "stopVideo",
+                    "clearVideo",
+                    "getVideoBytesLoaded",
+                    "getVideoBytesTotal",
+                    "getVideoLoadedFraction",
+                    "getVideoStartBytes",
+                    "cuePlaylist",
+                    "loadPlaylist",
+                    "nextVideo",
+                    "previousVideo",
+                    "playVideoAt",
+                    "setShuffle",
+                    "setLoop",
+                    "getPlaylist",
+                    "getPlaylistIndex",
+                    "getPlaylistId",
+                    "loadModule",
+                    "unloadModule",
+                    "setOption",
+                    "getOption",
+                    "getOptions",
+                    "mute",
+                    "unMute",
+                    "isMuted",
+                    "setVolume",
+                    "getVolume",
+                    "seekTo",
+                    "getPlayerMode",
+                    "getPlayerState",
+                    "getAvailablePlaybackRates",
+                    "getPlaybackQuality",
+                    "setPlaybackQuality",
+                    "getAvailableQualityLevels",
+                    "getCurrentTime",
+                    "getDuration",
+                    "addEventListener",
+                    "removeEventListener",
+                    "getDebugText",
+                    "getVideoData",
+                    "addCueRange",
+                    "removeCueRange",
+                    "setSize",
+                    "getApiInterface",
+                    "destroy",
+                    "mutedAutoplay",
+                    "getVideoEmbedCode",
+                    "getVideoUrl",
+                    "getMediaReferenceTime",
+                    "getSize",
+                    "setFauxFullscreen",
+                    "setCenterCrop",
+                    "logImaAdEvent",
+                    "preloadVideoById",
+                    "wakeUpControls",
+                    "showVideoInfo",
+                    "hideVideoInfo",
+                    "isVideoInfoVisible",
+                    "getPlaybackRate",
+                    "setPlaybackRate",
+                    "getSphericalProperties",
+                    "setSphericalProperties"
+                  ],
+                  "videoBytesLoaded": 0,
+                  "videoBytesTotal": 1,
+                  "videoLoadedFraction": 0,
+                  "videoStartBytes": 0,
+                  "playlist": null,
+                  "playlistIndex": -1,
+                  "playlistId": null,
+                  "option": null,
+                  "options": [],
+                  "muted": false,
+                  "volume": 100,
+                  "playerMode": {},
+                  "playerState": 5,
+                  "availablePlaybackRates": [
+                    0.25,
+                    0.5,
+                    0.75,
+                    1,
+                    1.25,
+                    1.5,
+                    1.75,
+                    2
+                  ],
+                  "playbackQuality": "unknown",
+                  "availableQualityLevels": [],
+                  "currentTime": 0,
+                  "duration": 108,
+                  "debugText": "{\n  \"debug_videoId\": \"R8V5fhzwh6M\",\n  \"debug_playbackQuality\": \"unknown\",\n  \"debug_date\": \"Fri Nov 07 2025 18:13:30 GMT+0100 (Ora standard dell’Europa centrale)\",\n  \"origin\": \"https://www.youtube.com\",\n  \"timestamp\": 1762535610106\n}",
+                  "videoEmbedCode": "<iframe width=\"1425\" height=\"612\" src=\"https://www.youtube.com/embed/R8V5fhzwh6M\" title=\"Shaping a new energy\" frameborder=\"0\" allow=\"accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share\" referrerpolicy=\"strict-origin-when-cross-origin\" allowfullscreen></iframe>",
+                  "videoUrl": "https://www.youtube.com/watch?v=R8V5fhzwh6M",
+                  "mediaReferenceTime": 0,
+                  "size": {
+                    "width": 1425,
+                    "height": 612
+                  },
+                  "videoInfoVisible": false,
+                  "playbackRate": 1,
+                  "sphericalProperties": {},
+                  "videoData": {
+                    "video_id": "R8V5fhzwh6M",
+                    "author": "",
+                    "title": "Shaping a new energy",
+                    "isPlayable": true,
+                    "errorCode": null,
+                    "backgroundable": false,
+                    "cpn": "TZ7wLxbnwRijoPTJ",
+                    "isLive": false,
+                    "isWindowedLive": false,
+                    "isManifestless": false,
+                    "allowLiveDvr": false,
+                    "isListed": false,
+                    "isMultiChannelAudio": false,
+                    "hasProgressBarBoundaries": false,
+                    "isPremiere": false,
+                    "itct": "CAAQru4BIhMIkb2W58TgkAMVD9dCBR2Z-i2M",
+                    "playerResponseCpn": "",
+                    "progressBarStartPositionUtcTimeMillis": null,
+                    "progressBarEndPositionUtcTimeMillis": null,
+                    "paidContentOverlayDurationMs": 0
+                  },
+                  "currentTimeLastUpdated_": 1762535610.106
+                },
+                "channel": "widget",
+                "id": 1
+              }
+            },
+            {
+              "event": "onReady",
+              "postMessageData": {
+                "event": "onReady",
+                "info": null,
+                "channel": "widget",
+                "id": 1
+              }
+            },
+            {
+              "event": "alreadyInitialized",
+              "postMessageData": {
+                "event": "alreadyInitialized",
+                "info": null,
+                "channel": "widget",
+                "id": 3
+              }
+            },
+            {
+              "event": "alreadyInitialized",
+              "postMessageData": {
+                "event": "alreadyInitialized",
+                "info": null,
+                "channel": "widget",
+                "id": 1
+              }
+            },
+            {
+              "event": "alreadyInitialized",
+              "postMessageData": {
+                "event": "alreadyInitialized",
+                "info": null,
+                "channel": "widget",
+                "id": 3
+              }
+            }
+          ]
+        }
+      }
     }
   }
 }

@@ -31,10 +31,23 @@ import { ConsentLLMService } from './src/ai-sentinel/llm/consent-llm-service.js'
 import ga4InsightsRouter from './src/services/ga4-insights.server.ts';
 import { modelSupportsCustomTemperature } from './src/utils/openaiCapabilities.ts';
 import { SSD_DEFAULTS, getConfigValue, parseArray } from './src/config/ssd-defaults.js';
-import { getModule } from './src/modules/index.js';
+import {
+  getModule,
+  listModules as listAllModules,
+  createModule as createModuleDefinition,
+  updateModule as updateModuleDefinition,
+  deleteModule as deleteModuleDefinition,
+} from './src/modules/moduleStore.js';
 import { listModuleEventDefinitions, getModuleEventDefinition } from './src/modules/eventDefinitions.js';
-import { listModuleScenarios, getModuleScenario, upsertModuleScenario, deleteModuleScenario } from './src/modules/scenarioStore.js';
-import { getModuleSettings, setModuleCmpSettings } from './src/modules/moduleSettingsStore.js';
+import {
+  listModuleScenarios,
+  getModuleScenario,
+  upsertModuleScenario,
+  deleteModuleScenario,
+  deleteModuleScenarios,
+  overwriteModuleScenarios
+} from './src/modules/scenarioStore.js';
+import { getModuleSettings, setModuleCmpSettings, deleteModuleSettings } from './src/modules/moduleSettingsStore.js';
 import type {
   ModuleId,
   ModuleScenario,
@@ -495,6 +508,85 @@ function getCacheKey(url: string): string {
   } catch {
     return url;
   }
+}
+
+function slugifyModuleId(input: string): string {
+  return input
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[^\w\s-]/g, '')
+    .replace(/[\s_-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function parseStringList(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value
+      .map(item => (typeof item === 'string' ? item.trim() : ''))
+      .filter(Boolean);
+  }
+  if (typeof value === 'string') {
+    return value
+      .split(/[\n,]/)
+      .map(item => item.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+const ALLOWED_MODULE_ICONS = new Set(['ShieldCheck', 'Shield', 'Antenna', 'Sparkles', 'Layers', 'Rocket']);
+
+function normalizeHostCandidate(value: string): string | null {
+  if (!value) return null;
+  let candidate = value.trim();
+  if (!candidate) return null;
+  if (!candidate.includes('://')) {
+    candidate = `https://${candidate}`;
+  }
+  try {
+    const url = new URL(candidate);
+    return url.host || null;
+  } catch {
+    const sanitized = candidate.replace(/^https?:\/\//i, '').split('/')[0];
+    return sanitized || null;
+  }
+}
+
+function normalizeModuleUrl(value: string): string | null {
+  if (!value) return null;
+  let candidate = value.trim();
+  if (!candidate) return null;
+  if (!/^https?:\/\//i.test(candidate)) {
+    candidate = `https://${candidate}`;
+  }
+  try {
+    const url = new URL(candidate);
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+function sanitizeHexColor(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  let candidate = value.trim();
+  if (!candidate) return undefined;
+  if (!candidate.startsWith('#')) {
+    candidate = `#${candidate}`;
+  }
+  if (/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(candidate)) {
+    return candidate;
+  }
+  return undefined;
+}
+
+function coerceModuleIcon(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const icon = value.trim();
+  if (ALLOWED_MODULE_ICONS.has(icon)) {
+    return icon;
+  }
+  return undefined;
 }
 
 function saveCookieTestSpec(url: string, spec: any): void {
@@ -4287,10 +4379,187 @@ function ensureRequiredInputs(
   return missing;
 }
 
-app.get('/api/modules/:moduleId/events', (req, res) => {
+app.get('/api/modules', async (_req, res) => {
+  try {
+    const modules = await listAllModules();
+    return res.json({ modules });
+  } catch (error) {
+    console.error('[ModuleAPI] Failed to list modules', error);
+    return res.status(500).json({ error: 'INTERNAL_ERROR' });
+  }
+});
+
+app.post('/api/modules', async (req, res) => {
+  try {
+    const payload = req.body ?? {};
+    const title = typeof payload.title === 'string' ? payload.title.trim() : '';
+    if (!title) {
+      return res.status(400).json({ error: 'INVALID_TITLE', message: 'Il nome del modulo è obbligatorio.' });
+    }
+
+    const description =
+      typeof payload.description === 'string' && payload.description.trim().length > 0
+        ? payload.description.trim()
+        : 'Modulo personalizzato';
+
+    const requestedId =
+      typeof payload.id === 'string' && payload.id.trim().length > 0
+        ? slugifyModuleId(payload.id)
+        : slugifyModuleId(title);
+    if (!requestedId) {
+      return res.status(400).json({ error: 'INVALID_ID', message: 'Impossibile generare un ID per il modulo indicato.' });
+    }
+
+    const normalizedUrls = parseStringList(payload.defaultUrls)
+      .map(normalizeModuleUrl)
+      .filter((url): url is string => Boolean(url));
+    if (normalizedUrls.length === 0) {
+      return res.status(400).json({
+        error: 'INVALID_URLS',
+        message: 'Inserisci almeno un URL valido per il modulo.',
+      });
+    }
+
+    let normalizedHosts = parseStringList(payload.supportedHosts)
+      .map(value => normalizeHostCandidate(value))
+      .filter((value): value is string => Boolean(value));
+    if (normalizedHosts.length === 0) {
+      const derivedHosts = normalizedUrls
+        .map(url => {
+          try {
+            return new URL(url).host;
+          } catch {
+            return null;
+          }
+        })
+        .filter((host): host is string => Boolean(host));
+      normalizedHosts = Array.from(new Set(derivedHosts));
+    }
+
+    if (normalizedHosts.length === 0) {
+      return res.status(400).json({
+        error: 'INVALID_HOSTS',
+        message: 'Indica almeno un dominio supportato o un URL valido per inferirlo.',
+      });
+    }
+
+    const moduleDefinition: SSDModule = {
+      meta: {
+        id: requestedId,
+        title,
+        description,
+        tags: parseStringList(payload.tags),
+        accentColor: sanitizeHexColor(payload.accentColor),
+        icon: coerceModuleIcon(payload.icon) ?? 'ShieldCheck',
+      },
+      supportedHosts: Array.from(new Set(normalizedHosts)),
+      defaultUrls: normalizedUrls,
+      configFields: Array.isArray(payload.configFields) ? payload.configFields : [],
+      defaultConfig:
+        typeof payload.defaultConfig === 'object' && payload.defaultConfig !== null ? payload.defaultConfig : {},
+    };
+
+    const created = await createModuleDefinition(moduleDefinition);
+    return res.status(201).json({ module: created });
+  } catch (error) {
+    console.error('[ModuleAPI] Failed to create module', error);
+    if (error instanceof Error && /already exists/i.test(error.message)) {
+      return res.status(409).json({ error: 'MODULE_EXISTS', message: error.message });
+    }
+    return res.status(500).json({ error: 'INTERNAL_ERROR' });
+  }
+});
+
+app.put('/api/modules/:moduleId', async (req, res) => {
   try {
     const moduleId = req.params.moduleId as ModuleId;
-    const moduleDefinition = getModule(moduleId);
+    const existing = await getModule(moduleId);
+    if (!existing) {
+      return res.status(404).json({ error: `Module '${moduleId}' not found` });
+    }
+
+    const payload = req.body ?? {};
+    const nextTitle =
+      typeof payload.title === 'string' && payload.title.trim().length > 0 ? payload.title.trim() : existing.meta.title;
+    const nextDescription =
+      typeof payload.description === 'string' && payload.description.trim().length > 0
+        ? payload.description.trim()
+        : existing.meta.description;
+
+    let updatedHosts: string[] | undefined;
+    if (payload.supportedHosts !== undefined) {
+      const parsedHosts = parseStringList(payload.supportedHosts)
+        .map(value => normalizeHostCandidate(value))
+        .filter((value): value is string => Boolean(value));
+      if (parsedHosts.length === 0) {
+        return res.status(400).json({
+          error: 'INVALID_HOSTS',
+          message: 'Inserisci almeno un dominio valido.',
+        });
+      }
+      updatedHosts = Array.from(new Set(parsedHosts));
+    }
+
+    let updatedUrls: string[] | undefined;
+    if (payload.defaultUrls !== undefined) {
+      const parsedUrls = parseStringList(payload.defaultUrls)
+        .map(normalizeModuleUrl)
+        .filter((url): url is string => Boolean(url));
+      if (parsedUrls.length === 0) {
+        return res.status(400).json({
+          error: 'INVALID_URLS',
+          message: 'Inserisci almeno un URL valido.',
+        });
+      }
+      updatedUrls = parsedUrls;
+    }
+
+    const updatedModule: SSDModule = {
+      ...existing,
+      meta: {
+        ...existing.meta,
+        title: nextTitle,
+        description: nextDescription,
+        tags: payload.tags !== undefined ? parseStringList(payload.tags) : existing.meta.tags,
+        accentColor: payload.accentColor !== undefined ? sanitizeHexColor(payload.accentColor) : existing.meta.accentColor,
+        icon: payload.icon !== undefined ? coerceModuleIcon(payload.icon) ?? existing.meta.icon : existing.meta.icon,
+      },
+      supportedHosts: updatedHosts ?? existing.supportedHosts,
+      defaultUrls: updatedUrls ?? existing.defaultUrls,
+      configFields: Array.isArray(payload.configFields) ? payload.configFields : existing.configFields,
+      defaultConfig:
+        typeof payload.defaultConfig === 'object' && payload.defaultConfig !== null
+          ? payload.defaultConfig
+          : existing.defaultConfig,
+    };
+
+    const stored = await updateModuleDefinition(moduleId, updatedModule);
+    return res.json({ module: stored });
+  } catch (error) {
+    console.error('[ModuleAPI] Failed to update module', error);
+    return res.status(500).json({ error: 'INTERNAL_ERROR' });
+  }
+});
+
+app.delete('/api/modules/:moduleId', async (req, res) => {
+  try {
+    const moduleId = req.params.moduleId as ModuleId;
+    const deleted = await deleteModuleDefinition(moduleId);
+    if (!deleted) {
+      return res.status(404).json({ error: `Module '${moduleId}' not found` });
+    }
+    await Promise.all([deleteModuleSettings(moduleId), deleteModuleScenarios(moduleId)]);
+    return res.status(204).send();
+  } catch (error) {
+    console.error('[ModuleAPI] Failed to delete module', error);
+    return res.status(500).json({ error: 'INTERNAL_ERROR' });
+  }
+});
+
+app.get('/api/modules/:moduleId/events', async (req, res) => {
+  try {
+    const moduleId = req.params.moduleId as ModuleId;
+    const moduleDefinition = await getModule(moduleId);
     if (!moduleDefinition) {
       return res.status(404).json({ error: `Module '${moduleId}' not found` });
     }
@@ -4305,7 +4574,7 @@ app.get('/api/modules/:moduleId/events', (req, res) => {
 app.get('/api/modules/:moduleId/scenarios', async (req, res) => {
   try {
     const moduleId = req.params.moduleId as ModuleId;
-    const moduleDefinition = getModule(moduleId);
+    const moduleDefinition = await getModule(moduleId);
     if (!moduleDefinition) {
       return res.status(404).json({ error: `Module '${moduleId}' not found` });
     }
@@ -4320,7 +4589,7 @@ app.get('/api/modules/:moduleId/scenarios', async (req, res) => {
 app.post('/api/modules/:moduleId/cmp/validate', async (req, res) => {
   try {
     const moduleId = req.params.moduleId as ModuleId;
-    const moduleDefinition = getModule(moduleId);
+    const moduleDefinition = await getModule(moduleId);
     if (!moduleDefinition) {
       return res.status(404).json({ error: `Module '${moduleId}' not found` });
     }
@@ -4487,7 +4756,7 @@ app.post('/api/modules/:moduleId/cmp/validate', async (req, res) => {
 app.get('/api/modules/:moduleId/settings', async (req, res) => {
   try {
     const moduleId = req.params.moduleId as ModuleId;
-    const moduleDefinition = getModule(moduleId);
+    const moduleDefinition = await getModule(moduleId);
     if (!moduleDefinition) {
       return res.status(404).json({ error: `Module '${moduleId}' not found` });
     }
@@ -4502,7 +4771,7 @@ app.get('/api/modules/:moduleId/settings', async (req, res) => {
 app.post('/api/modules/:moduleId/scenarios', async (req, res) => {
   try {
     const moduleId = req.params.moduleId as ModuleId;
-    const moduleDefinition = getModule(moduleId);
+    const moduleDefinition = await getModule(moduleId);
     if (!moduleDefinition) {
       return res.status(404).json({ error: `Module '${moduleId}' not found` });
     }
@@ -4589,7 +4858,7 @@ app.put('/api/modules/:moduleId/scenarios/:scenarioId', async (req, res) => {
       return res.status(400).json({ error: 'INVALID_ID', message: 'scenarioId is required.' });
     }
 
-    const moduleDefinition = getModule(moduleId);
+    const moduleDefinition = await getModule(moduleId);
     if (!moduleDefinition) {
       return res.status(404).json({ error: `Module '${moduleId}' not found` });
     }
@@ -4672,7 +4941,7 @@ app.delete('/api/modules/:moduleId/scenarios/:scenarioId', async (req, res) => {
       return res.status(400).json({ error: 'INVALID_ID', message: 'scenarioId is required.' });
     }
 
-    const moduleDefinition = getModule(moduleId);
+    const moduleDefinition = await getModule(moduleId);
     if (!moduleDefinition) {
       return res.status(404).json({ error: `Module '${moduleId}' not found` });
     }
@@ -4696,7 +4965,7 @@ app.delete('/api/modules/:moduleId/scenarios/:scenarioId', async (req, res) => {
       return res.status(400).json({ error: 'INVALID_ID', message: 'scenarioId is required.' });
     }
 
-    const moduleDefinition = getModule(moduleId);
+    const moduleDefinition = await getModule(moduleId);
     if (!moduleDefinition) {
       return res.status(404).json({ error: `Module '${moduleId}' not found` });
     }
@@ -4827,7 +5096,7 @@ app.post('/api/spec/generate', upload.single('pdf'), async (req, res) => {
       }
     }
 
-    const moduleDefinition = moduleId ? getModule(moduleId) : undefined;
+    const moduleDefinition = moduleId ? await getModule(moduleId) : undefined;
     console.log(`[${correlationId}] Module selection`, {
       moduleId,
     });
@@ -4990,7 +5259,7 @@ app.post('/api/ssd/run', async (req, res) => {
     }
 
     const finalModuleSource: ModuleSource = (inferredModuleSource || moduleSourceInitial || 'scenario') as ModuleSource;
-    const moduleDefinition = inferredModuleId ? getModule(inferredModuleId) : undefined;
+    const moduleDefinition = inferredModuleId ? await getModule(inferredModuleId) : undefined;
     const moduleSettings = inferredModuleId ? await getModuleSettings(inferredModuleId) : null;
     const useManifestDsl = finalModuleSource === 'manifest';
     const scenarioIdFromDsl =

@@ -270,6 +270,113 @@
         "createdAt": "2025-11-07T16:26:43.764Z",
         "updatedAt": "2025-11-07T16:26:43.764Z"
       }
+    ],
+    "italgas": [
+      {
+        "id": "fea824ce-4303-4a43-86d4-6636b4225d00",
+        "moduleId": "italgas",
+        "name": "navigation_click",
+        "eventId": "manual",
+        "url": "https://www.italgas.it/",
+        "config": {},
+        "steps": [
+          {
+            "id": "manual_1762535786251_9ryq27",
+            "type": "click",
+            "label": "Step 1",
+            "description": "",
+            "selector": ".pum-close.popmake-close",
+            "delayAfterMs": 10000
+          },
+          {
+            "id": "manual_1762537536044_yri678",
+            "type": "click",
+            "label": "Step 2",
+            "selector": ".header__sidebarButton.t-label-sidebar-menu.j-openSecondMenu.j-sidebarFirstFocus",
+            "delayAfterMs": 10000
+          }
+        ],
+        "expectedPayload": {
+          "event": "navigation_click",
+          "event_category": "menu_secondo_livello",
+          "event_action": "path destinazione",
+          "event_label": "button_name",
+          "navigation_type": "desktop"
+        },
+        "testSpec": {
+          "site": "https://www.italgas.it",
+          "allowed_hosts": [
+            "italgas.it",
+            "www.italgas.it"
+          ],
+          "consent": [
+            "accept"
+          ],
+          "tests": [
+            {
+              "section": "navigation_click",
+              "steps": [
+                {
+                  "description": "Vai al sito indicato",
+                  "action": "navigate",
+                  "target": {
+                    "kind": "href",
+                    "value": "https://www.italgas.it/"
+                  },
+                  "expect": [
+                    {
+                      "type": "navigation",
+                      "url_contains": "www.italgas.it"
+                    }
+                  ],
+                  "severity": "critical"
+                },
+                {
+                  "description": "Accetta tutti i cookie",
+                  "action": "click",
+                  "target": {
+                    "region": "any",
+                    "kind": "selector",
+                    "value": "#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll"
+                  },
+                  "severity": "critical"
+                },
+                {
+                  "description": "Close popup",
+                  "action": "click",
+                  "target": {
+                    "region": "main",
+                    "kind": "selector",
+                    "value": ".pum-close.popmake-close"
+                  },
+                  "severity": "major"
+                },
+                {
+                  "description": "Open sidebar menu",
+                  "action": "click",
+                  "target": {
+                    "region": "header",
+                    "kind": "selector",
+                    "value": ".header__sidebarButton.t-label-sidebar-menu.j-openSecondMenu.j-sidebarFirstFocus"
+                  },
+                  "severity": "major"
+                }
+              ]
+            }
+          ]
+        },
+        "testSpecMeta": {
+          "generatedAt": "2025-11-07T17:45:53.912Z",
+          "model": "gpt-4o-mini-2024-07-18",
+          "tokens": {
+            "input": 941,
+            "output": 359
+          },
+          "source": "scenario-llm"
+        },
+        "createdAt": "2025-11-07T17:19:11.594Z",
+        "updatedAt": "2025-11-07T17:45:53.912Z"
+      }
     ]
   }
 }

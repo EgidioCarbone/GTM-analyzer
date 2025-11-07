@@ -123,3 +123,11 @@ export async function upsertModuleSettings(
   await writeSettingsFile(file);
   return merged;
 }
+
+export async function deleteModuleSettings(moduleId: ModuleId): Promise<void> {
+  const file = await readSettingsFile();
+  if (file.modules[moduleId]) {
+    delete file.modules[moduleId];
+    await writeSettingsFile(file);
+  }
+}
