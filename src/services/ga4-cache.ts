@@ -41,3 +41,8 @@ const inflight = new Map<string, Promise<ReportData>>();
 export function setInflight(key: string, p: Promise<ReportData>) { inflight.set(key, p); }
 export function getInflight(key: string) { return inflight.get(key) || null; }
 export function clearInflight(key: string) { inflight.delete(key); }
+
+// Snapshot read-only del contenuto della cache (uso diagnostico/derivazioni)
+export function dumpStore() {
+  return Array.from(store.entries()).map(([key, entry]) => ({ key, expireAt: entry.expireAt, value: entry.value }));
+}

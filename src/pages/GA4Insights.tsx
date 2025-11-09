@@ -12,6 +12,7 @@ export default function GA4Chat() {
   const [narrative, setNarrative] = React.useState("");
   const [range, setRange] = React.useState<{ startDate: string; endDate: string } | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+  const [chart, setChart] = React.useState<null | { type: 'bar' | 'line' | 'pie' | null; labels: string[]; values: number[]; metric: string | null }>(null);
 
   async function ask() {
     setLoading(true);
@@ -19,6 +20,7 @@ export default function GA4Chat() {
     setError(null);
     setNarrative("");
     setRange(null);
+    setChart(null);
 
     try {
       const res = await fetch("/api/ga4/chat", {
@@ -32,6 +34,7 @@ export default function GA4Chat() {
       setSteps(json?.debug?.steps || []);
       setRange(json.range);
       setNarrative(json?.ai?.narrative || "");
+      setChart(json?.ai?.chart ?? null);
     } catch (e: any) {
       setError(e?.message || "Errore richiesta");
     } finally {
@@ -47,6 +50,7 @@ export default function GA4Chat() {
     range: { startDate: string; endDate: string } | null;
     timestamp: number;
     view: "table" | "chart";
+    chart: null | { type: 'bar' | 'line' | 'pie' | null; labels: string[]; values: number[]; metric: string | null };
   };
   const [cards, setCards] = React.useState<Card[]>([]);
   const [fullscreenCardId, setFullscreenCardId] = React.useState<number | null>(null);
@@ -57,14 +61,26 @@ export default function GA4Chat() {
     if (!loading && narrative && narrative !== lastPushedRef.current) {
       setCards((prev) => [
         ...prev,
-        { id: Date.now(), queryText: query, narrative, range, timestamp: Date.now(), view: "table" },
+        { id: Date.now(), queryText: query, narrative, range, timestamp: Date.now(), view: "table", chart },
       ]);
       lastPushedRef.current = narrative;
     }
-  }, [loading, narrative, range, query]);
+  }, [loading, narrative, range, query, chart]);
 
   function setCardView(id: number, view: "table" | "chart") {
     setCards((prev) => prev.map((c) => (c.id === id ? { ...c, view } : c)));
+  }
+
+  // Reset UI della chat (solo presentazione, non tocca logica/API)
+  function handleReset() {
+    setQuery("");
+    setSteps([]);
+    setError(null);
+    setNarrative("");
+    setRange(null);
+    setCards([]);
+    setFullscreenCardId(null);
+    lastPushedRef.current = "";
   }
 
   // Estrae la prima tabella Markdown
@@ -120,6 +136,76 @@ export default function GA4Chat() {
     );
   }
 
+  // Renderer semplici per ai.chart
+  function LineChart({ labels, values }:{ labels:string[]; values:number[] }){
+    const max = Math.max(...values.map(v=>Math.abs(v)), 1);
+    const pts = values.map((v,i)=>{
+      const x = (i/(values.length-1))*100;
+      const y = 100 - ((v/max)*100);
+      return `${x},${y}`;
+    }).join(' ');
+    return (
+      <div className="w-full">
+        <svg viewBox="0 0 100 100" className="h-56 w-full text-indigo-600">
+          <polyline fill="none" stroke="currentColor" strokeWidth="2" points={pts} />
+          {values.map((v,i)=>{
+            const x = (i/(values.length-1))*100; const y = 100 - ((v/max)*100);
+            return <circle key={i} cx={x} cy={y} r={1.8} fill="currentColor" />;
+          })}
+        </svg>
+        <div className="mt-2 grid grid-cols-6 text-[10px] text-gray-500">
+          {labels.map((l,i)=> <div key={i} className="truncate">{l}</div>)}
+        </div>
+      </div>
+    );
+  }
+
+  function BarChart({ labels, values }:{ labels:string[]; values:number[] }){
+    const max = Math.max(...values.map(v=>Math.abs(v)), 1);
+    return (
+      <div className="w-full">
+        <div className="flex items-end gap-2 h-56">
+          {values.map((v,i)=>{
+            const h = Math.round((Math.abs(v)/max)*100);
+            return (
+              <div key={i} className="flex-1 flex flex-col items-center">
+                <div className="w-full max-w-[20px] bg-indigo-100 rounded-sm h-full">
+                  <div className="w-full bg-indigo-600 rounded-sm" style={{ height: `${h}%` }} />
+                </div>
+                <div className="mt-1 text-[10px] text-gray-500 truncate w-full text-center">{labels[i]}</div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  function PieChart({ labels, values }:{ labels:string[]; values:number[] }){
+    const total = values.reduce((a,b)=>a+b,0) || 1;
+    const colors = ['#6366f1','#10b981','#f59e0b','#ef4444','#64748b','#8b5cf6','#14b8a6'];
+    let acc = 0;
+    const segments = values.map((v,i)=>{ const start=(acc/total)*360; acc+=v; const end=(acc/total)*360; const color=colors[i%colors.length]; return `${color} ${start}deg ${end}deg`; }).join(',');
+    return (
+      <div className="flex items-center gap-6">
+        <div className="h-40 w-40 rounded-full" style={{ background: `conic-gradient(${segments})` }} />
+        <div className="space-y-1 text-sm">
+          {labels.map((l,i)=> <div key={i} className="flex items-center gap-2"><span className="inline-block h-2.5 w-2.5 rounded-sm" style={{backgroundColor: colors[i%colors.length]}}></span><span className="text-gray-700">{l}</span></div>)}
+        </div>
+      </div>
+    );
+  }
+
+  function ChartFromSpec({ spec }:{ spec: { type:'bar'|'line'|'pie'|null; labels:string[]; values:number[]; metric:string|null } | null }){
+    if (!spec || !Array.isArray(spec.labels) || !Array.isArray(spec.values) || spec.labels.length !== spec.values.length || spec.labels.length === 0) {
+      return <div className="text-sm text-gray-500">Nessun grafico disponibile per le metriche e dimensioni richieste.</div>;
+    }
+    if (spec.type === 'line') return <LineChart labels={spec.labels} values={spec.values} />;
+    if (spec.type === 'bar') return <BarChart labels={spec.labels} values={spec.values} />;
+    if (spec.type === 'pie') return <PieChart labels={spec.labels} values={spec.values} />;
+    return <div className="text-sm text-gray-500">Nessun grafico disponibile per le metriche e dimensioni richieste.</div>;
+  }
+
   // Download (UI only)
   function downloadBlob(filename: string, content: string, type: string) {
     const blob = new Blob([content], { type });
@@ -164,6 +250,18 @@ export default function GA4Chat() {
 
         {/* Input pill (sticky) */}
         <div className="sticky top-0 z-10 bg-gray-50/80 backdrop-blur supports-[backdrop-filter]:bg-gray-50/60 py-2">
+          {/* Toolbar superiore: link Reset */}
+          <div className="mb-2 flex items-center justify-end">
+            <button
+              type="button"
+              onClick={handleReset}
+              className="inline-flex items-center gap-1 text-xs font-medium text-gray-600 hover:text-gray-900"
+              title="Resetta la conversazione"
+            >
+              <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4"><path d="M12 5V2L8 6l4 4V7c2.8 0 5 2.2 5 5a5 5 0 01-8.5 3.5l-1.4 1.4A7 7 0 0019 12c0-3.9-3.1-7-7-7z"/></svg>
+              Resetta
+            </button>
+          </div>
           <div className="rounded-full border border-gray-200 bg-white shadow-sm px-4 py-2 flex items-center gap-3">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-5 w-5 text-gray-400">
               <path d="M21 15v4a2 2 0 0 1-2 2H7l-4 3V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
@@ -192,7 +290,6 @@ export default function GA4Chat() {
               </svg>
               {loading ? "Elaboro..." : "Invia"}
             </button>
-            <span className="hidden sm:ml-2 sm:block text-[11px] text-gray-500">Enter invia - Shift+Enter va a capo</span>
           </div>
           {/* Stato di caricamento */}
           {loading && (
@@ -271,7 +368,11 @@ export default function GA4Chat() {
                     </div>
                   </div>
                 ) : (
-                  <ChartFromMarkdown md={card.narrative} />
+                  card.chart ? (
+                    <ChartFromSpec spec={card.chart} />
+                  ) : (
+                    <div className="text-sm text-gray-500">Nessun grafico disponibile per le metriche e dimensioni richieste.</div>
+                  )
                 )}
               </div>
             </div>
@@ -298,7 +399,7 @@ export default function GA4Chat() {
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>{c.narrative}</ReactMarkdown>
                     </div>
                   ) : (
-                    <ChartFromMarkdown md={c.narrative} />
+                    c.chart ? <ChartFromSpec spec={c.chart} /> : <div className="text-sm text-gray-500">Nessun grafico disponibile per le metriche e dimensioni richieste.</div>
                   )}
                 </div>
               ))}
