@@ -15,6 +15,7 @@ import { useContainer } from "../context/ContainerContext";
 import type { GtmMetrics } from "../services/gtm-metrics";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { QualityOfContainer } from "./QualityOfContainer";
+import { InfoTooltip } from "./ui/InfoTooltip";
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, ArcElement, Tooltip, Legend);
 
@@ -70,6 +71,7 @@ const Dashboard: React.FC = () => {
   const containerName = ((container as any)?.name) || ((container as any)?.containerId) || 'Container non disponibile';
         const totalAssets = tags.length + triggers.length + variables.length;
         const formattedScore = gtmMetrics?.score?.total ? Number(gtmMetrics.score.total).toFixed(1) : '0';
+        const scoreBreakdown = Array.isArray(gtmMetrics?.score?.breakdown) ? gtmMetrics!.score!.breakdown : [];
 
         // export CSV helper
         const exportCSV = (items: unknown[], filename = 'export.csv') => {
@@ -311,21 +313,32 @@ const Dashboard: React.FC = () => {
                 <div className="space-y-3 max-w-3xl">
                   <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">Control room</p>
                   <h1 className="text-4xl font-semibold text-slate-900 dark:text-white">LikeSense GTM AIntelligence</h1>
-                  <p className="text-base text-slate-600 dark:text-slate-300">Supervisione professionale del container {containerName}. Ogni insight nasce da metriche oggettive e verificabili.</p>
+                  <p className="text-base text-slate-600 dark:text-slate-300">Supervisione professionale del container. Ogni insight nasce da metriche oggettive e verificabili.</p>
                 </div>
                 <div className="flex flex-col items-end gap-4">
                   <div className="rounded-2xl bg-slate-900 text-white px-6 py-4 shadow-md min-w-[200px]">
                     <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Quality score</p>
-                    <p className="text-4xl font-semibold">{formattedScore}%</p>
-                    <p className="text-xs text-slate-300">Aggiornamento continuo</p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-4xl font-semibold">{formattedScore}%</p>
+                      <InfoTooltip
+                        hideIcon={false}
+                        className="align-middle"
+                        content={<div className="text-left">
+                          <div className="font-semibold mb-2">Calcolo Score</div>
+                          {scoreBreakdown?.map((item, index) => (
+                            <div key={index} className="mb-1">
+                              {item.label}: {item.value}% x {item.weight}
+                            </div>
+                          ))}
+                          <div className="border-t border-slate-300 pt-1 mt-2 font-bold">
+                            = Score {formattedScore}%
+                          </div>
+                        </div>}
+                      />
+                    </div>
                   </div>
                   <button onClick={() => navigateToContainerManager('tags')} className="px-5 py-2 text-sm font-semibold text-slate-700 dark:text-white border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">Apri Container Manager</button>
                 </div>
-              </div>
-              <div className="flex flex-wrap gap-3 text-xs text-slate-500 dark:text-slate-400">
-                <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-slate-200 dark:border-slate-700">Container: {containerName}</span>
-                <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-slate-200 dark:border-slate-700">Asset monitorati {safeRender(totalAssets)}</span>
-                <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-slate-200 dark:border-slate-700">Insights proprietari LikeSense</span>
               </div>
             </div>
 

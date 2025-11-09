@@ -58,7 +58,7 @@ export const QualityAccordion: React.FC<QualityAccordionProps> = ({
     <div className="rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-sm" data-chart-palette="lilac">
       {/* Header dell'accordion */}
       <div className="flex items-center justify-between mb-4">
-        <InfoTooltip content="Calcolato su pulizia tag, qualit?à trigger e qualit?à variabili con pesi diversi. Clicca per i dettagli.">
+        <InfoTooltip content="Calcolato su pulizia tag, qualità trigger e qualit?à variabili con pesi diversi. Clicca per i dettagli.">
           <h2 className="text-xl font-semibold text-slate-900 dark:text-white flex items-center gap-2">
             <Target className="w-5 h-5 text-violet-600 dark:text-violet-400" />
             Qualità del Container
@@ -66,30 +66,7 @@ export const QualityAccordion: React.FC<QualityAccordionProps> = ({
         </InfoTooltip>
         
         <div className="flex items-center gap-4">
-          <div className="text-right">
-            <InfoTooltip
-              content={
-                <div className="text-left">
-                  <div className="font-semibold mb-2">Calcolo Score:</div>
-                  {scoreBreakdown?.map((item, index) => (
-                    <div key={index} className="mb-1">
-                      {item.label}: {item.value}% × {item.weight}
-                    </div>
-                  ))}
-                  <div className="border-t border-slate-300 pt-1 mt-2 font-bold">
-                    = Score {score}%
-                  </div>
-                </div>
-              }
-            >
-              <div className="text-4xl font-semibold text-violet-600 dark:text-violet-400">
-                {score}%
-              </div>
-            </InfoTooltip>
-            <div className={`inline-flex items-center gap-2 px-3 py-1 font-medium rounded-full ${qualityStatus.color}`}>
-              {qualityStatus.status}
-            </div>
-          </div>
+          
           
           {/* Toggle button */}
           <button
