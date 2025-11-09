@@ -49,7 +49,7 @@ export default function GA4Chat() {
     narrative: string;
     range: { startDate: string; endDate: string } | null;
     timestamp: number;
-    view: "table" | "chart";
+    view: "text" | "table" | "chart";
     chart: null | { type: 'bar' | 'line' | 'pie' | null; labels: string[]; values: number[]; metric: string | null };
   };
   const [cards, setCards] = React.useState<Card[]>([]);
@@ -61,13 +61,13 @@ export default function GA4Chat() {
     if (!loading && narrative && narrative !== lastPushedRef.current) {
       setCards((prev) => [
         ...prev,
-        { id: Date.now(), queryText: query, narrative, range, timestamp: Date.now(), view: "table", chart },
+        { id: Date.now(), queryText: query, narrative, range, timestamp: Date.now(), view: "text", chart },
       ]);
       lastPushedRef.current = narrative;
     }
   }, [loading, narrative, range, query, chart]);
 
-  function setCardView(id: number, view: "table" | "chart") {
+  function setCardView(id: number, view: "text" | "table" | "chart") {
     setCards((prev) => prev.map((c) => (c.id === id ? { ...c, view } : c)));
   }
 
@@ -109,6 +109,32 @@ export default function GA4Chat() {
     return { headers, rows };
   }
 
+  // Estrae tutte le tabelle presenti nel markdown e le concatena in un unico markdown contenente solo tabelle
+  function extractTablesFromMarkdown(md: string): string {
+    const lines = md.split(/\r?\n/);
+    const tables: string[] = [];
+    let i = 0;
+    while (i < lines.length) {
+      const header = (lines[i] || "").trim();
+      const sep = (lines[i + 1] || "").trim();
+      // Inizio tabella: header + separatore
+      if (header.startsWith("|") && header.endsWith("|") && /^\|\s*[-:]+\s*(\|\s*[-:]+\s*)+\|$/.test(sep)) {
+        const buf: string[] = [lines[i], lines[i + 1]];
+        i += 2;
+        while (i < lines.length) {
+          const row = (lines[i] || "").trim();
+          if (!(row.startsWith("|") && row.endsWith("|"))) break;
+          buf.push(lines[i]);
+          i++;
+        }
+        tables.push(buf.join("\n"));
+        continue;
+      }
+      i++;
+    }
+    return tables.join("\n\n");
+  }
+
   // Grafico a barre minimale (senza dipendenze esterne)
   function ChartFromMarkdown({ md }: { md: string }) {
     const table = parseFirstMarkdownTable(md);
@@ -136,6 +162,17 @@ export default function GA4Chat() {
     );
   }
 
+  // Utils per chart/tabella
+  function isValidChart(spec: any): spec is { type:'bar'|'line'|'pie'|null; labels:string[]; values:number[]; metric:string|null } {
+    return !!spec && Array.isArray(spec.labels) && Array.isArray(spec.values) && spec.labels.length === spec.values.length && spec.labels.length > 0;
+  }
+  const formatDateShort = (s:string)=>{
+    const m = /^\d{4}-\d{2}-\d{2}$/.test(s) ? new Date(s+'T00:00:00Z') : null;
+    if (!m || isNaN(m.getTime())) return s;
+    const d = m.getUTCDate().toString().padStart(2,'0');
+    const mo = (m.getUTCMonth()+1).toString().padStart(2,'0');
+    return `${d}/${mo}`;
+  };
   // Renderer semplici per ai.chart
   function LineChart({ labels, values, metric }:{ labels:string[]; values:number[]; metric?: string | null }){
     // Format helpers
@@ -300,16 +337,23 @@ export default function GA4Chat() {
     URL.revokeObjectURL(url);
   }
   function handleDownload(card: Card) {
+    // Se siamo in vista tabella e la tabella deriva da ai.chart, esporta labels/values
+    if (card.view === 'table' && isValidChart(card.chart)) {
+      const header = ['Label', card.chart.metric || 'Valore'];
+      const rows = card.chart.labels.map((l, i)=> [formatDateShort(l), String(card.chart!.values[i] ?? '')]);
+      const csv = [header.join(','), ...rows.map(r=> r.map(v => '"'+String(v).replace(/"/g,'""')+'"').join(','))].join('\n');
+      downloadBlob(`ga4_insight_${card.id}.csv`, csv, 'text/csv');
+      return;
+    }
+    // Fallback: cerca una tabella nel markdown e scarica CSV
     const table = parseFirstMarkdownTable(card.narrative);
     if (table) {
-      const csv = [
-        table.headers.join(","),
-        ...table.rows.map((r) => r.map((v) => `"${(v || "").replace(/\"/g, '""')}"`).join(",")),
-      ].join("\n");
-      downloadBlob(`ga4_insight_${card.id}.csv`, csv, "text/csv");
-    } else {
-      downloadBlob(`ga4_insight_${card.id}.md`, card.narrative, "text/markdown");
+      const csv = [table.headers.join(','), ...table.rows.map(r=> r.map(v=> '"'+String(v).replace(/"/g,'""')+'"').join(','))].join('\n');
+      downloadBlob(`ga4_insight_${card.id}.csv`, csv, 'text/csv');
+      return;
     }
+    // Altrimenti scarica la narrativa markdown
+    downloadBlob(`ga4_insight_${card.id}.md`, card.narrative, 'text/markdown');
   }
   function handleSaveView(card: Card) {
     // TODO: integrare salvataggio vista su backend
@@ -408,8 +452,12 @@ export default function GA4Chat() {
                     <p className="mt-1 text-xs text-gray-600">Periodo: {card.range.startDate} - {card.range.endDate}</p>
                   )}
                 </div>
-                {/* Toolbar card: tabella, grafico, fullscreen, download, save */}
+                {/* Toolbar card: testo, tabella, grafico, fullscreen, download, save */}
                 <div className="flex items-center gap-2">
+                  {/* text */}
+                  <button title="Vista testo" onClick={() => setCardView(card.id, "text")} className={`h-8 px-2 inline-flex items-center justify-center rounded-md border ${card.view === "text" ? "bg-indigo-50 text-indigo-700 border-indigo-200" : "bg-white text-gray-600 border-gray-200"} hover:bg-gray-50`}>
+                    <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4"><path d="M4 6h16v2H4V6zm0 4h10v2H4v-2zm0 4h16v2H4v-2z"/></svg>
+                  </button>
                   <button title="Vista tabella" onClick={() => setCardView(card.id, "table")} className={`h-8 w-8 inline-flex items-center justify-center rounded-md border ${card.view === "table" ? "bg-indigo-50 text-indigo-700 border-indigo-200" : "bg-white text-gray-600 border-gray-200"} hover:bg-gray-50`}>
                     <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4"><path d="M3 5h18v14H3V5zm2 2v2h14V7H5zm0 4v6h14v-6H5z" /></svg>
                   </button>
@@ -432,28 +480,65 @@ export default function GA4Chat() {
               <p className="mt-2 text-sm text-gray-600">Risultati per la richiesta sopra. Visualizzazione predefinita: tabella; puoi passare al grafico o scaricare i dati.</p>
 
               <div className="mt-4">
-                {card.view === "table" ? (
-                  <div className="overflow-auto max-h-96 rounded-lg border border-gray-100">
-                    <div className="prose prose-sm max-w-none">
-                      <ReactMarkdown
-                        remarkPlugins={[remarkGfm]}
-                        components={{
-                          table: (props) => (<table className="min-w-full border-separate border-spacing-0" {...props} />),
-                          thead: (props) => (<thead className="bg-gray-50 sticky top-0 z-10" {...props} />),
-                          th: (props) => (<th className="border-b border-gray-200 px-3 py-2 text-left text-xs font-semibold text-gray-700" {...props} />),
-                          td: (props) => (<td className="border-b border-gray-100 px-3 py-2 text-gray-800 align-top" {...props} />),
-                          tr: (props) => (<tr className="odd:bg-white even:bg-gray-50" {...props} />),
-                        }}
-                      >
-                        {card.narrative}
-                      </ReactMarkdown>
-                    </div>
+                {card.view === "text" && (
+                  <div className="prose prose-sm max-w-none">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{card.narrative}</ReactMarkdown>
                   </div>
-                ) : (
+                )}
+                {card.view === "table" && (
+                  (()=>{
+                    // 1) se esiste ai.chart valido, tabella derivata da chart
+                    if (isValidChart(card.chart)) {
+                      return (
+                        <div className="overflow-auto max-h-96 rounded-lg border border-gray-100">
+                          <table className="min-w-full border-separate border-spacing-0">
+                            <thead className="bg-gray-50 sticky top-0 z-10">
+                              <tr>
+                                <th className="border-b border-gray-200 px-3 py-2 text-left text-xs font-semibold text-gray-700">Label</th>
+                                <th className="border-b border-gray-200 px-3 py-2 text-left text-xs font-semibold text-gray-700">{card.chart.metric || 'Valore'}</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {card.chart.labels.map((l,i)=> (
+                                <tr key={i} className="odd:bg-white even:bg-gray-50">
+                                  <td className="border-b border-gray-100 px-3 py-2 text-gray-800 align-top">{formatDateShort(l)}</td>
+                                  <td className="border-b border-gray-100 px-3 py-2 text-gray-800 align-top">{card.chart!.values[i]}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      );
+                    }
+                    // 2) altrimenti prova a usare tabelle dal markdown
+                    const onlyTables = extractTablesFromMarkdown(card.narrative);
+                    if (!onlyTables) return <div className="text-sm text-gray-500">Non ci sono dati tabellari disponibili per questa risposta.</div>;
+                    return (
+                      <div className="overflow-auto max-h-96 rounded-lg border border-gray-100">
+                        <div className="prose prose-sm max-w-none">
+                          <ReactMarkdown
+                            remarkPlugins={[remarkGfm]}
+                            components={{
+                              table: (props) => (<table className="min-w-full border-separate border-spacing-0" {...props} />),
+                              thead: (props) => (<thead className="bg-gray-50 sticky top-0 z-10" {...props} />),
+                              th: (props) => (<th className="border-b border-gray-200 px-3 py-2 text-left text-xs font-semibold text-gray-700" {...props} />),
+                              td: (props) => (<td className="border-b border-gray-100 px-3 py-2 text-gray-800 align-top" {...props} />),
+                              tr: (props) => (<tr className="odd:bg-white even:bg-gray-50" {...props} />),
+                              p: () => <></>, h1: () => <></>, h2: () => <></>, h3: () => <></>, ul: () => <></>, ol: () => <></>, code: () => <></>
+                            }}
+                          >
+                            {onlyTables}
+                          </ReactMarkdown>
+                        </div>
+                      </div>
+                    );
+                  })()
+                )}
+                {card.view === "chart" && (
                   card.chart ? (
                     <ChartFromSpec spec={card.chart} />
                   ) : (
-                    <div className="text-sm text-gray-500">Nessun grafico disponibile per le metriche e dimensioni richieste.</div>
+                    <div className="text-sm text-gray-500">Nessun grafico disponibile per questa risposta.</div>
                   )
                 )}
               </div>
@@ -476,13 +561,34 @@ export default function GA4Chat() {
               </div>
               {cards.filter((c) => c.id === fullscreenCardId).map((c) => (
                 <div key={c.id} className="max-h-[70vh] overflow-auto">
-                  {c.view === "table" ? (
+                  {c.view === 'text' && (
                     <div className="prose prose-sm max-w-none">
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>{c.narrative}</ReactMarkdown>
                     </div>
-                  ) : (
-                    c.chart ? <ChartFromSpec spec={c.chart} /> : <div className="text-sm text-gray-500">Nessun grafico disponibile per le metriche e dimensioni richieste.</div>
                   )}
+                  {c.view === 'table' && (
+                    (()=>{
+                      const onlyTables = extractTablesFromMarkdown(c.narrative);
+                      if (!onlyTables) return <div className="text-sm text-gray-500">Non ci sono dati tabellari disponibili per questa risposta.</div>;
+                      return (
+                        <div className="overflow-auto max-h-[65vh] rounded-lg border border-gray-100">
+                          <div className="prose prose-sm max-w-none">
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}
+                              components={{
+                                table: (props) => (<table className="min-w-full border-separate border-spacing-0" {...props} />),
+                                thead: (props) => (<thead className="bg-gray-50 sticky top-0 z-10" {...props} />),
+                                th: (props) => (<th className="border-b border-gray-200 px-3 py-2 text-left text-xs font-semibold text-gray-700" {...props} />),
+                                td: (props) => (<td className="border-b border-gray-100 px-3 py-2 text-gray-800 align-top" {...props} />),
+                                tr: (props) => (<tr className="odd:bg-white even:bg-gray-50" {...props} />),
+                                p: () => <></>, h1: () => <></>, h2: () => <></>, h3: () => <></>, ul: () => <></>, ol: () => <></>, code: () => <></>
+                              }}
+                            >{onlyTables}</ReactMarkdown>
+                          </div>
+                        </div>
+                      );
+                    })()
+                  )}
+                  {c.view === 'chart' && (c.chart ? <ChartFromSpec spec={c.chart} /> : <div className="text-sm text-gray-500">Nessun grafico disponibile per questa risposta.</div>)}
                 </div>
               ))}
             </div>
