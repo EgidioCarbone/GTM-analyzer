@@ -137,24 +137,107 @@ export default function GA4Chat() {
   }
 
   // Renderer semplici per ai.chart
-  function LineChart({ labels, values }:{ labels:string[]; values:number[] }){
-    const max = Math.max(...values.map(v=>Math.abs(v)), 1);
-    const pts = values.map((v,i)=>{
-      const x = (i/(values.length-1))*100;
-      const y = 100 - ((v/max)*100);
-      return `${x},${y}`;
-    }).join(' ');
+  function LineChart({ labels, values, metric }:{ labels:string[]; values:number[]; metric?: string | null }){
+    // Format helpers
+    const formatDate = (s:string)=>{
+      const m = /^\d{4}-\d{2}-\d{2}$/.test(s) ? new Date(s+'T00:00:00Z') : null;
+      if (!m || isNaN(m.getTime())) return s;
+      const d = m.getUTCDate().toString().padStart(2,'0');
+      const mo = (m.getUTCMonth()+1).toString().padStart(2,'0');
+      return `${d}/${mo}`;
+    };
+    const formatNum = (n:number)=> new Intl.NumberFormat(undefined,{maximumFractionDigits:0}).format(n);
+
+    // Scales
+    const vmin = Math.min(...values);
+    const vmax = Math.max(...values);
+    const span = Math.max(1, vmax - vmin);
+    // Nice ticks (4 ticks)
+    const tickCount = 4;
+    const step = Math.pow(10, Math.floor(Math.log10(span/tickCount)));
+    const niceStep = step * Math.ceil((span/tickCount)/step);
+    const y0 = Math.floor(vmin/step)*step;
+    const ticks:number[] = Array.from({length:tickCount+1},(_,i)=> y0 + i*niceStep).filter(t=> t>=vmin-1 && t<=vmax+niceStep);
+
+    // Build path with slight smoothing
+    const H = 220; // drawing height
+    const W = 600; // drawing width
+    const L = Math.max(1, labels.length-1);
+    const xAt = (i:number)=> (i/L)*W;
+    const yAt = (v:number)=> H - ((v - vmin)/span)*H;
+
+    const dPath = values.reduce((acc, v, i)=>{
+      const x = xAt(i), y = yAt(v);
+      if (i===0) return `M ${x} ${y}`;
+      const px = xAt(i-1), py = yAt(values[i-1]);
+      const cx = (px + x)/2; // simple quadratic midpoint smoothing
+      return acc + ` Q ${cx} ${py}, ${x} ${y}`;
+    }, '');
+
+    // Tooltip state
+    const [hover, setHover] = React.useState<number | null>(null);
+    const onMove: React.MouseEventHandler<HTMLDivElement> = (e)=>{
+      const rect = (e.currentTarget.querySelector('svg') as SVGSVGElement)?.getBoundingClientRect();
+      if (!rect) return;
+      const rx = e.clientX - rect.left; // x within svg
+      const ratio = Math.max(0, Math.min(1, rx / rect.width));
+      const idx = Math.round(ratio * L);
+      setHover(Math.max(0, Math.min(values.length-1, idx)));
+    };
+    const onLeave = ()=> setHover(null);
+
+    // Decimate X labels to at most 6
+    const maxTicks = 6;
+    const stepX = Math.ceil(labels.length / maxTicks);
+
     return (
-      <div className="w-full">
-        <svg viewBox="0 0 100 100" className="h-56 w-full text-indigo-600">
-          <polyline fill="none" stroke="currentColor" strokeWidth="2" points={pts} />
-          {values.map((v,i)=>{
-            const x = (i/(values.length-1))*100; const y = 100 - ((v/max)*100);
-            return <circle key={i} cx={x} cy={y} r={1.8} fill="currentColor" />;
-          })}
-        </svg>
-        <div className="mt-2 grid grid-cols-6 text-[10px] text-gray-500">
-          {labels.map((l,i)=> <div key={i} className="truncate">{l}</div>)}
+      <div className="w-full h-[280px] px-2 py-3" onMouseMove={onMove} onMouseLeave={onLeave}>
+        <div className="mb-2 flex items-center justify-between text-xs text-gray-600">
+          <span className="font-medium text-gray-800">{metric ? `${metric} per periodo` : 'Trend'}</span>
+          {hover!=null && <span className="text-gray-700">{formatDate(labels[hover])}: <span className="font-semibold">{formatNum(values[hover])}</span></span>}
+        </div>
+        <div className="relative h-[220px]">
+          {/* Y grid + labels */}
+          <svg viewBox={`0 0 ${W+60} ${H}`} className="absolute inset-0 w-full h-full">
+            {/* Grid lines */}
+            {ticks.map((t,i)=>{
+              const y = yAt(Math.min(vmax, Math.max(vmin, t)));
+              return (
+                <g key={i}>
+                  <line x1={40} y1={y} x2={W+40} y2={y} stroke="#e5e7eb" strokeWidth={1} />
+                  <text x={0} y={y+3} className="fill-gray-500" style={{fontSize: '10px'}}>{formatNum(t)}</text>
+                </g>
+              );
+            })}
+            {/* Line path */}
+            <g transform="translate(40,0)">
+              <path d={dPath} fill="none" stroke="#4f46e5" strokeWidth={2} />
+              {values.map((v,i)=>{
+                const x = xAt(i), y = yAt(v);
+                return <circle key={i} cx={x} cy={y} r={hover===i?3.5:2.2} fill="#4f46e5" opacity={hover!=null && hover!==i ? 0.5 : 1} />
+              })}
+              {/* Hover vertical line */}
+              {hover!=null && <line x1={xAt(hover)} y1={0} x2={xAt(hover)} y2={H} stroke="#c7d2fe" strokeDasharray="4 4" />}
+            </g>
+          </svg>
+          {/* X labels */}
+          <div className="absolute left-10 right-0 bottom-0 grid" style={{gridTemplateColumns: `repeat(${labels.length}, minmax(0, 1fr))`}}>
+            {labels.map((l,i)=> (
+              <div key={i} className="text-[10px] text-gray-500 text-center truncate">
+                {i % stepX === 0 ? formatDate(l) : ''}
+              </div>
+            ))}
+          </div>
+          {/* Tooltip */}
+          {hover!=null && (
+            <div className="pointer-events-none absolute -translate-x-1/2 -translate-y-full text-xs" style={{ left: `calc(${(hover/L)*100}% + 40px)`, top: `${yAt(values[hover])}px` }}>
+              <div className="rounded-md border border-gray-200 bg-white px-2 py-1 shadow">
+                <div className="text-gray-700 font-medium">{metric || 'Valore'}</div>
+                <div className="text-gray-900">{formatNum(values[hover])}</div>
+                <div className="text-[10px] text-gray-500">{formatDate(labels[hover])}</div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -200,7 +283,7 @@ export default function GA4Chat() {
     if (!spec || !Array.isArray(spec.labels) || !Array.isArray(spec.values) || spec.labels.length !== spec.values.length || spec.labels.length === 0) {
       return <div className="text-sm text-gray-500">Nessun grafico disponibile per le metriche e dimensioni richieste.</div>;
     }
-    if (spec.type === 'line') return <LineChart labels={spec.labels} values={spec.values} />;
+    if (spec.type === 'line') return <LineChart labels={spec.labels} values={spec.values} metric={spec.metric || undefined} />;
     if (spec.type === 'bar') return <BarChart labels={spec.labels} values={spec.values} />;
     if (spec.type === 'pie') return <PieChart labels={spec.labels} values={spec.values} />;
     return <div className="text-sm text-gray-500">Nessun grafico disponibile per le metriche e dimensioni richieste.</div>;
@@ -321,7 +404,6 @@ export default function GA4Chat() {
             <div key={card.id} className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <h4 className="text-lg font-semibold text-gray-900">{card.queryText}</h4>
                   {card.range && (
                     <p className="mt-1 text-xs text-gray-600">Periodo: {card.range.startDate} - {card.range.endDate}</p>
                   )}
