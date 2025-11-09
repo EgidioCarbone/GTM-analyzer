@@ -182,7 +182,6 @@ export default function PlanPage() {
 
         {/* CONTEXT textarea */}
         <div className="w-full bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 mt-4">
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">CONTEXT</label>
           <textarea
             value={contextText}
             onChange={(e) => { setContextText(e.target.value); localStorage.setItem("gtmAnalyzerContext", e.target.value); }}
