@@ -273,7 +273,7 @@
     ],
     "italgas": [
       {
-        "id": "fea824ce-4303-4a43-86d4-6636b4225d00",
+        "id": "233d099e-1695-4a25-bcde-4d8bd552c90a",
         "moduleId": "italgas",
         "name": "navigation_click",
         "eventId": "manual",
@@ -281,15 +281,14 @@
         "config": {},
         "steps": [
           {
-            "id": "manual_1762535786251_9ryq27",
+            "id": "manual_1762770128554_mzuph3",
             "type": "click",
             "label": "Step 1",
-            "description": "",
             "selector": ".pum-close.popmake-close",
             "delayAfterMs": 10000
           },
           {
-            "id": "manual_1762537536044_yri678",
+            "id": "manual_1762770141101_sp8fez",
             "type": "click",
             "label": "Step 2",
             "selector": ".header__sidebarButton.t-label-sidebar-menu.j-openSecondMenu.j-sidebarFirstFocus",
@@ -314,7 +313,7 @@
           ],
           "tests": [
             {
-              "section": "navigation_click",
+              "section": "navigation",
               "steps": [
                 {
                   "description": "Vai al sito indicato",
@@ -366,16 +365,16 @@
           ]
         },
         "testSpecMeta": {
-          "generatedAt": "2025-11-07T17:45:53.912Z",
+          "generatedAt": "2025-11-10T10:22:41.560Z",
           "model": "gpt-4o-mini-2024-07-18",
           "tokens": {
-            "input": 941,
-            "output": 359
+            "input": 927,
+            "output": 358
           },
           "source": "scenario-llm"
         },
-        "createdAt": "2025-11-07T17:19:11.594Z",
-        "updatedAt": "2025-11-07T17:45:53.912Z"
+        "createdAt": "2025-11-10T10:22:41.560Z",
+        "updatedAt": "2025-11-10T10:22:41.560Z"
       }
     ]
   }

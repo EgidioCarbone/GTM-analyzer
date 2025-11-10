@@ -14,6 +14,12 @@ import {
   PencilLine,
   X,
   Settings2,
+  Antenna,
+  Shield,
+  ShieldCheck,
+  Sparkles,
+  Layers,
+  Rocket,
 } from 'lucide-react';
 import { TestSpec, SSDTestState, ModuleConfig, ModuleSource } from '../types/ssd';
 import { Card } from '../components/ui/card';
@@ -250,6 +256,15 @@ const MODULE_ICON_OPTIONS = [
   { value: 'Rocket', label: 'Rocket' },
 ] as const;
 
+const MODULE_ICON_COMPONENTS: Record<string, React.ComponentType<{ className?: string }>> = {
+  ShieldCheck,
+  Shield,
+  Antenna,
+  Sparkles,
+  Layers,
+  Rocket,
+};
+
 const createInitialState = (
   moduleId: ModuleId | null = null,
   moduleConfig: ModuleConfig = {},
@@ -333,6 +348,11 @@ export default function SSDTestPage() {
   const [moduleBuilderDraft, setModuleBuilderDraft] = useState<ModuleBuilderDraft>({ ...MODULE_BUILDER_DEFAULT });
   const [moduleBuilderSaving, setModuleBuilderSaving] = useState(false);
   const [moduleBuilderError, setModuleBuilderError] = useState<string | null>(null);
+  const [moduleBuilderMode, setModuleBuilderMode] = useState<'create' | 'edit'>('create');
+  const [moduleBeingEdited, setModuleBeingEdited] = useState<SSDModule | null>(null);
+  const [moduleToDelete, setModuleToDelete] = useState<SSDModule | null>(null);
+  const [moduleDeleteLoading, setModuleDeleteLoading] = useState(false);
+  const isEditingModule = moduleBuilderMode === 'edit';
   const draftExpectedEventName = useMemo(() => {
     if (!scenarioDraft) return '';
     try {
@@ -354,6 +374,7 @@ export default function SSDTestPage() {
   }, [selectedScenarioDetails]);
   const cmpStatus = state.moduleSettings?.cmp ?? null;
   const cmpReady = cmpStatus?.lastValidation?.status === 'ACCEPTED';
+  const IconPreviewComponent = MODULE_ICON_COMPONENTS[moduleBuilderDraft.icon] || ShieldCheck;
   const formatDateTime = useCallback((value?: string | null) => {
     if (!value) return '—';
     try {
@@ -435,6 +456,8 @@ export default function SSDTestPage() {
   const openModuleBuilder = useCallback(() => {
     setModuleBuilderDraft({ ...MODULE_BUILDER_DEFAULT });
     setModuleBuilderError(null);
+    setModuleBuilderMode('create');
+    setModuleBeingEdited(null);
     setModuleBuilderOpen(true);
   }, []);
 
@@ -442,6 +465,9 @@ export default function SSDTestPage() {
     if (moduleBuilderSaving) return;
     setModuleBuilderOpen(false);
     setModuleBuilderError(null);
+    setModuleBuilderMode('create');
+    setModuleBeingEdited(null);
+    setModuleBuilderDraft({ ...MODULE_BUILDER_DEFAULT });
   }, [moduleBuilderSaving]);
 
   const handleModuleBuilderFieldChange = useCallback((field: keyof ModuleBuilderDraft, value: string) => {
@@ -486,35 +512,77 @@ export default function SSDTestPage() {
 
     setModuleBuilderSaving(true);
     try {
-      const res = await fetch(`${apiBaseUrl}/api/modules`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(data.message || data.error || 'Impossibile creare il modulo');
+      let savedModule: SSDModule;
+      if (moduleBuilderMode === 'create') {
+        const res = await fetch(`${apiBaseUrl}/api/modules`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data.message || data.error || 'Impossibile creare il modulo');
+        }
+        savedModule = data.module;
+        toast.success(`Modulo "${savedModule.meta.title}" creato`);
+      } else if (moduleBeingEdited) {
+        const res = await fetch(`${apiBaseUrl}/api/modules/${moduleBeingEdited.meta.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data.message || data.error || 'Impossibile aggiornare il modulo');
+        }
+        savedModule = data.module;
+        toast.success(`Modulo "${savedModule.meta.title}" aggiornato`);
+      } else {
+        throw new Error('Modulo da modificare non disponibile.');
       }
-      const created: SSDModule = data.module;
+
       setModules(prev => {
-        const filtered = prev.filter(module => module.meta.id !== created.meta.id);
-        const next = [...filtered, created];
+        const filtered = prev.filter(module => module.meta.id !== savedModule.meta.id);
+        const next = [...filtered, savedModule];
         next.sort((a, b) => a.meta.title.localeCompare(b.meta.title, 'it', { sensitivity: 'base' }));
         return next;
       });
-      toast.success(`Modulo "${created.meta.title}" creato`);
       setModuleBuilderOpen(false);
       setModuleBuilderError(null);
       setModuleBuilderDraft({ ...MODULE_BUILDER_DEFAULT });
-      handleModuleSelect(created);
+      setModuleBeingEdited(null);
+      setModuleBuilderMode('create');
+      if (moduleBuilderMode === 'create') {
+        handleModuleSelect(savedModule);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Errore sconosciuto';
       setModuleBuilderError(message);
-      notifyError(error, 'Impossibile creare il modulo');
+      notifyError(error, moduleBuilderMode === 'create' ? 'Impossibile creare il modulo' : 'Impossibile aggiornare il modulo');
     } finally {
       setModuleBuilderSaving(false);
     }
-  }, [apiBaseUrl, handleModuleSelect, moduleBuilderDraft]);
+  }, [apiBaseUrl, handleModuleSelect, moduleBuilderDraft, moduleBuilderMode, moduleBeingEdited]);
+
+  const handleModuleEdit = useCallback((module: SSDModule) => {
+    setModuleBuilderMode('edit');
+    setModuleBeingEdited(module);
+    setModuleBuilderDraft({
+      title: module.meta.title,
+      description: module.meta.description,
+      supportedHosts: (module.supportedHosts || []).join('\n'),
+      defaultUrls: (module.defaultUrls || []).join('\n'),
+      tags: (module.meta.tags || []).join(', '),
+      accentColor: module.meta.accentColor || '#6366f1',
+      icon: module.meta.icon || 'ShieldCheck',
+    });
+    setModuleBuilderError(null);
+    setModuleBuilderOpen(true);
+  }, []);
+
+  const requestModuleDelete = useCallback((module: SSDModule) => {
+    setModuleToDelete(module);
+  }, []);
 
   const ensureCmpConfigured = useCallback(() => {
     if (cmpReady) {
@@ -570,6 +638,32 @@ export default function SSDTestPage() {
   useEffect(() => {
     loadModules();
   }, [loadModules]);
+
+  const handleConfirmModuleDelete = useCallback(async () => {
+    if (!moduleToDelete) return;
+    const target = moduleToDelete;
+    setModuleDeleteLoading(true);
+    try {
+      const res = await fetch(`${apiBaseUrl}/api/modules/${target.meta.id}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}));
+        throw new Error(error.error || error.message || 'Impossibile eliminare il modulo selezionato.');
+      }
+      if (state.moduleId === target.meta.id) {
+        setState(createInitialState());
+        handleScenarioStateReset();
+      }
+      await loadModules();
+      toast.success(`Modulo "${target.meta.title}" eliminato`);
+      setModuleToDelete(null);
+    } catch (error) {
+      notifyError(error, 'Eliminazione del modulo non riuscita');
+    } finally {
+      setModuleDeleteLoading(false);
+    }
+  }, [apiBaseUrl, moduleToDelete, state.moduleId, handleScenarioStateReset, loadModules]);
 
   const fetchModuleEvents = useCallback(async (moduleId: ModuleId): Promise<ModuleEventDefinition[]> => {
     const res = await fetch(`${apiBaseUrl}/api/modules/${moduleId}/events`);
@@ -1609,6 +1703,8 @@ const persistScenarioDraft = useCallback(
               onModuleSelect={handleModuleSelect}
               onModuleProceed={handleModuleProceed}
               onCreateModule={openModuleBuilder}
+              onModuleDelete={requestModuleDelete}
+              onModuleEdit={handleModuleEdit}
             />
           ) : (
             selectedModule && (
@@ -1968,10 +2064,16 @@ const persistScenarioDraft = useCallback(
           >
             <div className="flex items-center justify-between border-b border-slate-200/70 px-6 py-4">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.28em] text-indigo-500">Nuovo modulo</p>
-                <h2 className="mt-1 text-xl font-semibold text-slate-900">Configura una nuova verticalizzazione</h2>
+                <p className="text-xs font-semibold uppercase tracking-[0.28em] text-indigo-500">
+                  {isEditingModule ? 'Modifica modulo' : 'Nuovo modulo'}
+                </p>
+                <h2 className="mt-1 text-xl font-semibold text-slate-900">
+                  {isEditingModule ? 'Aggiorna la verticalizzazione selezionata' : 'Configura una nuova verticalizzazione'}
+                </h2>
                 <p className="text-sm text-slate-500">
-                  Inserisci le informazioni minime: potrai aggiungere scenari e CMP subito dopo la creazione.
+                  {isEditingModule
+                    ? 'Aggiorna metadata, domini e URL: gli scenari esistenti rimarranno disponibili.'
+                    : 'Inserisci le informazioni minime: potrai aggiungere scenari e CMP subito dopo la creazione.'}
                 </p>
               </div>
               <button
@@ -2040,18 +2142,23 @@ const persistScenarioDraft = useCallback(
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div className="space-y-1">
                     <label className="text-sm font-medium text-slate-700">Icona</label>
-                    <select
-                      value={moduleBuilderDraft.icon}
-                      onChange={event => handleModuleBuilderFieldChange('icon', event.target.value)}
-                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-100"
-                      disabled={moduleBuilderSaving}
-                    >
-                      {MODULE_ICON_OPTIONS.map(option => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
+                    <div className="flex items-center gap-3">
+                      <select
+                        value={moduleBuilderDraft.icon}
+                        onChange={event => handleModuleBuilderFieldChange('icon', event.target.value)}
+                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                        disabled={moduleBuilderSaving}
+                      >
+                        {MODULE_ICON_OPTIONS.map(option => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                      <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-slate-200 bg-white shadow-sm">
+                        <IconPreviewComponent className="h-5 w-5 text-indigo-500" />
+                      </div>
+                    </div>
                   </div>
                   <div className="space-y-1">
                     <label className="text-sm font-medium text-slate-700">Colore accento</label>
@@ -2079,6 +2186,8 @@ const persistScenarioDraft = useCallback(
                     <Loader2 className="h-4 w-4 animate-spin" />
                     Salvataggio in corso...
                   </span>
+                ) : isEditingModule ? (
+                  'Le modifiche verranno applicate immediatamente agli scenari e alla CMP associata.'
                 ) : (
                   'Potrai configurare CMP e scenari subito dopo aver creato il modulo.'
                 )}
@@ -2103,7 +2212,7 @@ const persistScenarioDraft = useCallback(
                       Salvataggio
                     </span>
                   ) : (
-                    'Salva modulo'
+                    isEditingModule ? 'Aggiorna modulo' : 'Salva modulo'
                   )}
                 </Button>
               </div>
@@ -2497,6 +2606,26 @@ const persistScenarioDraft = useCallback(
         </div>
       </div>
     )}
+
+    <ConfirmDialog
+      open={Boolean(moduleToDelete)}
+      title="Elimina modulo"
+      description={
+        moduleToDelete
+          ? `Il modulo "${moduleToDelete.meta.title}" verrà eliminato insieme a CMP, scenari salvati e DSL generate. Procedere?`
+          : undefined
+      }
+      confirmText="Elimina modulo"
+      cancelText="Annulla"
+      tone="danger"
+      loading={moduleDeleteLoading}
+      onConfirm={handleConfirmModuleDelete}
+      onCancel={() => {
+        if (!moduleDeleteLoading) {
+          setModuleToDelete(null);
+        }
+      }}
+    />
 
     <ConfirmDialog
         open={Boolean(deleteDialogScenario)}

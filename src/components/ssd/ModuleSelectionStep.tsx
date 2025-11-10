@@ -16,6 +16,8 @@ import {
   PlusCircle,
   Loader2,
   AlertTriangle,
+  Trash2,
+  Pencil,
 } from 'lucide-react';
 import type { ModuleId, SSDModule } from '../../modules/types';
 
@@ -27,6 +29,8 @@ type ModuleSelectionStepProps = {
   onModuleSelect: (module: SSDModule) => void;
   onModuleProceed: () => void;
   onCreateModule: () => void;
+  onModuleDelete: (module: SSDModule) => void;
+  onModuleEdit: (module: SSDModule) => void;
 };
 
 const ICON_COMPONENTS: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -62,6 +66,8 @@ export default function ModuleSelectionStep({
   onModuleSelect,
   onModuleProceed,
   onCreateModule,
+  onModuleDelete,
+  onModuleEdit,
 }: ModuleSelectionStepProps) {
   const renderIcon = (name?: string) => {
     const IconComponent = (name && ICON_COMPONENTS[name]) || ShieldCheck;
@@ -195,6 +201,33 @@ export default function ModuleSelectionStep({
                 }`}
                 onClick={() => onModuleSelect(mod)}
               >
+                <div className="absolute top-4 right-4 z-20 flex gap-2">
+                  <button
+                    type="button"
+                    className="rounded-full border border-slate-200 bg-white/95 p-3 text-slate-400 transition hover:bg-amber-50 hover:text-amber-600 hover:border-amber-200 focus:outline-none focus:ring-2 focus:ring-amber-200 active:scale-95"
+                    onClick={event => {
+                      event.stopPropagation();
+                      onModuleEdit(mod);
+                    }}
+                    disabled={loading}
+                    aria-label={`Modifica modulo ${mod.meta.title}`}
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-full border border-slate-200 bg-white/95 p-3 text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 focus:outline-none focus:ring-2 focus:ring-rose-200 active:scale-95"
+                    onClick={event => {
+                      event.stopPropagation();
+                      onModuleDelete(mod);
+                    }}
+                    disabled={loading || modules.length <= 1}
+                    aria-label={`Elimina modulo ${mod.meta.title}`}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+
                 {isActive && (
                   <>
                     <div className="pointer-events-none absolute inset-x-0 top-0 h-1/3 bg-gradient-to-b from-indigo-200/60 via-purple-200/40 to-transparent opacity-80" />

@@ -111,13 +111,14 @@
     {
       "meta": {
         "id": "italgas",
-        "title": "Italgas",
-        "description": "eventi di italgas come navigazione e click di cta",
+        "title": "ITALGAS",
+        "description": "eventi italgas super!!!",
         "tags": [
-          "navigation"
+          "navigation",
+          "click"
         ],
-        "accentColor": "#ab7344",
-        "icon": "Antenna"
+        "accentColor": "#ff5d05",
+        "icon": "Sparkles"
       },
       "supportedHosts": [
         "www.italgas.it"
