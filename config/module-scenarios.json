@@ -281,16 +281,10 @@
         "config": {},
         "steps": [
           {
-            "id": "manual_1762770128554_mzuph3",
-            "type": "click",
-            "label": "Step 1",
-            "selector": ".pum-close.popmake-close",
-            "delayAfterMs": 10000
-          },
-          {
             "id": "manual_1762770141101_sp8fez",
             "type": "click",
             "label": "Step 2",
+            "description": "",
             "selector": ".header__sidebarButton.t-label-sidebar-menu.j-openSecondMenu.j-sidebarFirstFocus",
             "delayAfterMs": 10000
           }
@@ -341,17 +335,7 @@
                   "severity": "critical"
                 },
                 {
-                  "description": "Close popup",
-                  "action": "click",
-                  "target": {
-                    "region": "main",
-                    "kind": "selector",
-                    "value": ".pum-close.popmake-close"
-                  },
-                  "severity": "major"
-                },
-                {
-                  "description": "Open sidebar menu",
+                  "description": "Click on sidebar menu button",
                   "action": "click",
                   "target": {
                     "region": "header",
@@ -365,16 +349,16 @@
           ]
         },
         "testSpecMeta": {
-          "generatedAt": "2025-11-10T10:22:41.560Z",
+          "generatedAt": "2025-11-11T15:44:37.568Z",
           "model": "gpt-4o-mini-2024-07-18",
           "tokens": {
-            "input": 927,
-            "output": 358
+            "input": 875,
+            "output": 289
           },
           "source": "scenario-llm"
         },
         "createdAt": "2025-11-10T10:22:41.560Z",
-        "updatedAt": "2025-11-10T10:22:41.560Z"
+        "updatedAt": "2025-11-11T15:44:37.567Z"
       }
     ]
   }

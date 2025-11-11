@@ -1,14 +1,15 @@
-import React, { useRef, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { toast } from 'react-hot-toast';
 import { CheckCircle, Loader2, Circle, Shield, Clock, Lock, Check, Globe, Megaphone, Cookie } from 'lucide-react';
 import ConsentReportWrapper from './ConsentReportWrapper';
+import { getApiBaseUrl } from '../utils/api-base';
 
 interface ConsentTestOptions {
   timeoutSoftMs: number;
   timeoutHardMs: number;
   captureScreens: boolean;
   trace: boolean;
-  region: string;
+  region: 'EU' | 'US';
   onlyReject: boolean;
 }
 
@@ -74,7 +75,7 @@ export default function ConsentTestBPage() {
     captureScreens: true,
     trace: false,
     region: 'EU',
-    onlyReject: true
+    onlyReject: false
   });
   const [loading, setLoading] = useState(false);
   const [showProgressModal, setShowProgressModal] = useState(false);
@@ -84,6 +85,7 @@ export default function ConsentTestBPage() {
   const [activeTab, setActiveTab] = useState<string>('reject');
   const [showTransition, setShowTransition] = useState(false);
   const reportContainerRef = useRef<HTMLDivElement>(null);
+  const apiBaseUrl = useMemo(() => getApiBaseUrl(), []);
 
   // Definizione degli step per il test di consenso
   const consentTestSteps = [
@@ -168,7 +170,8 @@ export default function ConsentTestBPage() {
       });
       await new Promise(resolve => setTimeout(resolve, 800));
 
-      const response = await fetch('http://localhost:3001/api/consent/audit-pw', {
+      const endpoint = apiBaseUrl ? `${apiBaseUrl}/api/consent/audit-pw` : '/api/consent/audit-pw';
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -253,7 +256,7 @@ export default function ConsentTestBPage() {
       const data = await response.json();
       
       // Validazione preliminare dei dati ricevuti
-      if (!data.results || !data.results.reject || !data.results.accept) {
+      if (!data.results || !data.results.reject || (!data.results.accept && !options.onlyReject)) {
         throw new Error('Dati del test incompleti o corrotti');
       }
       
@@ -380,29 +383,44 @@ export default function ConsentTestBPage() {
                       </h1>
                     </div>
                   </div>
-                  <p className="mx-auto max-w-2xl text-base text-slate-600 sm:text-lg">
-                    Avvia un controllo guidato su CMP, blocco cookie e chiamate advertising. Esegui gli scenari reject/accept e genera un report pronto per stakeholder e compliance.
+                  <p className="mx-auto max-w-3xl text-base text-slate-600 sm:text-lg">
+                    Questa sezione avvia Playwright in due browser isolati (Reject ➜ Accept), intercetta banner CMP, misura il Google Consent Mode, fotografa la UI e archivia rete GA/Ads. Al termine ottieni un report unico per compliance, team marketing e stakeholder legali.
                   </p>
                 </div>
 
-                <div className="mx-auto flex w-full max-w-sm items-center justify-center rounded-2xl border border-slate-200 bg-white/80 px-6 py-5 shadow-sm backdrop-blur">
-                  <div className="grid w-full grid-cols-2 gap-6 text-left">
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                        Engine
-                      </p>
-                      <p className="mt-1 text-sm font-medium text-slate-900">
-                        Puppeteer · Playwright
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                        Ultimo aggiornamento
-                      </p>
-                      <p className="mt-1 text-sm font-medium text-slate-900">
-                        {new Date().toLocaleDateString('it-IT')}
-                      </p>
-                    </div>
+                <div className="mx-auto grid w-full max-w-4xl gap-4 rounded-2xl border border-slate-200 bg-white/80 px-6 py-6 shadow-sm backdrop-blur md:grid-cols-3">
+                  <div className="text-left">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Engine
+                    </p>
+                    <p className="mt-1 text-sm font-medium text-slate-900">
+                      Playwright · Chromium headless
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Browser pulito per ciascuno scenario, con geolocalizzazione EU/US configurabile.
+                    </p>
+                  </div>
+                  <div className="text-left">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Pipeline
+                    </p>
+                    <p className="mt-1 text-sm font-medium text-slate-900">
+                      Detect → Interact → Convalida
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      LLM identifica il CMP, Playwright clicca, il sistema verifica dataLayer, cookie e network.
+                    </p>
+                  </div>
+                  <div className="text-left">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Ultimo aggiornamento
+                    </p>
+                    <p className="mt-1 text-sm font-medium text-slate-900">
+                      {new Date().toLocaleDateString('it-IT')}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Config e CMP matcher aggiornati automaticamente con ogni deploy.
+                    </p>
                   </div>
                 </div>
               </header>

@@ -393,6 +393,7 @@ export const ConsentTestInputSchema = z.object({
     captureScreens: z.boolean().optional().default(true),
     trace: z.boolean().optional().default(false),
     region: z.enum(['EU', 'US']).optional().default('EU'),
+    onlyReject: z.boolean().optional().default(false),
   }).optional().default({})
 });
 
@@ -487,13 +488,16 @@ export class ConsentTestRunner {
     }
     
     let rejectResult: ScenarioResult;
-    let acceptResult: ScenarioResult;
+    let acceptResult: ScenarioResult | undefined;
     const customResults: { [key: string]: ScenarioResult } = {};
 
     try {
-        // 🧪 TESTING MODE: Test both Reject and Accept scenarios
-        const shouldSkipAccept = false; // Enable Accept scenario for testing
-        console.log('🧪 TESTING MODE: Both "Rifiuta Tutto" and "Accetta Tutto" scenarios will be executed');
+        const shouldSkipAccept = !!validatedInput.options.onlyReject;
+        console.log(
+          shouldSkipAccept
+            ? '🧪 MODALITÀ ONLY-REJECT: verrà eseguito solo lo scenario "Rifiuta Tutto"'
+            : '🧪 TESTING MODE: Gli scenari "Rifiuta Tutto" e "Accetta Tutto" verranno eseguiti'
+        );
       
       // Scenario REJECT
       console.log('=== INIZIO SCENARIO REJECT ===');
@@ -504,7 +508,8 @@ export class ConsentTestRunner {
         console.log('=== INIZIO SCENARIO ACCEPT ===');
         acceptResult = await this.runScenarioWithIsolatedBrowser('accept', validatedInput);
       } else {
-        console.log('🧪 TESTING MODE: Skipping ACCEPT scenario');
+        console.log('🧪 ONLY-REJECT: Scenario ACCEPT saltato su richiesta');
+        acceptResult = this.createSkippedScenario('Scenario "Accetta Tutto" non eseguito (onlyReject abilitato)');
       }
 
       // Scenari custom se presenti
@@ -522,14 +527,14 @@ export class ConsentTestRunner {
           }
         }
       } else if (shouldSkipAccept) {
-        console.log('🧪 TESTING MODE: Skipping CUSTOM scenarios');
+        console.log('🧪 ONLY-REJECT: Skipping CUSTOM scenarios');
       } else {
         console.log(`⚠️ NO CUSTOM SCENARIOS ENABLED (customScenarios=${!!customScenarios}, length=${customScenarios?.length || 0})`);
       }
 
       const results = {
         reject: rejectResult,
-        accept: acceptResult || { skipped: true, latestConsent: {}, cookies: [], networkRequests: [], dataLayerSnapshot: {}, warnings: ['🧪 TESTING MODE: ACCEPT scenario skipped'] },
+        accept: acceptResult ?? this.createSkippedScenario('Scenario "Accetta Tutto" non disponibile'),
         ...customResults
       };
 
@@ -560,6 +565,8 @@ export class ConsentTestRunner {
 
     try {
       console.log(`🚀 Creando browser isolato per scenario ${scenario}...`);
+      const executionRegion = input.options.region ?? this.config.region;
+      const regionSettings = this.getRegionSettings(executionRegion);
       browser = await chromium.launch({
         headless: true,
         args: [
@@ -580,21 +587,46 @@ export class ConsentTestRunner {
       this.llmTestResult = undefined;
       this.lastLLMBannerSelectors = undefined;
 
+      let scenarioKey = '';
+      if (typeof scenario === 'string') {
+        scenarioKey = scenario; // 'accept' or 'reject'
+      } else {
+        const settings = scenario.custom;
+        scenarioKey = `custom-a${+!!settings.analytics}m${+!!settings.marketing}p${+!!settings.preferences}`;
+      }
+
       // Crea un nuovo context completamente isolato per ogni scenario
       context = await browser.newContext({
         storageState: undefined, // Forza modalità incognito
         locale: 'it-IT',
-        timezoneId: this.config.region === 'EU' ? 'Europe/Rome' : 'America/New_York',
+        timezoneId: regionSettings.timezoneId,
         userAgent: scenario === 'reject' 
           ? 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
           : 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         viewport: { width: 1920, height: 1080 },
-        geolocation: { latitude: 41.9028, longitude: 12.4964 }, // Roma per test EU
+        geolocation: regionSettings.geolocation,
         permissions: ['geolocation'],
         acceptDownloads: false,
         bypassCSP: true,
         ignoreHTTPSErrors: true
       });
+
+      const shouldCaptureTrace = !!input.options.trace;
+      let traceArtifactsDir: string | undefined;
+      let traceStopped = false;
+      let tracePath: string | undefined;
+
+      if (shouldCaptureTrace) {
+        traceArtifactsDir = `./artifacts/${Date.now()}-${scenarioKey}-trace/`;
+        try {
+          await fs.mkdir(traceArtifactsDir, { recursive: true });
+          await context.tracing.start({ screenshots: true, snapshots: true });
+          console.log(`🧵 Tracing Playwright attivato per scenario ${scenarioKey}`);
+        } catch (error) {
+          traceArtifactsDir = undefined;
+          console.error('❌ Impossibile avviare il tracing Playwright:', error);
+        }
+      }
 
       // FIX A: Hook PRIMA della navigazione (serializzazione sicura)
       await context.addInitScript({ content: `(${consentProbe.toString()})();` });
@@ -622,16 +654,6 @@ export class ConsentTestRunner {
       
       // Sanity check dell'injection dopo creazione page
       await page.addInitScript(() => {}); // no-op, forza il preload del init script
-      
-      // URL con parametri per forzare pop-up banner
-      let scenarioKey = '';
-      if (typeof scenario === 'string') {
-        scenarioKey = scenario; // 'accept' or 'reject'
-      } else {
-        // Custom scenario: formato breve per debug
-        const settings = scenario.custom;
-        scenarioKey = `custom-a${+!!settings.analytics}m${+!!settings.marketing}p${+!!settings.preferences}`;
-      }
       
       const urlWithParam = `${input.url}${input.url.includes('?') ? '&' : '?'}cb=1&test_consent=${encodeURIComponent(scenarioKey)}&_t=${Date.now()}`;
       console.log(`🌐 Navigating to: ${urlWithParam}`);
@@ -765,6 +787,18 @@ export class ConsentTestRunner {
         };
       }
 
+      if (shouldCaptureTrace && traceArtifactsDir && context) {
+        const candidateTracePath = `${traceArtifactsDir}trace-${scenarioKey}.zip`;
+        try {
+          await context.tracing.stop({ path: candidateTracePath });
+          traceStopped = true;
+          tracePath = candidateTracePath;
+          console.log(`🧵 Trace salvato in ${candidateTracePath}`);
+        } catch (error) {
+          console.error('❌ Errore durante il salvataggio del trace Playwright:', error);
+        }
+      }
+
       return {
         latestConsent,
         cookies,
@@ -775,13 +809,19 @@ export class ConsentTestRunner {
         llmServiceAvailable: !!this.llmService, // Indica se il servizio LLM era disponibile
         artifacts: { 
           screenshotPath,
-          cookieBannerScreenshotPath: cookieBannerScreenshotPath
+          cookieBannerScreenshotPath: cookieBannerScreenshotPath,
+          tracePath
         },
         selectedCategories,
         personalizaFlow 
       };
 
     } finally {
+      try {
+        if (context && !!input.options.trace && !traceStopped) {
+          await context.tracing.stop();
+        }
+      } catch {}
       // IMPORTANTE: sempre chiudere browser per liberare risorse
       try { if (page) await page.close(); } catch {};
       try { if (context) await context.close(); } catch {};
@@ -1678,14 +1718,36 @@ IMPORTANTE:
       return null;
     }
   }
+  
+  private createSkippedScenario(reason: string): ScenarioResult {
+    return {
+      latestConsent: {
+        ad_user_data: 'skipped',
+        ad_personalization: 'skipped',
+        ad_storage: 'skipped',
+        analytics_storage: 'skipped',
+        functionality_storage: 'skipped',
+        security_storage: 'skipped',
+      },
+      cookies: [],
+      gaAdsRequests: [],
+      gtagCalls: [],
+      dataLayer: [],
+      artifacts: {},
+      warnings: [reason],
+      skipped: true,
+    };
+  }
 
   private evaluateResults(results: { reject: ScenarioResult; accept: ScenarioResult; [key: string]: ScenarioResult }): ConsentTestResult['summary'] {
     const notes: string[] = [];
     let pass = true;
 
-    // Controlli di sicurezza preliminari
-    if (!results.reject || !results.accept) {
-      notes.push('ERRORE: Risultati incompleti - uno o entrambi gli scenari sono falliti');
+    const rejectScenario = results.reject;
+    const acceptScenario = results.accept;
+
+    if (!rejectScenario) {
+      notes.push('ERRORE: Risultati incompleti - scenario REJECT mancante');
       return { pass: false, notes };
     }
 
@@ -1694,9 +1756,12 @@ IMPORTANTE:
     // ========================================
     
     // 1. Valuta scenario REJECT con LLM
-    if (results.reject.llmTestResult !== undefined && results.reject.llmTestResult !== null) {
+    if (rejectScenario.skipped) {
+      notes.push('REJECT: ⚠️ Scenario non eseguito');
+      pass = false;
+    } else if (rejectScenario.llmTestResult !== undefined && rejectScenario.llmTestResult !== null) {
       // Usa il risultato LLM per REJECT
-      if (!results.reject.llmTestResult) {
+      if (!rejectScenario.llmTestResult) {
         notes.push('REJECT: ❌ Il test LLM ha rilevato che i consensi non sono stati rifiutati correttamente');
         pass = false;
       } else {
@@ -1704,9 +1769,9 @@ IMPORTANTE:
       }
     } else {
       // Fallback alla logica vecchia se LLM non disponibile
-      const rejectCookies = results.reject.cookies?.length || 0;
-      const rejectRequests = results.reject.gaAdsRequests?.length || 0;
-      const rejectConsent = results.reject.latestConsent || {};
+      const rejectCookies = rejectScenario.cookies?.length || 0;
+      const rejectRequests = rejectScenario.gaAdsRequests?.length || 0;
+      const rejectConsent = rejectScenario.latestConsent || {};
       
       if (rejectCookies > 0) {
         notes.push(`REJECT: 🍪 Rilevati ${rejectCookies} cookie sensibili (dovrebbero essere 0)`);
@@ -1726,9 +1791,13 @@ IMPORTANTE:
     }
 
     // 2. Valuta scenario ACCEPT con LLM
-    if (results.accept.llmTestResult !== undefined && results.accept.llmTestResult !== null) {
+    if (!acceptScenario) {
+      notes.push('ACCEPT: ⚠️ Scenario non disponibile nei risultati');
+    } else if (acceptScenario.skipped) {
+      notes.push('ACCEPT: ⏭️ Scenario non eseguito (modalità onlyReject)');
+    } else if (acceptScenario.llmTestResult !== undefined && acceptScenario.llmTestResult !== null) {
       // Usa il risultato LLM per ACCEPT
-      if (!results.accept.llmTestResult) {
+      if (!acceptScenario.llmTestResult) {
         notes.push('ACCEPT: ❌ Il test LLM ha rilevato che i consensi non sono stati accettati correttamente');
         pass = false;
       } else {
@@ -1736,10 +1805,10 @@ IMPORTANTE:
       }
     } else {
       // Fallback alla logica vecchia se LLM non disponibile
-      const acceptConsent = results.accept.latestConsent || {};
+      const acceptConsent = acceptScenario.latestConsent || {};
       const hasGrantedConsent = Object.values(acceptConsent).some(value => value === 'granted');
-      const acceptRequests = results.accept.gaAdsRequests?.length || 0;
-      const acceptCookies = results.accept.cookies?.length || 0;
+      const acceptRequests = acceptScenario.gaAdsRequests?.length || 0;
+      const acceptCookies = acceptScenario.cookies?.length || 0;
 
       if (!hasGrantedConsent) {
         notes.push('ACCEPT: ⚠️ Nessun consenso "granted" rilevato dal Consent Mode');
@@ -1761,6 +1830,11 @@ IMPORTANTE:
       
       for (const scenarioKey of customScenarios) {
         const scenarioResult = results[scenarioKey];
+        if (!scenarioResult) {
+          notes.push(`CUSTOM [${scenarioKey}]: ⚠️ Nessun risultato disponibile`);
+          pass = false;
+          continue;
+        }
         const selectedCategories = scenarioResult.selectedCategories;
         
         if (!selectedCategories) {
@@ -1847,6 +1921,19 @@ IMPORTANTE:
     if (categories.marketing !== undefined) parts.push(`Marketing:${categories.marketing ? 'ON' : 'OFF'}`);
     if (categories.preferences !== undefined) parts.push(`Preferences:${categories.preferences ? 'ON' : 'OFF'}`);
     return parts.join(', ');
+  }
+
+  private getRegionSettings(region: ConsentTestConfig['region']) {
+    if (region === 'US') {
+      return {
+        timezoneId: 'America/New_York',
+        geolocation: { latitude: 40.7128, longitude: -74.0060 },
+      };
+    }
+    return {
+      timezoneId: 'Europe/Rome',
+      geolocation: { latitude: 41.9028, longitude: 12.4964 },
+    };
   }
 
   // Implementazione scenario custom

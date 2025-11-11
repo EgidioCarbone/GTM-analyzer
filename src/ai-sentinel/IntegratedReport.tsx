@@ -123,15 +123,21 @@ const IntegratedReport: React.FC<IntegratedReportProps> = ({ result }) => {
   );
 
   useEffect(() => {
-    if (!allScenarios[selectedScenario]) {
-      const fallback = availableKeys[0];
-      if (fallback) {
+    const current = allScenarios[selectedScenario];
+    if (!current || current.skipped) {
+      const fallback = availableKeys[0] ?? Object.keys(allScenarios).find(key => !allScenarios[key]?.skipped);
+      if (fallback && fallback !== selectedScenario) {
         setSelectedScenario(fallback);
       }
     }
   }, [allScenarios, availableKeys, selectedScenario]);
 
-  const activeScenario = allScenarios[selectedScenario] ?? allScenarios.reject ?? Object.values(allScenarios)[0];
+  const resolvedScenario = allScenarios[selectedScenario];
+  const fallbackScenario =
+    (allScenarios.reject && !allScenarios.reject.skipped && allScenarios.reject) ||
+    Object.values(allScenarios).find(scenario => scenario && !scenario.skipped) ||
+    resolvedScenario;
+  const activeScenario = resolvedScenario && !resolvedScenario.skipped ? resolvedScenario : fallbackScenario;
 
   const cookieBannerScreenshotArtifacts = useMemo(() => {
     const scenarios = Object.values(allScenarios);
