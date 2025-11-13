@@ -106,7 +106,7 @@ function DeleteModal({ isOpen, onClose, onConfirm, item, itemType, dependencies 
         exit={{ opacity: 0, scale: 0.95 }}
         className="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-md w-full mx-4 shadow-xl"
       >
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-start justify-between mb-2">
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
             Conferma Eliminazione
           </h3>
@@ -242,7 +242,7 @@ function RenameModal({
         exit={{ opacity: 0, scale: 0.95 }}
         className="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-2xl w-full mx-4 shadow-xl"
       >
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-start justify-between mb-2">
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
             Rinomina {itemType === 'tag' ? 'Tag' : itemType === 'trigger' ? 'Trigger' : 'Variabile'}
           </h3>
@@ -347,7 +347,7 @@ function ToggleModal({
         exit={{ opacity: 0, scale: 0.95 }}
         className="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-md w-full mx-4 shadow-xl"
       >
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-start justify-between mb-2">
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
             {actionCapitalized} Elemento
           </h3>
@@ -2378,67 +2378,53 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
   console.log('[TIMELINE] baseline:', timelineInitialScore, 'current:', timelineCurrentQuality, 'deltaSum:', timelineImprovement, 'activityCount:', activity.length, 'measured:', measuredCurrent);
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="max-w-6xl mx-auto px-6 py-6 space-y-6">
       {/* Header con qualità del container */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow-sm border border-gray-200 dark:border-gray-700">
-        <div className="flex items-center justify-between mb-4">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
+      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 md:p-6">
+        <div className="flex items-start justify-between mb-2">
+          <div>
+          <h1 className="text-2xl font-semibold text-slate-900">
             Container Manager
           </h1>
-          <div className="flex items-center gap-4">
-            <div className="text-right">
-              <p className="text-sm text-gray-600 dark:text-gray-400">Qualità Container</p>
-              <div className="flex items-center gap-2">
-                <div className="w-32 bg-gray-200 dark:bg-gray-700 rounded-full h-3">
-                  <motion.div
-                    className="bg-gradient-to-r from-green-500 to-blue-500 h-3 rounded-full"
-                    initial={{ width: 0 }}
-                    animate={{ width: `${timelineCurrentQuality}%` }}
-                    transition={{ duration: 0.8, ease: "easeOut" }}
-                  />
-                </div>
-                <span className="text-2xl font-bold text-gray-900 dark:text-white">
-                  {timelineCurrentQuality.toFixed(1)}%
-                </span>
-              </div>
-            </div>
+          <p className="text-sm text-slate-500">Monitoraggio della qualità complessiva del container GTM.</p>
           </div>
+          
         </div>
 
         {/* Timeline del progresso */}
         {(initialQuality || baselineScore != null || qualityMetrics) && (
           <div className="mb-6 p-4 bg-gradient-to-r from-blue-50 to-green-50 dark:from-blue-900/20 dark:to-green-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
             <h3 className="text-lg font-semibold text-blue-800 dark:text-blue-200 mb-3 flex items-center gap-2">
-              📈 Timeline del Progresso
+              Timeline del Progresso
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Qualità iniziale vs attuale */}
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-blue-700 dark:text-blue-300">Qualità Iniziale:</span>
-                  <span className="font-bold text-blue-800 dark:text-blue-200">{timelineInitialScore.toFixed(1)}%</span>
+                  <span className="text-slate-900 font-medium">{timelineInitialScore.toFixed(1)}%</span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-green-700 dark:text-green-300">Qualità Attuale:</span>
-                  <span className="font-bold text-green-800 dark:text-blue-200">{timelineCurrentQuality.toFixed(1)}%</span>
+                  <span className="text-slate-900 font-medium">{timelineCurrentQuality.toFixed(1)}%</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">Miglioramento:</span>
+                  <span className="text-sm text-slate-600">Miglioramento</span>
                   <div className="flex items-center gap-1">
                     {timelineImprovement > 0 ? (
                       <>
-                        <ArrowUpRight className="w-4 h-4 text-green-600" />
-                        <span className="font-bold text-green-600">+{timelineImprovement}%</span>
+                        <ArrowUpRight className="w-4 h-4 text-emerald-600" />
+                        <span className="font-semibold text-emerald-600">+{timelineImprovement}%</span>
                       </>
                     ) : timelineImprovement < 0 ? (
                       <>
-                        <ArrowDownRight className="w-4 h-4 text-red-600" />
-                        <span className="font-bold text-red-600">{timelineImprovement}%</span>
+                        <ArrowDownRight className="w-4 h-4 text-rose-600" />
+                        <span className="font-semibold text-rose-600">{timelineImprovement}%</span>
                       </>
                     ) : (
                       <>
-                        <Minus className="w-4 h-4 text-gray-600" />
-                        <span className="font-bold text-gray-600">0%</span>
+                        <Minus className="w-4 h-4 text-slate-500" />
+                        <span className="font-semibold text-slate-500">0%</span>
                       </>
                     )}
                   </div>
@@ -2447,22 +2433,22 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
 
               {/* Barra di confronto visivo */}
               <div className="space-y-2">
-                <div className="text-sm text-gray-600 dark:text-gray-400">Confronto Visivo:</div>
+                <div className="sr-only">Confronto Visivo</div>
                 <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-blue-600 dark:text-blue-400">Iniziale</span>
-                    <div className="flex-1 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs text-slate-600 w-16">Iniziale</span>
+                    <div className="flex-1 bg-slate-100 rounded-full h-2 overflow-hidden">
                       <div 
-                        className="bg-blue-500 h-2 rounded-full transition-all duration-500"
+                        className="bg-sky-500/90 h-2 rounded-full transition-all duration-500"
                         style={{ width: `${timelineInitialScore}%` }}
                       />
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-green-600 dark:text-green-400">Attuale</span>
-                    <div className="flex-1 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs text-slate-600 w-16">Attuale</span>
+                    <div className="flex-1 bg-slate-100 rounded-full h-2 overflow-hidden">
                       <div 
-                        className="bg-green-500 h-2 rounded-full transition-all duration-500"
+                        className="bg-emerald-500/90 h-2 rounded-full transition-all duration-500"
                         style={{ width: `${timelineCurrentQuality}%` }}
                       />
                     </div>
@@ -2475,98 +2461,106 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
 
         {/* Metriche di qualità con confronto */}
         {analysis && (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-5">
             <div 
-              className="text-center p-3 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800 cursor-pointer hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
+              className="bg-white border border-slate-200 rounded-2xl shadow-sm px-4 py-4 flex flex-col items-start cursor-pointer hover:border-indigo-300 hover:shadow-md transition"
               onClick={() => setShowPaused(true)}
               title="Clicca per filtrare gli elementi in pausa"
             >
-              <div className="text-2xl font-bold text-red-600 dark:text-red-400">
+              <div className="text-2xl font-semibold text-slate-900">
                 {analysis.kpi.paused}
               </div>
-              <div className="text-sm text-red-600 dark:text-red-400">In Pausa</div>
+              <div className="mt-1">
+                <span className="text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">In Pausa</span>
+              </div>
               {(() => {
                 const qd = getQualityDifference();
                 return qd ? (
-                  <div className="text-xs mt-1">
+                  <div className="text-xs text-slate-400 mt-1">
                     {qd.pausedItems > 0 ? (
-                      <span className="text-green-600 dark:text-green-400">↓ -{qd.pausedItems}</span>
+                      <>↓ -{qd.pausedItems}</>
                     ) : qd.pausedItems < 0 ? (
-                      <span className="text-red-600 dark:text-red-400">↑ +{Math.abs(qd.pausedItems)}</span>
+                      <>↑ +{Math.abs(qd.pausedItems)}</>
                     ) : (
-                      <span className="text-gray-600 dark:text-gray-400">→ 0</span>
+                      <>→ 0</>
                     )}
                   </div>
                 ) : null;
               })()}
             </div>
             <div 
-              className="text-center p-3 bg-slate-50 dark:bg-slate-900/20 rounded-lg border border-slate-200 dark:border-slate-800 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-900/30 transition-colors"
+              className="bg-white border border-slate-200 rounded-2xl shadow-sm px-4 py-4 flex flex-col items-start cursor-pointer hover:border-indigo-300 hover:shadow-md transition"
               onClick={() => setShowUnused(true)}
               title="Clicca per filtrare gli elementi non utilizzati"
             >
-              <div className="text-2xl font-bold text-slate-600 dark:text-slate-400">
+              <div className="text-2xl font-semibold text-slate-900">
                 {analysis.kpi.unused.total}
               </div>
-              <div className="text-sm text-slate-600 dark:text-slate-400">Non Utilizzati</div>
+              <div className="mt-1">
+                <span className="text-sm font-medium text-slate-600">Non Utilizzati</span>
+              </div>
               {(() => {
                 const qd = getQualityDifference();
                 return qd ? (
-                    <div className="text-xs mt-1">
+                    <div className="text-xs text-slate-400 mt-1">
                     {qd.unusedItems > 0 ? (
-                      <span className="text-green-600 dark:text-green-400">↓ -{qd.unusedItems}</span>
+                      <>↓ -{qd.unusedItems}</>
                     ) : qd.unusedItems < 0 ? (
-                      <span className="text-red-600 dark:text-red-400">↑ +{Math.abs(qd.unusedItems)}</span>
+                      <>↑ +{Math.abs(qd.unusedItems)}</>
                     ) : (
-                      <span className="text-gray-600 dark:text-gray-400">→ 0</span>
+                      <>→ 0</>
                     )}
                   </div>
                 ) : null;
               })()}
             </div>
             <div 
-              className="text-center p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg border border-yellow-200 dark:border-yellow-800 cursor-pointer hover:bg-yellow-100 dark:hover:bg-yellow-900/30 transition-colors"
+              className="bg-white border border-slate-200 rounded-2xl shadow-sm px-4 py-4 flex flex-col items-start cursor-pointer hover:border-indigo-300 hover:shadow-md transition"
               onClick={() => setShowUA(true)}
               title="Clicca per filtrare i tag UA obsoleti"
             >
-              <div className="text-2xl font-bold text-yellow-600 dark:text-yellow-400">
+              <div className="text-2xl font-semibold text-slate-900">
                 {analysis.kpi.uaObsolete}
               </div>
-              <div className="text-sm text-yellow-600 dark:text-yellow-400">UA Obsoleti</div>
+              <div className="mt-1">
+                <span className="text-xs px-2 py-0.5 rounded-full bg-yellow-50 text-yellow-700">UA Obsoleti</span>
+              </div>
               {(() => {
                 const qd = getQualityDifference();
                 return qd ? (
-                  <div className="text-xs mt-1">
+                  <div className="text-xs text-slate-400 mt-1">
                     {qd.uaItems > 0 ? (
-                      <span className="text-green-600 dark:text-green-400">↓ -{qd.uaItems}</span>
+                      <>↓ -{qd.uaItems}</>
                     ) : qd.uaItems < 0 ? (
-                      <span className="text-red-600 dark:text-red-400">↑ +{Math.abs(qd.uaItems)}</span>
+                      <>↑ +{Math.abs(qd.uaItems)}</>
                     ) : (
-                      <span className="text-gray-600 dark:text-gray-400">→ 0</span>
+                      <>→ 0</>
                     )}
                   </div>
                 ) : null;
               })()}
             </div>
             <div 
-              className="text-center p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800 cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors"
+              className="bg-white border border-slate-200 rounded-2xl shadow-sm px-4 py-4 flex flex-col items-start cursor-pointer hover:border-indigo-300 hover:shadow-md transition"
               onClick={() => setShowNaming(true)}
               title="Clicca per filtrare gli elementi con problemi di naming"
             >
-              <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
+              <div className="text-2xl font-semibold text-slate-900">
                 {analysis.kpi.namingIssues.total}
               </div>
-              <div className="text-sm text-blue-600 dark:text-blue-400">Naming Issues</div>
+              <div className="mt-1">
+                <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700">Naming Issues</span>
+              </div>
               {(() => {
                 const qd = getQualityDifference();
                 return qd ? (
-                  <div className="text-xs mt-1">
+                  <div className="text-xs text-slate-400 mt-1">
                     {qd.namingIssues > 0 ? (
-                      <span className="text-green-600 dark:text-green-400">↓ -{qd.namingIssues}</span>
+                      <>↓ -{qd.namingIssues}</>
                     ) : qd.namingIssues < 0 ? (
-                      <span className="text-red-600 dark:text-red-400">↑ +{Math.abs(qd.namingIssues)}</span>
+                      <>↑ +{Math.abs(qd.namingIssues)}</>
                     ) : (
-                      <span className="text-gray-600 dark:text-gray-400">→ 0</span>
+                      <>→ 0</>
                     )}
                   </div>
                 ) : null;

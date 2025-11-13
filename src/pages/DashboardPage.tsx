@@ -43,7 +43,7 @@ export default function DashboardPage() {
 
 
   return (
-    <main className={`${!container ? "min-h-screen" : "p-6 space-y-6"}`}>
+    <main className={`${!container ? "min-h-screen" : ""}`}>
       {!container ? (
         <div className="w-full">
           <FileUpload onFile={handleFile} />

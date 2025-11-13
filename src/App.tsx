@@ -39,17 +39,15 @@ export default function App() {
 
   return (
     <ErrorBoundary>
-      <div className={`min-h-screen font-sans relative overflow-hidden bg-gradient-to-br from-purple-50 via-pink-50 to-white dark:from-gray-900 dark:via-gray-950 dark:to-black transition-all duration-300 ${container ? 'pl-64' : ''}`}>
-        {/* Sfondo artistico */}
-        <div className="absolute -top-48 -left-48 w-[600px] h-[600px] bg-purple-400 opacity-30 blur-3xl rounded-full z-0" />
-        <div className="absolute -bottom-48 -right-48 w-[600px] h-[600px] bg-pink-400 opacity-30 blur-3xl rounded-full z-0" />
+      <div className={`min-h-screen font-sans relative overflow-hidden bg-slate-50 dark:bg-slate-950 transition-all duration-300 ${container ? 'pl-64' : ''}`}>
+        {/* Sfondo pulito: rimosse le bolle decorative per look enterprise */}
 
         <Toaster position="top-right" />
 
         {/* Sidebar solo se c'è container */}
         {container && <Sidebar />}
 
-        <main className="space-y-6 transition-colors relative z-10">
+<main className="space-y-6 transition-colors relative z-10 text-slate-700 dark:text-slate-300">
           <Routes>
             {/* Route iniziale */}
             <Route path="/" element={<Navigate to="/home" />} />

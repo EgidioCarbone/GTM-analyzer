@@ -98,7 +98,7 @@ export const QualityAccordion: React.FC<QualityAccordionProps> = ({
       {score < 100 && (
         <div className="text-center mb-4">
           <p className="text-sm text-slate-600 dark:text-slate-400">
-             Potenziale miglioramento: <span className="font-semibold text-violet-700">{Math.max(0, 100 - score)}%</span>
+             Potenziale miglioramento: <span className="font-semibold text-violet-700">{Math.max(0, 100 - score).toFixed(1)}%</span>
           </p>
           <p className="text-xs text-slate-500 dark:text-slate-500 mt-1">
             Ottimizza il container per raggiungere il 100% di qualità
