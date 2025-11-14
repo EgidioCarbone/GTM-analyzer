@@ -1,6 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { ChevronDown, ChevronUp, Target, Info } from 'lucide-react';
+import { ChevronDown, ChevronUp, Target } from 'lucide-react';
 import { InfoTooltip } from './ui/InfoTooltip';
+
+// Lilac chart palette to ensure homogeneous charts across this section
+export const LILAC_CHART_PALETTE = [
+  '#a78bfa', // violet-400
+  '#8b5cf6', // violet-500
+  '#7c3aed', // violet-600
+  '#6d28d9', // violet-700
+  '#5b21b6', // violet-800
+  '#4c1d95', // violet-900
+];
+
 
 export interface QualityAccordionProps {
   children: React.ReactNode;
@@ -8,7 +19,6 @@ export interface QualityAccordionProps {
   qualityStatus: {
     status: string;
     color: string;
-    icon: string;
   };
   scoreBreakdown?: Array<{
     label: string;
@@ -45,65 +55,41 @@ export const QualityAccordion: React.FC<QualityAccordionProps> = ({
   };
 
   return (
-    <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md border border-gray-200 dark:border-gray-700">
+    <div className="rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-sm" data-chart-palette="lilac">
       {/* Header dell'accordion */}
       <div className="flex items-center justify-between mb-4">
-        <InfoTooltip content="Calcolato su pulizia tag, qualità trigger e qualità variabili con pesi diversi. Clicca per i dettagli.">
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
-            <Target className="w-6 h-6" />
+        <InfoTooltip content="Calcolato su pulizia tag, qualità trigger e qualit?à variabili con pesi diversi. Clicca per i dettagli.">
+          <h2 className="text-xl font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+            <Target className="w-5 h-5 text-violet-600 dark:text-violet-400" />
             Qualità del Container
           </h2>
         </InfoTooltip>
         
         <div className="flex items-center gap-4">
-          <div className="text-right">
-            <InfoTooltip
-              content={
-                <div className="text-left">
-                  <div className="font-semibold mb-2">Calcolo Score:</div>
-                  {scoreBreakdown?.map((item, index) => (
-                    <div key={index} className="mb-1">
-                      {item.label}: {item.value}% × {item.weight}
-                    </div>
-                  ))}
-                  <div className="border-t border-gray-600 pt-1 mt-2 font-bold">
-                    = Score {score}%
-                  </div>
-                </div>
-              }
-            >
-              <div className="text-4xl font-bold text-indigo-600 dark:text-indigo-400">
-                {score}%
-              </div>
-            </InfoTooltip>
-            <div className={`inline-flex items-center gap-2 px-3 py-1 font-medium rounded-full ${qualityStatus.color}`}>
-              <span>{qualityStatus.icon}</span>
-              {qualityStatus.status}
-            </div>
-          </div>
+          
           
           {/* Toggle button */}
           <button
             onClick={toggleAccordion}
-            className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+            className="p-2 rounded-lg border border-transparent hover:border-slate-300 dark:hover:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
             aria-expanded={isOpen}
             aria-controls="quality-content"
-            aria-label={`${isOpen ? 'Chiudi' : 'Apri'} sezione qualità del container`}
+            aria-label={`${isOpen ? 'Chiudi' : 'Apri'} sezione qualit? del container`}
             role="button"
           >
             {isOpen ? (
-              <ChevronUp className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+              <ChevronUp className="w-5 h-5 text-slate-600 dark:text-slate-400" />
             ) : (
-              <ChevronDown className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+              <ChevronDown className="w-5 h-5 text-slate-600 dark:text-slate-400" />
             )}
           </button>
         </div>
       </div>
       
       {/* Barra di progresso */}
-      <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-4 mb-4">
+      <div className="w-full bg-slate-200 dark:bg-slate-800 rounded-full h-3 mb-4">
         <div 
-          className="bg-gradient-to-r from-green-500 via-blue-500 to-purple-500 h-4 rounded-full transition-all duration-1000 ease-out"
+          className="bg-gradient-to-r from-violet-300 via-violet-500 to-violet-700 h-3 rounded-full transition-all duration-1000 ease-out"
           style={{ width: `${Math.max(0, Math.min(100, score))}%` }}
         />
       </div>
@@ -111,10 +97,10 @@ export const QualityAccordion: React.FC<QualityAccordionProps> = ({
       {/* Potenziale miglioramento */}
       {score < 100 && (
         <div className="text-center mb-4">
-          <p className="text-sm text-gray-600 dark:text-gray-400">
-            🚀 Potenziale miglioramento: <span className="font-semibold text-green-600">{Math.max(0, 100 - score)}%</span>
+          <p className="text-sm text-slate-600 dark:text-slate-400">
+             Potenziale miglioramento: <span className="font-semibold text-violet-700">{Math.max(0, 100 - score).toFixed(1)}%</span>
           </p>
-          <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">
+          <p className="text-xs text-slate-500 dark:text-slate-500 mt-1">
             Ottimizza il container per raggiungere il 100% di qualità
           </p>
         </div>

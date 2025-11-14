@@ -584,45 +584,41 @@ function generateVariableMessage(stats: {
 export function getVariableMetricInfo(severity: 'critical' | 'major' | 'minor' | 'ok') {
   const metricInfo = {
     critical: {
-      icon: "🚨",
       title: "Qualità Variabili",
       subtitle: "Variabili con problemi critici di configurazione",
       impact: "Variabili mal configurate possono causare errori di tracking e performance.",
       risk: "Rischio: tracking non affidabile, errori JavaScript.",
-      priority: "Critica",
+      priority: "Priorità: Critica",
       priorityColor: "bg-red-100 text-red-800",
       color: "bg-red-50 dark:bg-red-900/20",
       textColor: "text-red-600 dark:text-red-400"
     },
     major: {
-      icon: "⚠️",
       title: "Qualità Variabili",
       subtitle: "Variabili con problemi di configurazione",
       impact: "Alcune variabili potrebbero essere ottimizzate per migliori performance.",
       risk: "Rischio: configurazione sub-ottimale delle variabili.",
-      priority: "Maggiore",
+      priority: "Priorità: Maggiore",
       priorityColor: "bg-orange-100 text-orange-800",
       color: "bg-orange-50 dark:bg-orange-900/20",
       textColor: "text-orange-600 dark:text-orange-400"
     },
     minor: {
-      icon: "ℹ️",
       title: "Qualità Variabili",
       subtitle: "Variabili con piccole ottimizzazioni possibili",
       impact: "Variabili configurate correttamente con margini di miglioramento.",
       risk: "Rischio: configurazione buona ma non ottimale.",
-      priority: "Bassa",
+      priority: "Priorità: Bassa",
       priorityColor: "bg-blue-100 text-blue-800",
       color: "bg-blue-50 dark:bg-blue-900/20",
       textColor: "text-blue-600 dark:text-blue-400"
     },
     ok: {
-      icon: "✅",
       title: "Qualità Variabili",
       subtitle: "Variabili configurate correttamente",
       impact: "Tutte le variabili sono configurate in modo ottimale.",
       risk: "Nessun rischio: configurazione eccellente.",
-      priority: "OK",
+      priority: "Priorità: OK",
       priorityColor: "bg-green-100 text-green-800",
       color: "bg-green-50 dark:bg-green-900/20",
       textColor: "text-green-600 dark:text-green-400"

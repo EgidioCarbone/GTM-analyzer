@@ -1,12 +1,12 @@
 import React from "react";
 import { X } from "lucide-react";
 
-export default function DetailsModal({ item, onClose, title = "Dettagli" }) {
+export default function DetailsModal({ item, onClose, title = "Dettagli" }: { item: any; onClose: () => void; title?: string }) {
   if (!item || typeof item !== "object") {
     return null; // Non mostrare nulla se i dati non sono disponibili
   }
 
-  const renderValue = (value) => {
+  const renderValue = (value: any) => {
     if (!value) return <span className="italic text-gray-500 dark:text-gray-400">N/A</span>;
 
     if (Array.isArray(value)) {
@@ -86,7 +86,7 @@ export default function DetailsModal({ item, onClose, title = "Dettagli" }) {
         <div className="p-4">
                       <table className="min-w-full text-sm text-gray-700 dark:text-gray-300">
             <tbody className="text-gray-700 dark:text-gray-300">
-              {Object.entries(item).map(([key, value], idx) => (
+              {Object.entries(item).map(([key, value]: [string, any], idx: number) => (
                 <tr key={idx} className="border-t border-gray-200 dark:border-gray-600 align-top">
                   <td className="py-2 px-4 font-medium text-gray-900 dark:text-white">{key}</td>
                   <td className="py-2 px-4 text-gray-700 dark:text-gray-300">{renderValue(value)}</td>

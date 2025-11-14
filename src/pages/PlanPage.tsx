@@ -12,7 +12,7 @@ import { motion }       from "framer-motion";
 import Lottie           from "lottie-react";
 
 import { useContainer } from "../context/ContainerContext";
-import { analyzeGtmSection } from "../services/generateMeasurementDoc";
+import { analyzeGtmSection, polishContext, buildTagsTable, generateMeasurementDoc } from "../services/generateMeasurementDoc";
 import { renderMeasurementDoc } from "../services/renderMeasurementDoc";
 import { Card, CardContent }   from "../components/ui/card";
 import { Button }              from "../components/ui/button";
@@ -56,9 +56,10 @@ function useCyclingTypewriter(
 export default function PlanPage() {
   const { container } = useContainer();
 
-  const [preview, setPreview] = useState<{ tags?: string; triggers?: string; variables?: string }>({});
-  const [status,  setStatus]  = useState<{ tags: boolean; triggers: boolean; variables: boolean }>({ tags: false, triggers: false, variables: false });
+  const [preview, setPreview] = useState<{ tags?: string }>({});
+  const [status,  setStatus]  = useState<{ tags: boolean }>({ tags: false });
   const [loading, setLoading] = useState(false);
+  const [contextText, setContextText] = useState("");
 
   const steps = [
     { label: "Analisi dei tag in corso…",   icon: Tag },
@@ -69,7 +70,7 @@ export default function PlanPage() {
   ];
 
   const { text: typing, step } = useCyclingTypewriter(
-    steps.map((s) => s.label),
+    (Array.isArray(steps) ? steps : []).map((s) => s.label.replace("�", "")).map((s) => s.replace(/\?+$/, "…")),
     70,   // ms/carattere
     3000, // pausa
   );
@@ -81,16 +82,20 @@ export default function PlanPage() {
   useEffect(() => {
     const saved = localStorage.getItem("gtmAnalyzerPreview");
     if (saved) {
-      setPreview(JSON.parse(saved));
-      setStatus({ tags: true, triggers: true, variables: true });
+      const parsed = JSON.parse(saved);
+      setPreview({ tags: parsed.tags });
+      setStatus({ tags: true });
     }
+    const ctx = localStorage.getItem("gtmAnalyzerContext");
+    if (ctx) setContextText(ctx);
   }, []);
 
   /* helpers */
-  const clean = (md: string) =>
-    md.split("\n").filter((l) =>
-      !["Tags Analysis", "Triggers Analysis", "Variables Analysis"].includes(l.trim()),
-    ).join("\n");
+  const clean = (md: string) => {
+    const lines = md.split("\n");
+    const headerRe = /^#{0,6}\s*(Tags|Triggers|Variables) Analysis\s*$/i;
+    return lines.filter(l => !headerRe.test(l.trim())).join("\n");
+  };
 
   const Spinner = () => <Loader2 className="h-4 w-4 animate-spin inline-block ml-1" />;
 
@@ -98,28 +103,25 @@ export default function PlanPage() {
   const handleExport = async () => {
     if (!container) return toast.error("Carica prima un container GTM!");
     setLoading(true);
-    setStatus({ tags: false, triggers: false, variables: false });
+  setStatus({ tags: false });
     toast.loading("Analisi AI in corso…", { id: "plan" });
 
     try {
-      const [tagsMd, trigMd, varsMd] = await Promise.all([
-        analyzeGtmSection("tags",      container.tag      ?? [], container.publicId).then((m) => { setStatus((s) => ({ ...s, tags: true }));      return m; }),
-        analyzeGtmSection("triggers",  container.trigger  ?? [], container.publicId).then((m) => { setStatus((s) => ({ ...s, triggers: true }));  return m; }),
-        analyzeGtmSection("variables", container.variable ?? [], container.publicId).then((m) => { setStatus((s) => ({ ...s, variables: true })); return m; }),
-      ]);
-
-      const cleaned = { tags: clean(tagsMd), triggers: clean(trigMd), variables: clean(varsMd) };
+  // Costruiamo la tabella dei tag (usa AI per normalizzare tipi e descrizioni) e la mostriamo in anteprima
+  const tagsMd = await buildTagsTable(container.tag ?? [], container.trigger ?? []);
+      const cleaned = { tags: clean(tagsMd) };
       setPreview(cleaned);
       localStorage.setItem("gtmAnalyzerPreview", JSON.stringify(cleaned));
 
-      const doc = `# AI-powered GTM Audit
-**Progetto:** ${container.publicId ?? "Senza nome"}
+      // Generiamo il documento completo (usa polishContext internamente)
+      const doc = await generateMeasurementDoc({
+        tags: container.tag ?? [],
+        triggers: container.trigger ?? [],
+        variables: container.variable ?? [],
+        projectName: container.publicId,
+        contextText,
+      });
 
-${cleaned.tags}
-
-${cleaned.triggers}
-
-${cleaned.variables}`;
       await renderMeasurementDoc(doc, `PianoMisurazione_${container.publicId ?? "SenzaNome"}.docx`);
       toast.success("Documento Word generato!", { id: "plan" });
     } catch (e) {
@@ -127,13 +129,14 @@ ${cleaned.variables}`;
       toast.error("Errore nella generazione del piano.", { id: "plan" });
     } finally {
       setLoading(false);
+      try { toast.dismiss("plan"); } catch {}
     }
   };
 
   const clearPreview = () => {
     localStorage.removeItem("gtmAnalyzerPreview");
     setPreview({});
-    setStatus({ tags: false, triggers: false, variables: false });
+    setStatus({ tags: false });
     toast("Anteprima resettata.", { icon: "✅" });
   };
 
@@ -177,6 +180,16 @@ ${cleaned.variables}`;
           completo e professionale.
         </p>
 
+        {/* CONTEXT textarea */}
+        <div className="w-full bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 mt-4">
+          <textarea
+            value={contextText}
+            onChange={(e) => { setContextText(e.target.value); localStorage.setItem("gtmAnalyzerContext", e.target.value); }}
+            placeholder={"Inserisci qui informazioni contestuali: cliente, sito/area, obiettivi di misurazione, KPI, note..."}
+            className="w-full min-h-[120px] p-3 rounded-md border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 text-sm text-gray-900 dark:text-gray-100"
+          />
+        </div>
+
         {preview.tags && (
           <div className="bg-yellow-100 text-yellow-800 text-sm px-4 py-2 rounded-md border border-yellow-300 w-full">
             📝 Hai già una <strong>anteprima salvata</strong>. Puoi rigenerare o resettarla.
@@ -195,7 +208,7 @@ ${cleaned.variables}`;
               </>
             ) : (
               <>
-                Effettua analisi IA <Sparkles className="w-4 h-4" />
+                Genera il doc <Sparkles className="w-4 h-4" />
               </>
             )}
             <span className="absolute inset-0 bg-white dark:bg-gray-200 opacity-10 blur-sm animate-pulse" />
@@ -213,74 +226,41 @@ ${cleaned.variables}`;
       </motion.div>
 
       {/* risultati */}
-      {(preview.tags || preview.triggers || preview.variables) && (
+      {preview.tags && (
         <div className="mt-12 w-full max-w-4xl animate-fade-in">
-          <Tab.Group>
-            <Tab.List className="flex justify-center space-x-2 mb-4">
-              {[{ label: "Tags", icon: Tag }, { label: "Triggers", icon: ToggleLeft }, { label: "Variables", icon: Code2 }].map(
-                (tab) => (
-                  <Tab
-                    key={tab.label}
-                    className={({ selected }) =>
-                      `px-4 py-2 text-sm font-medium rounded-full flex items-center gap-1 transition-all ${
-                        selected
-                          ? "bg-purple-600 text-white shadow-md"
-                          : "bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-600"
-                      }`
-                    }
-                  >
-                    <tab.icon className="h-4 w-4" /> {tab.label}
-                    {loading && !status[tab.label.toLowerCase() as "tags" | "triggers" | "variables"] && <Spinner />}
-                    {status[tab.label.toLowerCase() as "tags" | "triggers" | "variables"] && "✅"}
-                  </Tab>
-                )
-              )}
-            </Tab.List>
-
-            <Tab.Panels>
-              {(["tags", "triggers", "variables"] as const).map((type) => (
-                <Tab.Panel key={type}>
-                  {preview[type] ? (
-                    <ScrollArea>
-                      <Card className="bg-white dark:bg-gray-800 shadow-md rounded-xl">
-                        <CardContent className="p-4 prose dark:prose-invert max-w-none">
-                          <Markdown
-                            remarkPlugins={[remarkGfm]}
-                            components={{
-                              table: ({ children }) => (
-                                <div className="overflow-x-auto rounded-lg border border-gray-300 dark:border-gray-600 shadow-sm my-4">
-                                  <table className="min-w-full divide-y divide-gray-300 dark:divide-gray-600 text-sm text-left">
-                                    {children}
-                                  </table>
-                                </div>
-                              ),
-                              th: ({ children }) => (
-                                <th className="px-4 py-2 bg-gray-100 dark:bg-gray-700 font-semibold text-gray-700 dark:text-gray-300 border-b dark:border-gray-600">
-                                  {children}
-                                </th>
-                              ),
-                              td: ({ children }) => (
-                                <td className="px-4 py-2 border-t border-gray-200 dark:border-gray-600 whitespace-pre-wrap">
-                                  {children}
-                                </td>
-                              ),
-                              tr: ({ children }) => (
-                                <tr className="hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">{children}</tr>
-                              ),
-                            }}
-                          >
-                            {preview[type] ?? ""}
-                          </Markdown>
-                        </CardContent>
-                      </Card>
-                    </ScrollArea>
-                  ) : (
-                    <Skeleton className="h-64 w-full rounded-xl" />
-                  )}
-                </Tab.Panel>
-              ))}
-            </Tab.Panels>
-          </Tab.Group>
+          <ScrollArea>
+            <Card className="bg-white dark:bg-gray-800 shadow-md rounded-xl">
+              <CardContent className="p-4 prose dark:prose-invert max-w-none">
+                <Markdown
+                  remarkPlugins={[remarkGfm]}
+                  components={{
+                    table: ({ children }) => (
+                      <div className="overflow-x-auto rounded-lg border border-gray-300 dark:border-gray-600 shadow-sm my-4">
+                        <table className="min-w-full divide-y divide-gray-300 dark:divide-gray-600 text-sm text-left">
+                          {children}
+                        </table>
+                      </div>
+                    ),
+                    th: ({ children }) => (
+                      <th className="px-4 py-2 bg-gray-100 dark:bg-gray-700 font-semibold text-gray-700 dark:text-gray-300 border-b dark:border-gray-600">
+                        {children}
+                      </th>
+                    ),
+                    td: ({ children }) => (
+                      <td className="px-4 py-2 border-t border-gray-200 dark:border-gray-600 whitespace-pre-wrap">
+                        {children}
+                      </td>
+                    ),
+                    tr: ({ children }) => (
+                      <tr className="hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">{children}</tr>
+                    ),
+                  }}
+                >
+                  {preview.tags ?? ""}
+                </Markdown>
+              </CardContent>
+            </Card>
+          </ScrollArea>
         </div>
       )}
     </div>

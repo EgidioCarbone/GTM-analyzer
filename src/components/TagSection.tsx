@@ -23,9 +23,9 @@ export default function TagSection({
   const rest = tags.filter((t) => !t.paused && t.type !== "ua");
 
   const groups = [
-    { id: "paused", label: "Tag in pausa", emoji: "⏸️", data: paused },
-    { id: "ua", label: "Tag UA (obsoleti)", emoji: "🗑️", data: ua },
-    { id: "rest", label: "Altri tag", emoji: "🏷️", data: rest },
+    { id: "paused", label: "Tag in pausa", data: paused },
+    { id: "ua", label: "Tag UA (obsoleti)", data: ua },
+    { id: "rest", label: "Altri tag", data: rest },
   ];
 
   const hasTriggers = (tag: any) =>
@@ -60,7 +60,7 @@ export default function TagSection({
         />
       </div>
 
-      {groups.map(({ id, label, emoji, data }) => {
+      {groups.map(({ id, label, data }) => {
         const filteredData = data.filter((t) =>
           (t.name ?? "").toLowerCase().includes(searchTerm.toLowerCase()) ||
           String(t.tagId ?? "").includes(searchTerm)
@@ -77,7 +77,7 @@ export default function TagSection({
               className="w-full px-4 py-3 flex justify-between items-center font-semibold text-[#1a365d] dark:text-gray-100"
               onClick={() => setOpen(open === label ? null : label)}
             >
-              <span>{emoji} {label}</span>
+              <span>{label}</span>
               {open === label ? (
                 <ChevronUp className="w-4 h-4" />
               ) : (

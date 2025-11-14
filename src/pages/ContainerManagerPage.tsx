@@ -1,3 +1,24 @@
+﻿// Mappa type/templateId a etichetta leggibile (deve essere globale per essere usata ovunque)
+function getTagTypeLabel(item: any): string {
+  const type = (item.type || '').toLowerCase();
+  const templateId = (item.templateId || '').toLowerCase();
+  
+  // Prova prima con typeLabels
+  if (typeLabels[type]) return typeLabels[type];
+  if (typeLabels[templateId]) return typeLabels[templateId];
+  
+  // Fallback per tag specifici
+  if (type === 'gaawe' || type === 'ga4' || type === 'googtag' || templateId === 'gaawe' || templateId === 'ga4' || templateId === 'googtag') return 'GA4 Tag';
+  if (type === 'ua' || templateId === 'ua') return 'Universal Analytics';
+  if (type === 'html' || templateId === 'html') return 'Custom HTML';
+  if (type === 'img' || templateId === 'img') return 'Pixel';
+  if (type.startsWith('cvt_') || templateId.startsWith('cvt_')) return 'Custom Template';
+  if (type === 'gclidw' || templateId === 'gclidw') return 'Google Ads Click ID';
+  if (type === 'flc' || templateId === 'flc') return 'Floodlight Counter';
+  if (type === 'fls' || templateId === 'fls') return 'Floodlight Sales';
+  
+  return item.type || item.templateId || 'Altro';
+}
 import React, { useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useLocation } from "react-router-dom";
@@ -85,7 +106,7 @@ function DeleteModal({ isOpen, onClose, onConfirm, item, itemType, dependencies 
         exit={{ opacity: 0, scale: 0.95 }}
         className="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-md w-full mx-4 shadow-xl"
       >
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-start justify-between mb-2">
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
             Conferma Eliminazione
           </h3>
@@ -135,13 +156,13 @@ function DeleteModal({ isOpen, onClose, onConfirm, item, itemType, dependencies 
         ) : (
           // Caso: si può eliminare
           <div className="space-y-4">
-            <div className="flex items-center gap-3 p-3 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg">
-              <AlertTriangle className="w-6 h-6 text-orange-600 dark:text-orange-400" />
+            <div className="flex items-center gap-3 p-3 bg-slate-50 dark:bg-slate-900/20 border border-slate-200 dark:border-slate-800 rounded-lg">
+              <AlertTriangle className="w-6 h-6 text-slate-600 dark:text-slate-400" />
               <div>
-                <p className="font-medium text-orange-800 dark:text-orange-200">
+                <p className="font-medium text-slate-900 dark:text-slate-200">
                   Conferma eliminazione
                 </p>
-                <p className="text-sm text-orange-600 dark:text-orange-400">
+                <p className="text-sm text-slate-600 dark:text-slate-400">
                   Questa azione non è reversibile
                 </p>
               </div>
@@ -221,7 +242,7 @@ function RenameModal({
         exit={{ opacity: 0, scale: 0.95 }}
         className="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-2xl w-full mx-4 shadow-xl"
       >
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-start justify-between mb-2">
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
             Rinomina {itemType === 'tag' ? 'Tag' : itemType === 'trigger' ? 'Trigger' : 'Variabile'}
           </h3>
@@ -326,7 +347,7 @@ function ToggleModal({
         exit={{ opacity: 0, scale: 0.95 }}
         className="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-md w-full mx-4 shadow-xl"
       >
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-start justify-between mb-2">
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
             {actionCapitalized} Elemento
           </h3>
@@ -339,11 +360,11 @@ function ToggleModal({
         </div>
 
         <div className="space-y-4">
-          <div className="flex items-center gap-3 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+            <div className="flex items-center gap-3 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
             {currentPaused ? (
               <Play className="w-5 h-5 text-green-600" />
             ) : (
-              <Pause className="w-5 h-5 text-orange-600" />
+              <Pause className="w-5 h-5 text-slate-600" />
             )}
             <div>
               <p className="text-sm font-medium text-gray-900 dark:text-white">
@@ -376,7 +397,7 @@ function ToggleModal({
             className={`px-4 py-2 text-sm text-white rounded-lg transition-colors ${
               currentPaused 
                 ? 'bg-green-600 hover:bg-green-700' 
-                : 'bg-orange-600 hover:bg-orange-700'
+                : 'bg-slate-600 hover:bg-slate-700'
             }`}
           >
             {actionCapitalized}
@@ -404,6 +425,77 @@ function DetailsModal({
 
   if (!isOpen || !item) return null;
 
+  // Helper per renderizzare valori che potrebbero essere oggetti
+  const renderParamValue = (value: any): string => {
+    if (value === null || value === undefined) return 'N/A';
+    
+    // Se è un oggetto con type e value (formato GTM), estrai il value
+    if (typeof value === 'object' && value !== null && 'type' in value && 'value' in value) {
+      return String(value.value);
+    }
+    
+    if (typeof value === 'object') {
+      try {
+        return JSON.stringify(value, null, 2);
+      } catch {
+        return String(value);
+      }
+    }
+    return String(value);
+  };
+
+  // Helper per trovare il nome del trigger dall'ID
+  const getTriggerNameById = (triggerId: string): string => {
+    if (!container?.trigger) return triggerId;
+    const trigger = container.trigger.find(t => t.triggerId === triggerId);
+    return trigger ? trigger.name : triggerId;
+  };
+
+  // Helper per mappare i nomi tecnici GTM ai nomi user-friendly GA4
+  const getGA4FriendlyParamName = (paramKey: string): string => {
+    const mapping: { [key: string]: string } = {
+      // GA4 Configuration Tag
+      'measurementId': 'Measurement ID',
+      'measurementIdOverride': 'Measurement ID Override',
+      'sendPageView': 'Send Page View',
+      
+      // GA4 Event Tag
+      'eventName': 'Event Name',
+      'eventParameters': 'Event Parameters',
+      'eventSettingsVariable': 'Event Settings Variable',
+      'eventSettingsTable': 'Event Settings Table',
+      'userProperties': 'User Properties',
+      
+      // Ecommerce
+      'sendEcommerceData': 'Send Ecommerce Data',
+      'ecommerceMacroData': 'Ecommerce Data',
+      'getEcommerceDataFrom': 'Get Ecommerce Data From',
+      
+      // Advanced Settings
+      'cookieDomain': 'Cookie Domain',
+      'cookieExpires': 'Cookie Expires',
+      'cookieUpdate': 'Cookie Update',
+      'cookieFlags': 'Cookie Flags',
+      
+      // User ID
+      'userId': 'User ID',
+      'userIdExpression': 'User ID Expression',
+      
+      // Fields to Set
+      'fieldsToSet': 'Fields to Set',
+      
+      // Debug Mode
+      'debugMode': 'Debug Mode',
+      
+      // Custom Parameters (common ones)
+      'page_title': 'Page Title',
+      'page_location': 'Page Location',
+      'page_path': 'Page Path',
+    };
+    
+    return mapping[paramKey] || paramKey;
+  };
+
   // Trova le dipendenze e relazioni
   const getDependencies = () => {
     if (!container) return { dependencies: [], dependents: [] };
@@ -415,7 +507,7 @@ function DetailsModal({
       // Trova i trigger collegati
       if (item.firingTriggerId) {
         const triggerIds = Array.isArray(item.firingTriggerId) ? item.firingTriggerId : [item.firingTriggerId];
-        triggerIds.forEach(id => {
+        triggerIds.forEach((id: string) => {
           const trigger = container.trigger?.find(t => t.triggerId === id);
           if (trigger) dependencies.push({ type: 'trigger', item: trigger, relationship: 'Firing Trigger' });
         });
@@ -485,14 +577,14 @@ function DetailsModal({
               <div className="flex items-center gap-2">
                 <span className={`px-3 py-1 rounded-full text-sm font-medium ${
                   tag.paused 
-                    ? 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200' 
+                    ? 'bg-slate-100 text-slate-800 dark:bg-slate-900 dark:text-slate-200' 
                     : 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
                 }`}>
                   {tag.paused ? '⏸️ Pausato' : '✅ Attivo'}
                 </span>
                 {tag.priority && (
                   <span className="px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded text-sm">
-                    Priorità: {tag.priority}
+                    {renderParamValue(tag.priority)}
                   </span>
                 )}
               </div>
@@ -509,11 +601,15 @@ function DetailsModal({
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
                     <span className="font-medium text-gray-600 dark:text-gray-400">Tipo:</span>
-                    <span className="text-gray-900 dark:text-white font-mono">{tag.type}</span>
+                    <span className="text-gray-900 dark:text-white font-mono">{getTagTypeLabel(tag)}
+                      {tag.type && (
+                        <span className="ml-2 text-xs text-gray-500">({tag.type})</span>
+                      )}
+                    </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="font-medium text-gray-600 dark:text-gray-400">Template:</span>
-                    <span className="text-gray-900 dark:text-white">{tag.templateId || 'N/A'}</span>
+                    <span className="text-gray-900 dark:text-white">{renderParamValue(tag.templateId) || 'N/A'}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="font-medium text-gray-600 dark:text-gray-400">Firing Triggers:</span>
@@ -561,7 +657,7 @@ function DetailsModal({
                   <div key={index} className="text-sm">
                     <span className={`px-2 py-1 rounded text-xs font-medium ${
                       issue.severity === 'critical' ? 'bg-red-100 text-red-800' :
-                      issue.severity === 'major' ? 'bg-orange-100 text-orange-800' :
+                      issue.severity === 'major' ? 'bg-slate-100 text-slate-800' :
                       'bg-yellow-100 text-yellow-800'
                     }`}>
                       {issue.severity?.toUpperCase()}
@@ -593,19 +689,34 @@ function DetailsModal({
                     <tr className="border-b border-gray-200 dark:border-gray-700">
                       <th className="text-left py-2 font-medium text-gray-600 dark:text-gray-400">Chiave</th>
                       <th className="text-left py-2 font-medium text-gray-600 dark:text-gray-400">Valore</th>
-                      <th className="text-left py-2 font-medium text-gray-600 dark:text-gray-400">Tipo</th>
+                      <th className="text-left py-2 font-medium text-gray-600 dark:text-gray-400">
+                        <span title="BOOLEAN: vero/falso | LIST: elenco valori | TEMPLATE: variabile o valore dinamico">
+                          Tipo
+                          <svg xmlns="http://www.w3.org/2000/svg" className="inline ml-1 mb-0.5 w-3 h-3 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" fill="white" />
+                            <text x="12" y="16" textAnchor="middle" fontSize="12" fill="currentColor">i</text>
+                          </svg>
+                        </span>
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
                     {tag.parameter.map((param, index) => (
                       <tr key={index} className="border-b border-gray-100 dark:border-gray-800">
-                        <td className="py-2 font-mono text-gray-900 dark:text-white">{param.key}</td>
                         <td className="py-2">
-                          <span className="text-gray-700 dark:text-gray-300 break-all" title={param.value}>
-                            {param.value}
+                          <div className="flex flex-col">
+                            <span className="text-gray-900 dark:text-white font-medium">{getGA4FriendlyParamName(param.key)}</span>
+                            {getGA4FriendlyParamName(param.key) !== param.key && (
+                              <span className="text-xs text-gray-500 dark:text-gray-400 font-mono">{param.key}</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="py-2">
+                          <span className="text-gray-700 dark:text-gray-300 break-all" title={renderParamValue(param.value)}>
+                            {renderParamValue(param.value)}
                           </span>
                         </td>
-                        <td className="py-2 text-gray-500 dark:text-gray-400">{param.type || 'string'}</td>
+                        <td className="py-2 text-gray-500 dark:text-gray-400">{(param as any).type || 'string'}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -618,7 +729,7 @@ function DetailsModal({
           {tag.html && (
             <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
               <h4 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-                <span className="text-orange-500">💻</span> HTML Code
+                <span className="text-slate-500">💻</span> HTML Code
               </h4>
               <div className="bg-gray-900 rounded-lg p-4 overflow-x-auto">
                 <pre className="text-green-400 text-xs whitespace-pre-wrap font-mono">
@@ -639,8 +750,9 @@ function DetailsModal({
                 {tag.firingTriggerId && Array.isArray(tag.firingTriggerId) && tag.firingTriggerId.length > 0 ? (
                   <div className="space-y-1">
                     {tag.firingTriggerId.map((id, index) => (
-                      <div key={index} className="text-sm bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-200 px-2 py-1 rounded">
-                        {id}
+                      <div key={index} className="text-sm bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-200 px-2 py-1 rounded flex justify-between items-center">
+                        <span className="font-medium">{getTriggerNameById(id)}</span>
+                        <span className="text-xs opacity-60">ID: {id}</span>
                       </div>
                     ))}
                   </div>
@@ -653,8 +765,9 @@ function DetailsModal({
                 {tag.blockingTriggerId && Array.isArray(tag.blockingTriggerId) && tag.blockingTriggerId.length > 0 ? (
                   <div className="space-y-1">
                     {tag.blockingTriggerId.map((id, index) => (
-                      <div key={index} className="text-sm bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-200 px-2 py-1 rounded">
-                        {id}
+                      <div key={index} className="text-sm bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-200 px-2 py-1 rounded flex justify-between items-center">
+                        <span className="font-medium">{getTriggerNameById(id)}</span>
+                        <span className="text-xs opacity-60">ID: {id}</span>
                       </div>
                     ))}
                   </div>
@@ -740,18 +853,18 @@ function DetailsModal({
         <div className="space-y-6">
           {issues.length > 0 ? (
             <div className="space-y-4">
-              {issues.map((issue, index) => (
+                {issues.map((issue, index) => (
                 <div key={index} className={`rounded-lg p-4 border-l-4 ${
                   issue.severity === 'critical' ? 'bg-red-50 dark:bg-red-900/20 border-red-500' :
-                  issue.severity === 'major' ? 'bg-orange-50 dark:bg-orange-900/20 border-orange-500' :
+                  issue.severity === 'major' ? 'bg-slate-50 dark:bg-slate-900/20 border-slate-200' :
                   'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-500'
                 }`}>
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-2">
+                        <div className="flex items-center gap-2 mb-2">
                         <span className={`px-2 py-1 rounded text-xs font-bold ${
                           issue.severity === 'critical' ? 'bg-red-100 text-red-800' :
-                          issue.severity === 'major' ? 'bg-orange-100 text-orange-800' :
+                          issue.severity === 'major' ? 'bg-slate-100 text-slate-800 dark:bg-slate-900 dark:text-slate-200' :
                           'bg-yellow-100 text-yellow-800'
                         }`}>
                           {issue.severity?.toUpperCase()}
@@ -792,7 +905,7 @@ function DetailsModal({
       {activeTab === 'overview' && (
         <div className="space-y-6">
           {/* Header con stato */}
-          <div className="bg-gradient-to-r from-yellow-50 to-orange-50 dark:from-yellow-900/20 dark:to-orange-900/20 rounded-lg p-4 border border-yellow-200 dark:border-yellow-800">
+          <div className="bg-gradient-to-r from-yellow-50 to-slate-50 dark:from-yellow-900/20 dark:to-slate-900/20 rounded-lg p-4 border border-yellow-200 dark:border-yellow-800">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="w-12 h-12 bg-yellow-100 dark:bg-yellow-900 rounded-lg flex items-center justify-center">
@@ -806,8 +919,8 @@ function DetailsModal({
               <div className="flex items-center gap-2">
                 <span className={`px-3 py-1 rounded-full text-sm font-medium ${
                   trigger.paused 
-                    ? 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200' 
-                    : 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                    ? 'bg-slate-100 text-slate-800 dark:bg-slate-900 dark:text-slate-200' 
+                    : 'bg_green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
                 }`}>
                   {trigger.paused ? '⏸️ Pausato' : '✅ Attivo'}
                 </span>
@@ -851,7 +964,7 @@ function DetailsModal({
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
                     <span className="font-medium text-gray-600 dark:text-gray-400">Event Name:</span>
-                    <span className="text-gray-900 dark:text-white">{trigger.eventName || 'N/A'}</span>
+                    <span className="text-gray-900 dark:text-white">{renderParamValue(trigger.eventName) || 'N/A'}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="font-medium text-gray-600 dark:text-gray-400">Wait for Tags:</span>
@@ -877,7 +990,7 @@ function DetailsModal({
                   <div key={index} className="text-sm">
                     <span className={`px-2 py-1 rounded text-xs font-medium ${
                       issue.severity === 'critical' ? 'bg-red-100 text-red-800' :
-                      issue.severity === 'major' ? 'bg-orange-100 text-orange-800' :
+                      issue.severity === 'major' ? 'bg-slate-100 text-slate-800' :
                       'bg-yellow-100 text-yellow-800'
                     }`}>
                       {issue.severity?.toUpperCase()}
@@ -915,13 +1028,20 @@ function DetailsModal({
                   <tbody>
                     {trigger.parameter.map((param, index) => (
                       <tr key={index} className="border-b border-gray-100 dark:border-gray-800">
-                        <td className="py-2 font-mono text-gray-900 dark:text-white">{param.key}</td>
                         <td className="py-2">
-                          <span className="text-gray-700 dark:text-gray-300 break-all" title={param.value}>
-                            {param.value}
+                          <div className="flex flex-col">
+                            <span className="text-gray-900 dark:text-white font-medium">{getGA4FriendlyParamName(param.key)}</span>
+                            {getGA4FriendlyParamName(param.key) !== param.key && (
+                              <span className="text-xs text-gray-500 dark:text-gray-400 font-mono">{param.key}</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="py-2">
+                          <span className="text-gray-700 dark:text-gray-300 break-all" title={renderParamValue(param.value)}>
+                            {renderParamValue(param.value)}
                           </span>
                         </td>
-                        <td className="py-2 text-gray-500 dark:text-gray-400">{param.type || 'string'}</td>
+                        <td className="py-2 text-gray-500 dark:text-gray-400">{(param as any).type || 'string'}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -1045,7 +1165,7 @@ function DetailsModal({
               {issues.map((issue, index) => (
                 <div key={index} className={`rounded-lg p-4 border-l-4 ${
                   issue.severity === 'critical' ? 'bg-red-50 dark:bg-red-900/20 border-red-500' :
-                  issue.severity === 'major' ? 'bg-orange-50 dark:bg-orange-900/20 border-orange-500' :
+                  issue.severity === 'major' ? 'bg-slate-50 dark:bg-slate-900/20 border-slate-500' :
                   'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-500'
                 }`}>
                   <div className="flex items-start justify-between">
@@ -1053,7 +1173,7 @@ function DetailsModal({
                       <div className="flex items-center gap-2 mb-2">
                         <span className={`px-2 py-1 rounded text-xs font-bold ${
                           issue.severity === 'critical' ? 'bg-red-100 text-red-800' :
-                          issue.severity === 'major' ? 'bg-orange-100 text-orange-800' :
+                          issue.severity === 'major' ? 'bg-slate-100 text-slate-800' :
                           'bg-yellow-100 text-yellow-800'
                         }`}>
                           {issue.severity?.toUpperCase()}
@@ -1108,7 +1228,7 @@ function DetailsModal({
               <div className="flex items-center gap-2">
                 <span className={`px-3 py-1 rounded-full text-sm font-medium ${
                   variable.paused 
-                    ? 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200' 
+                    ? 'bg-slate-100 text-slate-800 dark:bg-slate-900 dark:text-slate-200' 
                     : 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
                 }`}>
                   {variable.paused ? '⏸️ Pausato' : '✅ Attivo'}
@@ -1132,11 +1252,11 @@ function DetailsModal({
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
                     <span className="font-medium text-gray-600 dark:text-gray-400">Tipo:</span>
-                    <span className="text-gray-900 dark:text-white font-mono">{variable.type}</span>
+                    <span className="text-gray-900 dark:text-white font-mono">{getTagTypeLabel(variable)}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="font-medium text-gray-600 dark:text-gray-400">Formato:</span>
-                    <span className="text-gray-900 dark:text-white">{variable.format || 'N/A'}</span>
+                    <span className="text-gray-900 dark:text-white">{renderParamValue((variable as any).format) || 'N/A'}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="font-medium text-gray-600 dark:text-gray-400">Built-in:</span>
@@ -1158,15 +1278,15 @@ function DetailsModal({
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
                     <span className="font-medium text-gray-600 dark:text-gray-400">Data Layer Variable:</span>
-                    <span className="text-gray-900 dark:text-white">{variable.dataLayerVariable || 'N/A'}</span>
+                    <span className="text-gray-900 dark:text-white">{renderParamValue((variable as any).dataLayerVariable) || 'N/A'}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="font-medium text-gray-600 dark:text-gray-400">Default Value:</span>
-                    <span className="text-gray-900 dark:text-white">{variable.defaultValue || 'N/A'}</span>
+                    <span className="text-gray-900 dark:text-white">{renderParamValue((variable as any).defaultValue) || 'N/A'}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="font-medium text-gray-600 dark:text-gray-400">Lookup Table:</span>
-                    <span className="text-gray-900 dark:text-white">{variable.lookupTable?.length || 0} entries</span>
+                    <span className="text-gray-900 dark:text-white">{(variable as any).lookupTable?.length || 0} entries</span>
                   </div>
                 </div>
               </div>
@@ -1179,12 +1299,12 @@ function DetailsModal({
               <h4 className="font-semibold text-red-900 dark:text-red-200 mb-3 flex items-center gap-2">
                 <span className="text-red-500">⚠️</span> Problemi Rilevati ({issues.length})
               </h4>
-              <div className="space-y-2">
+                <div className="space-y-2">
                 {issues.slice(0, 3).map((issue, index) => (
                   <div key={index} className="text-sm">
                     <span className={`px-2 py-1 rounded text-xs font-medium ${
                       issue.severity === 'critical' ? 'bg-red-100 text-red-800' :
-                      issue.severity === 'major' ? 'bg-orange-100 text-orange-800' :
+                      issue.severity === 'major' ? 'bg-slate-100 text-slate-800' :
                       'bg-yellow-100 text-yellow-800'
                     }`}>
                       {issue.severity?.toUpperCase()}
@@ -1222,13 +1342,20 @@ function DetailsModal({
                   <tbody>
                     {variable.parameter.map((param, index) => (
                       <tr key={index} className="border-b border-gray-100 dark:border-gray-800">
-                        <td className="py-2 font-mono text-gray-900 dark:text-white">{param.key}</td>
                         <td className="py-2">
-                          <span className="text-gray-700 dark:text-gray-300 break-all" title={param.value}>
-                            {param.value}
+                          <div className="flex flex-col">
+                            <span className="text-gray-900 dark:text-white font-medium">{getGA4FriendlyParamName(param.key)}</span>
+                            {getGA4FriendlyParamName(param.key) !== param.key && (
+                              <span className="text-xs text-gray-500 dark:text-gray-400 font-mono">{param.key}</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="py-2">
+                          <span className="text-gray-700 dark:text-gray-300 break-all" title={renderParamValue(param.value)}>
+                            {renderParamValue(param.value)}
                           </span>
                         </td>
-                        <td className="py-2 text-gray-500 dark:text-gray-400">{param.type || 'string'}</td>
+                        <td className="py-2 text-gray-500 dark:text-gray-400">{(param as any).type || 'string'}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -1238,10 +1365,10 @@ function DetailsModal({
           )}
 
           {/* Lookup Table */}
-          {variable.lookupTable && Array.isArray(variable.lookupTable) && variable.lookupTable.length > 0 && (
+          {(variable as any).lookupTable && Array.isArray((variable as any).lookupTable) && (variable as any).lookupTable.length > 0 && (
             <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
               <h4 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-                <span className="text-indigo-500">🔍</span> Lookup Table ({variable.lookupTable.length} entries)
+                <span className="text-indigo-500">🔍</span> Lookup Table ({(variable as any).lookupTable.length} entries)
               </h4>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
@@ -1252,7 +1379,7 @@ function DetailsModal({
                     </tr>
                   </thead>
                   <tbody>
-                    {variable.lookupTable.map((entry, index) => (
+                    {(variable as any).lookupTable.map((entry: any, index: number) => (
                       <tr key={index} className="border-b border-gray-100 dark:border-gray-800">
                         <td className="py-2 font-mono text-gray-900 dark:text-white">{entry.input || 'N/A'}</td>
                         <td className="py-2 text-gray-700 dark:text-gray-300">{entry.output || 'N/A'}</td>
@@ -1275,11 +1402,11 @@ function DetailsModal({
                 <div className="space-y-1 text-sm">
                   <div className="flex justify-between">
                     <span className="text-gray-600 dark:text-gray-400">Variable:</span>
-                    <span className="text-gray-900 dark:text-white font-mono">{variable.dataLayerVariable || 'N/A'}</span>
+                    <span className="text-gray-900 dark:text-white font-mono">{renderParamValue((variable as any).dataLayerVariable) || 'N/A'}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-gray-600 dark:text-gray-400">Default Value:</span>
-                    <span className="text-gray-900 dark:text-white">{variable.defaultValue || 'N/A'}</span>
+                    <span className="text-gray-900 dark:text-white">{renderParamValue((variable as any).defaultValue) || 'N/A'}</span>
                   </div>
                 </div>
               </div>
@@ -1288,11 +1415,11 @@ function DetailsModal({
                 <div className="space-y-1 text-sm">
                   <div className="flex justify-between">
                     <span className="text-gray-600 dark:text-gray-400">Pattern:</span>
-                    <span className="text-gray-900 dark:text-white font-mono text-xs">{variable.regexPattern || 'N/A'}</span>
+                    <span className="text-gray-900 dark:text-white font-mono text-xs">{(variable as any).regexPattern || 'N/A'}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-gray-600 dark:text-gray-400">Group:</span>
-                    <span className="text-gray-900 dark:text-white">{variable.regexGroup || 'N/A'}</span>
+                    <span className="text-gray-900 dark:text-white">{(variable as any).regexGroup || 'N/A'}</span>
                   </div>
                 </div>
               </div>
@@ -1374,20 +1501,20 @@ function DetailsModal({
         <div className="space-y-6">
           {issues.length > 0 ? (
             <div className="space-y-4">
-              {issues.map((issue, index) => (
+                {issues.map((issue, index) => (
                 <div key={index} className={`rounded-lg p-4 border-l-4 ${
                   issue.severity === 'critical' ? 'bg-red-50 dark:bg-red-900/20 border-red-500' :
-                  issue.severity === 'major' ? 'bg-orange-50 dark:bg-orange-900/20 border-orange-500' :
+                  issue.severity === 'major' ? 'bg-slate-50 dark:bg-slate-900/20 border-slate-500' :
                   'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-500'
                 }`}>
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-2">
                         <span className={`px-2 py-1 rounded text-xs font-bold ${
-                          issue.severity === 'critical' ? 'bg-red-100 text-red-800' :
-                          issue.severity === 'major' ? 'bg-orange-100 text-orange-800' :
-                          'bg-yellow-100 text-yellow-800'
-                        }`}>
+                              issue.severity === 'critical' ? 'bg-red-100 text-red-800' :
+                              issue.severity === 'major' ? 'bg-slate-100 text-slate-800' :
+                              'bg-yellow-100 text-yellow-800'
+                            }`}>
                           {issue.severity?.toUpperCase()}
                         </span>
                         <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -1430,10 +1557,10 @@ function DetailsModal({
   };
 
   const tabs = [
-    { id: 'overview', label: 'Panoramica', icon: '📊' },
-    { id: 'configuration', label: 'Configurazione', icon: '⚙️' },
-    { id: 'dependencies', label: 'Dipendenze', icon: '🔗' },
-    { id: 'issues', label: 'Problemi', icon: '⚠️' }
+    { id: 'overview', label: 'Panoramica' },
+    { id: 'configuration', label: 'Configurazione' },
+    { id: 'dependencies', label: 'Dipendenze' },
+    { id: 'issues', label: 'Problemi' }
   ];
 
   return (
@@ -1478,7 +1605,6 @@ function DetailsModal({
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
                 }`}
               >
-                <span className="text-lg">{tab.icon}</span>
                 {tab.label}
               </button>
             ))}
@@ -1543,7 +1669,7 @@ const fromAnalysisToQuality = (m: GtmMetrics): QualityMetrics => ({
 });
 
 export default function ContainerManagerPage({}: ContainerManagerPageProps) {
-  const { container, setContainer, analysis, activity, applyContainerChange } = useContainer();
+  const { container, setContainer, analysis, activity, applyContainerChange, baselineScore } = useContainer();
   const location = useLocation();
   const [activeTab, setActiveTab] = useState<TabType>('tags');
   const [searchTerm, setSearchTerm] = useState('');
@@ -1763,6 +1889,7 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
   useEffect(() => {
     if (qualityMetrics) {
       setPreviousQuality(qualityMetrics.overallScore);
+      // Non aggiornare mai initialQuality qui! La baseline resta fissa.
     }
   }, [qualityMetrics]);
 
@@ -1792,8 +1919,8 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
   if (!container) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="text-center">
-          <AlertTriangle className="w-16 h-16 text-orange-500 mx-auto mb-4" />
+          <div className="text-center">
+          <AlertTriangle className="w-16 h-16 text-slate-500 mx-auto mb-4" />
           <h2 className="text-2xl font-bold text-gray-800 dark:text-white mb-2">
             Container non caricato
           </h2>
@@ -1806,9 +1933,9 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
   }
 
   const tabs = [
-    { id: 'tags', label: 'Tag', icon: Tag, count: container.tag?.length || 0 },
-    { id: 'triggers', label: 'Trigger', icon: Zap, count: container.trigger?.length || 0 },
-    { id: 'variables', label: 'Variabili', icon: Variable, count: container.variable?.length || 0 }
+    { id: 'tags', label: 'Tag', count: container.tag?.length || 0 },
+    { id: 'triggers', label: 'Trigger', count: container.trigger?.length || 0 },
+    { id: 'variables', label: 'Variabili', count: container.variable?.length || 0 }
   ];
 
   // Ottieni i tipi disponibili per il tab attivo
@@ -1826,7 +1953,8 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
   };
 
   const currentItems = getCurrentItems();
-  const typesFound = Array.from(new Set(currentItems.map((i) => i.type).filter(Boolean))).sort();
+  // Usa solo label leggibili e uniche per i tipi
+  const typesFound = Array.from(new Set(currentItems.map((i) => getTagTypeLabel(i)).filter(Boolean))).sort();
 
   // Ottieni nomi delle variabili utilizzate per il filtro "non utilizzate"
   const usedVarNames = useMemo(() => {
@@ -1894,63 +2022,63 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
     // Filtri per Tags
     if (activeTab === 'tags') {
       if (showNaming) {
-        filteredItems = filteredItems.filter(i => ids(['naming']).has(i.tagId || i.name));
+        filteredItems = filteredItems.filter(i => ids(['naming']).has(i.tagId));
       }
       if (showNoTrigger) {
-        filteredItems = filteredItems.filter(i => ids(['no_trigger']).has(i.tagId || i.name));
+        filteredItems = filteredItems.filter(i => ids(['no_trigger']).has(i.tagId));
       }
       if (showConsent) {
-        filteredItems = filteredItems.filter(i => ids(['consent_missing']).has(i.tagId || i.name));
+        filteredItems = filteredItems.filter(i => ids(['consent_missing']).has(i.tagId));
       }
       if (showHtmlSecurityCritical) {
-        filteredItems = filteredItems.filter(i => ids(['html_security_critical']).has(i.tagId || i.name));
+        filteredItems = filteredItems.filter(i => ids(['html_security_critical']).has(i.tagId));
       }
       if (showHtmlSecurityMajor) {
-        filteredItems = filteredItems.filter(i => ids(['html_security_major']).has(i.tagId || i.name));
+        filteredItems = filteredItems.filter(i => ids(['html_security_major']).has(i.tagId));
       }
       if (showHtmlSecurityMinor) {
-        filteredItems = filteredItems.filter(i => ids(['html_security_minor']).has(i.tagId || i.name));
+        filteredItems = filteredItems.filter(i => ids(['html_security_minor']).has(i.tagId));
       }
     }
 
     // Filtri per Triggers
     if (activeTab === 'triggers') {
       if (showTrgAllPages) {
-        filteredItems = filteredItems.filter(i => ids(['trigger_all_pages']).has(i.triggerId || i.name));
+        filteredItems = filteredItems.filter(i => ids(['trigger_all_pages']).has(i.triggerId));
       }
       if (showTrgTiming) {
-        filteredItems = filteredItems.filter(i => ids(['trigger_timing']).has(i.triggerId || i.name));
+        filteredItems = filteredItems.filter(i => ids(['trigger_timing']).has(i.triggerId));
       }
       if (showTrgUnused) {
-        filteredItems = filteredItems.filter(i => ids(['trigger_unused']).has(i.triggerId || i.name));
+        filteredItems = filteredItems.filter(i => ids(['trigger_unused']).has(i.triggerId));
       }
       if (showTrgDuplicate) {
-        filteredItems = filteredItems.filter(i => ids(['trigger_duplicate']).has(i.triggerId || i.name));
+        filteredItems = filteredItems.filter(i => ids(['trigger_duplicate']).has(i.triggerId));
       }
     }
 
     // Filtri per Variables
     if (activeTab === 'variables') {
       if (showVarDlv) {
-        filteredItems = filteredItems.filter(i => ids(['variable_dlv_fallback']).has(i.variableId || i.name));
+        filteredItems = filteredItems.filter(i => ids(['variable_dlv_fallback']).has(i.variableId));
       }
       if (showVarLookup) {
-        filteredItems = filteredItems.filter(i => ids(['variable_lookup_default']).has(i.variableId || i.name));
+        filteredItems = filteredItems.filter(i => ids(['variable_lookup_default']).has(i.variableId));
       }
       if (showVarRegex) {
-        filteredItems = filteredItems.filter(i => ids(['variable_regex_bad']).has(i.variableId || i.name));
+        filteredItems = filteredItems.filter(i => ids(['variable_regex_bad']).has(i.variableId));
       }
       if (showVarCss) {
-        filteredItems = filteredItems.filter(i => ids(['variable_css_fragile']).has(i.variableId || i.name));
+        filteredItems = filteredItems.filter(i => ids(['variable_css_fragile']).has(i.variableId));
       }
       if (showVarJs) {
-        filteredItems = filteredItems.filter(i => ids(['variable_js_unsafe']).has(i.variableId || i.name));
+        filteredItems = filteredItems.filter(i => ids(['variable_js_unsafe']).has(i.variableId));
       }
       if (showVarUnused) {
-        filteredItems = filteredItems.filter(i => ids(['variable_unused']).has(i.variableId || i.name));
+        filteredItems = filteredItems.filter(i => ids(['variable_unused']).has(i.variableId));
       }
       if (showVarDuplicate) {
-        filteredItems = filteredItems.filter(i => ids(['variable_duplicate']).has(i.variableId || i.name));
+        filteredItems = filteredItems.filter(i => ids(['variable_duplicate']).has(i.variableId));
       }
     }
 
@@ -1962,22 +2090,23 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
 
     // Applica filtro di ricerca
     if (searchTerm) {
-      items = items.filter(item => 
+      items = items.filter(item =>
         item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        item.type.toLowerCase().includes(searchTerm.toLowerCase())
+        getTagTypeLabel(item).toLowerCase().includes(searchTerm.toLowerCase())
       );
     }
 
-    // Applica filtri della sidebar
+    // Applica filtro per tipo (usando label leggibile)
     if (selectedTypes.length > 0) {
-      items = items.filter(item => selectedTypes.includes(item.type));
+      items = items.filter(item => selectedTypes.includes(getTagTypeLabel(item)));
     }
 
+    // Usa la label leggibile per i tipi
+    const typesFound = Array.from(new Set(currentItems.map((i) => getTagTypeLabel(i)).filter(Boolean))).sort();
+
     if (showUA) {
-      items = items.filter(item => 
-        item.type.includes('UA') || 
-        item.type.includes('Universal') ||
-        item.type === 'ua'
+      items = items.filter(item =>
+        getTagTypeLabel(item) === 'Universal Analytics'
       );
     }
 
@@ -2094,7 +2223,7 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
       setToggleModal({
         isOpen: true,
         item: item,
-        currentPaused: item.paused
+        currentPaused: item.paused ?? false
       });
     }
   };
@@ -2136,7 +2265,15 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
     if (!container) return;
     
     const itemsWithNamingIssues = getFilteredItems().filter(item => {
-      const itemId = item.tagId || item.triggerId || item.variableId || item.name;
+      let itemId: string | undefined;
+      if (activeTab === 'tags') {
+        itemId = (item as GTMTag).tagId;
+      } else if (activeTab === 'triggers') {
+        itemId = (item as GTMTrigger).triggerId;
+      } else if (activeTab === 'variables') {
+        itemId = (item as GTMVariable).variableId;
+      }
+      if (!itemId) return false;
       const issues = analysis?.issuesIndex?.byId?.[itemId] || [];
       return issues.some(i => i.categories.includes('naming'));
     });
@@ -2175,9 +2312,11 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
           variables: draft.variable?.length || 0
         });
         
+        if (!bulkRenameModal.items) return;
+        
         bulkRenameModal.items.forEach((item, index) => {
           const suggestedName = suggestName(type, item.name, item.type);
-          console.log(`🔄 [${index + 1}/${bulkRenameModal.items.length}] Rinomino: ${item.name} → ${suggestedName}`);
+          console.log(`🔄 [${index + 1}/${bulkRenameModal.items!.length}] Rinomino: ${item.name} → ${suggestedName}`);
           
           if (activeTab === 'tags') {
             const tag = draft.tag?.find(t => t.tagId === item.tagId || t.name === item.name);
@@ -2218,81 +2357,74 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
 
   // Calcola le differenze rispetto alla qualità iniziale
   const getQualityDifference = () => {
-    if (!initialQuality || !analysis) return null;
-    
+    if (!initialQuality || !qualityMetrics) return null;
+    const delta = Number((qualityMetrics.overallScore - initialQuality.overallScore).toFixed(1));
     return {
-      score: analysis.score.total - initialQuality.overallScore,
-      pausedItems: initialQuality.pausedItems - (analysis.kpi.paused || 0),
-      unusedItems: initialQuality.unusedItems - (analysis.kpi.unused.total || 0),
-      uaItems: initialQuality.uaItems - (analysis.kpi.uaObsolete || 0),
-      namingIssues: initialQuality.namingIssues - (analysis.kpi.namingIssues.total || 0)
+      score: delta,
+      pausedItems: (qualityMetrics.pausedItems || 0) - initialQuality.pausedItems,
+      unusedItems: (qualityMetrics.unusedItems || 0) - initialQuality.unusedItems,
+      uaItems: (qualityMetrics.uaItems || 0) - initialQuality.uaItems,
+      namingIssues: (qualityMetrics.namingIssues || 0) - initialQuality.namingIssues
     };
   };
 
-  const qualityDifference = getQualityDifference();
+  // Forza la qualità attuale e il miglioramento a riflettere sempre l'ultimo valore reale
+  const timelineInitialScore = baselineScore ?? initialQuality?.overallScore ?? qualityMetrics?.overallScore ?? 0;
+  const totalDeltaScore = activity.reduce((acc, entry) => acc + (entry.deltaScore ?? 0), 0);
+  const timelineImprovement = Number(totalDeltaScore.toFixed(1));
+  const measuredCurrent = analysis?.score.total ?? qualityMetrics?.overallScore ?? null;
+  const computedCurrentQuality = timelineInitialScore + timelineImprovement;
+  const timelineCurrentQuality = Number(computedCurrentQuality.toFixed(1));
+  console.log('[TIMELINE] baseline:', timelineInitialScore, 'current:', timelineCurrentQuality, 'deltaSum:', timelineImprovement, 'activityCount:', activity.length, 'measured:', measuredCurrent);
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="max-w-6xl mx-auto px-6 py-6 space-y-6">
       {/* Header con qualità del container */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow-sm border border-gray-200 dark:border-gray-700">
-        <div className="flex items-center justify-between mb-4">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
+      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 md:p-6">
+        <div className="flex items-start justify-between mb-2">
+          <div>
+          <h1 className="text-2xl font-semibold text-slate-900">
             Container Manager
           </h1>
-          <div className="flex items-center gap-4">
-            <div className="text-right">
-              <p className="text-sm text-gray-600 dark:text-gray-400">Qualità Container</p>
-              <div className="flex items-center gap-2">
-                <div className="w-32 bg-gray-200 dark:bg-gray-700 rounded-full h-3">
-                  <motion.div
-                    className="bg-gradient-to-r from-green-500 to-blue-500 h-3 rounded-full"
-                    initial={{ width: 0 }}
-                    animate={{ width: `${analysis?.score.total ?? 0}%` }}
-                    transition={{ duration: 0.8, ease: "easeOut" }}
-                  />
-                </div>
-                <span className="text-2xl font-bold text-gray-900 dark:text-white">
-                  {(analysis?.score.total ?? 0).toFixed(1)}%
-                </span>
-              </div>
-            </div>
+          <p className="text-sm text-slate-500">Monitoraggio della qualità complessiva del container GTM.</p>
           </div>
+          
         </div>
 
         {/* Timeline del progresso */}
-        {initialQuality && qualityMetrics && (
+        {(initialQuality || baselineScore != null || qualityMetrics) && (
           <div className="mb-6 p-4 bg-gradient-to-r from-blue-50 to-green-50 dark:from-blue-900/20 dark:to-green-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
             <h3 className="text-lg font-semibold text-blue-800 dark:text-blue-200 mb-3 flex items-center gap-2">
-              📈 Timeline del Progresso
+              Timeline del Progresso
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Qualità iniziale vs attuale */}
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-blue-700 dark:text-blue-300">Qualità Iniziale:</span>
-                  <span className="font-bold text-blue-800 dark:text-blue-200">{initialQuality.overallScore.toFixed(1)}%</span>
+                  <span className="text-slate-900 font-medium">{timelineInitialScore.toFixed(1)}%</span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-green-700 dark:text-green-300">Qualità Attuale:</span>
-                  <span className="font-bold text-green-800 dark:text-blue-200">{(analysis?.score.total ?? 0).toFixed(1)}%</span>
+                  <span className="text-slate-900 font-medium">{timelineCurrentQuality.toFixed(1)}%</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">Miglioramento:</span>
+                  <span className="text-sm text-slate-600">Miglioramento</span>
                   <div className="flex items-center gap-1">
-                    {qualityDifference && qualityDifference.score > 0 ? (
+                    {timelineImprovement > 0 ? (
                       <>
-                        <ArrowUpRight className="w-4 h-4 text-green-600" />
-                        <span className="font-bold text-green-600">+{qualityDifference.score}%</span>
+                        <ArrowUpRight className="w-4 h-4 text-emerald-600" />
+                        <span className="font-semibold text-emerald-600">+{timelineImprovement}%</span>
                       </>
-                    ) : qualityDifference && qualityDifference.score < 0 ? (
+                    ) : timelineImprovement < 0 ? (
                       <>
-                        <ArrowDownRight className="w-4 h-4 text-red-600" />
-                        <span className="font-bold text-red-600">{qualityDifference.score}%</span>
+                        <ArrowDownRight className="w-4 h-4 text-rose-600" />
+                        <span className="font-semibold text-rose-600">{timelineImprovement}%</span>
                       </>
                     ) : (
                       <>
-                        <Minus className="w-4 h-4 text-gray-600" />
-                        <span className="font-bold text-gray-600">0%</span>
+                        <Minus className="w-4 h-4 text-slate-500" />
+                        <span className="font-semibold text-slate-500">0%</span>
                       </>
                     )}
                   </div>
@@ -2301,23 +2433,23 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
 
               {/* Barra di confronto visivo */}
               <div className="space-y-2">
-                <div className="text-sm text-gray-600 dark:text-gray-400">Confronto Visivo:</div>
+                <div className="sr-only">Confronto Visivo</div>
                 <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-blue-600 dark:text-blue-400">Iniziale</span>
-                    <div className="flex-1 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs text-slate-600 w-16">Iniziale</span>
+                    <div className="flex-1 bg-slate-100 rounded-full h-2 overflow-hidden">
                       <div 
-                        className="bg-blue-500 h-2 rounded-full transition-all duration-500"
-                        style={{ width: `${initialQuality.overallScore}%` }}
+                        className="bg-sky-500/90 h-2 rounded-full transition-all duration-500"
+                        style={{ width: `${timelineInitialScore}%` }}
                       />
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-green-600 dark:text-green-400">Attuale</span>
-                    <div className="flex-1 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs text-slate-600 w-16">Attuale</span>
+                    <div className="flex-1 bg-slate-100 rounded-full h-2 overflow-hidden">
                       <div 
-                        className="bg-green-500 h-2 rounded-full transition-all duration-500"
-                        style={{ width: `${(analysis?.score.total ?? 0)}%` }}
+                        className="bg-emerald-500/90 h-2 rounded-full transition-all duration-500"
+                        style={{ width: `${timelineCurrentQuality}%` }}
                       />
                     </div>
                   </div>
@@ -2329,90 +2461,110 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
 
         {/* Metriche di qualità con confronto */}
         {analysis && (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-5">
             <div 
-              className="text-center p-3 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800 cursor-pointer hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
+              className="bg-white border border-slate-200 rounded-2xl shadow-sm px-4 py-4 flex flex-col items-start cursor-pointer hover:border-indigo-300 hover:shadow-md transition"
               onClick={() => setShowPaused(true)}
               title="Clicca per filtrare gli elementi in pausa"
             >
-              <div className="text-2xl font-bold text-red-600 dark:text-red-400">
+              <div className="text-2xl font-semibold text-slate-900">
                 {analysis.kpi.paused}
               </div>
-              <div className="text-sm text-red-600 dark:text-red-400">In Pausa</div>
-              {qualityDifference && (
-                <div className="text-xs mt-1">
-                  {qualityDifference.pausedItems > 0 ? (
-                    <span className="text-green-600 dark:text-green-400">↓ -{qualityDifference.pausedItems}</span>
-                  ) : qualityDifference.pausedItems < 0 ? (
-                    <span className="text-red-600 dark:text-red-400">↑ +{Math.abs(qualityDifference.pausedItems)}</span>
-                  ) : (
-                    <span className="text-gray-600 dark:text-gray-400">→ 0</span>
-                  )}
-                </div>
-              )}
+              <div className="mt-1">
+                <span className="text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">In Pausa</span>
+              </div>
+              {(() => {
+                const qd = getQualityDifference();
+                return qd ? (
+                  <div className="text-xs text-slate-400 mt-1">
+                    {qd.pausedItems > 0 ? (
+                      <>↓ -{qd.pausedItems}</>
+                    ) : qd.pausedItems < 0 ? (
+                      <>↑ +{Math.abs(qd.pausedItems)}</>
+                    ) : (
+                      <>→ 0</>
+                    )}
+                  </div>
+                ) : null;
+              })()}
             </div>
             <div 
-              className="text-center p-3 bg-orange-50 dark:bg-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-800 cursor-pointer hover:bg-orange-100 dark:hover:bg-orange-900/30 transition-colors"
+              className="bg-white border border-slate-200 rounded-2xl shadow-sm px-4 py-4 flex flex-col items-start cursor-pointer hover:border-indigo-300 hover:shadow-md transition"
               onClick={() => setShowUnused(true)}
               title="Clicca per filtrare gli elementi non utilizzati"
             >
-              <div className="text-2xl font-bold text-orange-600 dark:text-orange-400">
+              <div className="text-2xl font-semibold text-slate-900">
                 {analysis.kpi.unused.total}
               </div>
-              <div className="text-sm text-orange-600 dark:text-orange-400">Non Utilizzati</div>
-              {qualityDifference && (
-                <div className="text-xs mt-1">
-                  {qualityDifference.unusedItems > 0 ? (
-                    <span className="text-green-600 dark:text-green-400">↓ -{qualityDifference.unusedItems}</span>
-                  ) : qualityDifference.unusedItems < 0 ? (
-                    <span className="text-red-600 dark:text-red-400">↑ +{Math.abs(qualityDifference.unusedItems)}</span>
-                  ) : (
-                    <span className="text-gray-600 dark:text-gray-400">→ 0</span>
-                  )}
-                </div>
-              )}
+              <div className="mt-1">
+                <span className="text-sm font-medium text-slate-600">Non Utilizzati</span>
+              </div>
+              {(() => {
+                const qd = getQualityDifference();
+                return qd ? (
+                    <div className="text-xs text-slate-400 mt-1">
+                    {qd.unusedItems > 0 ? (
+                      <>↓ -{qd.unusedItems}</>
+                    ) : qd.unusedItems < 0 ? (
+                      <>↑ +{Math.abs(qd.unusedItems)}</>
+                    ) : (
+                      <>→ 0</>
+                    )}
+                  </div>
+                ) : null;
+              })()}
             </div>
             <div 
-              className="text-center p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg border border-yellow-200 dark:border-yellow-800 cursor-pointer hover:bg-yellow-100 dark:hover:bg-yellow-900/30 transition-colors"
+              className="bg-white border border-slate-200 rounded-2xl shadow-sm px-4 py-4 flex flex-col items-start cursor-pointer hover:border-indigo-300 hover:shadow-md transition"
               onClick={() => setShowUA(true)}
               title="Clicca per filtrare i tag UA obsoleti"
             >
-              <div className="text-2xl font-bold text-yellow-600 dark:text-yellow-400">
+              <div className="text-2xl font-semibold text-slate-900">
                 {analysis.kpi.uaObsolete}
               </div>
-              <div className="text-sm text-yellow-600 dark:text-yellow-400">UA Obsoleti</div>
-              {qualityDifference && (
-                <div className="text-xs mt-1">
-                  {qualityDifference.uaItems > 0 ? (
-                    <span className="text-green-600 dark:text-green-400">↓ -{qualityDifference.uaItems}</span>
-                  ) : qualityDifference.uaItems < 0 ? (
-                    <span className="text-red-600 dark:text-red-400">↑ +{Math.abs(qualityDifference.uaItems)}</span>
-                  ) : (
-                    <span className="text-gray-600 dark:text-gray-400">→ 0</span>
-                  )}
-                </div>
-              )}
+              <div className="mt-1">
+                <span className="text-xs px-2 py-0.5 rounded-full bg-yellow-50 text-yellow-700">UA Obsoleti</span>
+              </div>
+              {(() => {
+                const qd = getQualityDifference();
+                return qd ? (
+                  <div className="text-xs text-slate-400 mt-1">
+                    {qd.uaItems > 0 ? (
+                      <>↓ -{qd.uaItems}</>
+                    ) : qd.uaItems < 0 ? (
+                      <>↑ +{Math.abs(qd.uaItems)}</>
+                    ) : (
+                      <>→ 0</>
+                    )}
+                  </div>
+                ) : null;
+              })()}
             </div>
             <div 
-              className="text-center p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800 cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors"
+              className="bg-white border border-slate-200 rounded-2xl shadow-sm px-4 py-4 flex flex-col items-start cursor-pointer hover:border-indigo-300 hover:shadow-md transition"
               onClick={() => setShowNaming(true)}
               title="Clicca per filtrare gli elementi con problemi di naming"
             >
-              <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
+              <div className="text-2xl font-semibold text-slate-900">
                 {analysis.kpi.namingIssues.total}
               </div>
-              <div className="text-sm text-blue-600 dark:text-blue-400">Naming Issues</div>
-              {qualityDifference && (
-                <div className="text-xs mt-1">
-                  {qualityDifference.namingIssues > 0 ? (
-                    <span className="text-green-600 dark:text-green-400">↓ -{qualityDifference.namingIssues}</span>
-                  ) : qualityDifference.namingIssues < 0 ? (
-                    <span className="text-red-600 dark:text-red-400">↑ +{Math.abs(qualityDifference.namingIssues)}</span>
-                  ) : (
-                    <span className="text-gray-600 dark:text-gray-400">→ 0</span>
-                  )}
-                </div>
-              )}
+              <div className="mt-1">
+                <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700">Naming Issues</span>
+              </div>
+              {(() => {
+                const qd = getQualityDifference();
+                return qd ? (
+                  <div className="text-xs text-slate-400 mt-1">
+                    {qd.namingIssues > 0 ? (
+                      <>↓ -{qd.namingIssues}</>
+                    ) : qd.namingIssues < 0 ? (
+                      <>↑ +{Math.abs(qd.namingIssues)}</>
+                    ) : (
+                      <>→ 0</>
+                    )}
+                  </div>
+                ) : null;
+              })()}
             </div>
           </div>
         )}
@@ -2516,19 +2668,8 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-sm text-gray-600 dark:text-gray-400">
-                    Qualità: {entry.score}%
+                    Qualità: {timelineCurrentQuality.toFixed(1)}%
                   </span>
-                  {index > 0 && (
-                    <div className="flex items-center gap-1">
-                      {entry.score > qualityHistory[index].score ? (
-                        <ArrowUpRight className="w-4 h-4 text-green-600" />
-                      ) : entry.score < qualityHistory[index].score ? (
-                        <ArrowDownRight className="w-4 h-4 text-red-600" />
-                      ) : (
-                        <Minus className="w-4 h-4 text-gray-600" />
-                      )}
-                    </div>
-                  )}
                 </div>
               </div>
             ))}
@@ -2550,7 +2691,6 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
                 }`}
               >
-                <tab.icon className="w-4 h-4" />
                 {tab.label}
                 <span className="bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100 py-1 px-2 rounded-full text-xs">
                   {tab.count}
@@ -2569,22 +2709,25 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
               {typesFound.length > 0 && (
                 <div className="space-y-2">
                   <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Tipi</h3>
-                  {typesFound.map((t) => (
-                    <label key={t} className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
-                      <input
-                        type="checkbox"
-                        checked={selectedTypes.includes(t)}
-                        onChange={() =>
-                          setSelectedTypes((prev) =>
-                            prev.includes(t) ? prev.filter((p) => p !== t) : [...prev, t]
-                          )
-                        }
-                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                      />
-                      {typeIcons[t] ?? typeIcons.default}
-                      <span>{typeLabels[t] ?? t}</span>
-                    </label>
-                  ))}
+                  {typesFound.map((t) => {
+                    const label = typeLabels[t] || getTagTypeLabel({type: t});
+                    return (
+                      <label key={t} className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                        <input
+                          type="checkbox"
+                          checked={selectedTypes.includes(t)}
+                          onChange={() =>
+                            setSelectedTypes((prev) =>
+                              prev.includes(t) ? prev.filter((p) => p !== t) : [...prev, t]
+                            )
+                          }
+                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        {typeIcons[t] ?? typeIcons.default}
+                        <span>{label}</span>
+                      </label>
+                    );
+                  })}
                 </div>
               )}
 
@@ -2657,12 +2800,12 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
                     </label>
                     <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
                       <input
-                        type="checkbox"
-                        checked={showHtmlSecurityMajor}
-                        onChange={() => setShowHtmlSecurityMajor(!showHtmlSecurityMajor)}
-                        className="rounded border-gray-300 text-orange-600 focus:ring-orange-500"
-                      />
-                      <span className="text-orange-600">Maggiori</span>
+                          type="checkbox"
+                          checked={showHtmlSecurityMajor}
+                          onChange={() => setShowHtmlSecurityMajor(!showHtmlSecurityMajor)}
+                          className="rounded border-gray-300 text-slate-600 focus:ring-slate-500"
+                        />
+                        <span className="text-slate-600">Maggiori</span>
                     </label>
                     <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
                       <input
@@ -2870,7 +3013,15 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
               {/* Banner per naming issues */}
               {(() => {
                 const namingIssuesCount = getFilteredItems().filter(item => {
-                  const itemId = item.tagId || item.triggerId || item.variableId || item.name;
+                  let itemId: string | undefined;
+                  if (activeTab === 'tags') {
+                    itemId = (item as GTMTag).tagId;
+                  } else if (activeTab === 'triggers') {
+                    itemId = (item as GTMTrigger).triggerId;
+                  } else if (activeTab === 'variables') {
+                    itemId = (item as GTMVariable).variableId;
+                  }
+                  if (!itemId) return false;
                   const issues = analysis?.issuesIndex?.byId?.[itemId] || [];
                   return issues.some(i => i.categories.includes('naming'));
                 }).length;
@@ -2880,16 +3031,16 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
                     <div className="bg-gray-100 dark:bg-gray-700 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 bg-orange-100 dark:bg-orange-900 rounded-full flex items-center justify-center">
-                            <Edit className="w-4 h-4 text-orange-600 dark:text-orange-400" />
-                          </div>
-                          <p className="text-gray-800 dark:text-gray-200 font-medium">
-                            Abbiamo trovato <span className="font-semibold text-orange-600 dark:text-orange-400">{namingIssuesCount}</span> Naming Issues. Vuoi rinominarli tutti?
-                          </p>
+                              <div className="w-8 h-8 bg-slate-100 dark:bg-slate-900 rounded-full flex items-center justify-center">
+                                <Edit className="w-4 h-4 text-slate-600 dark:text-slate-400" />
+                              </div>
+                              <p className="text-gray-800 dark:text-gray-200 font-medium">
+                                Abbiamo trovato <span className="font-semibold text-slate-600 dark:text-slate-400">{namingIssuesCount}</span> Naming Issues. Vuoi rinominarli tutti?
+                              </p>
                         </div>
                         <button
                           onClick={handleBulkRename}
-                          className="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-lg font-medium transition-colors flex items-center gap-2 whitespace-nowrap"
+                          className="px-4 py-2 bg-slate-600 hover:bg-slate-700 text-white rounded-lg font-medium transition-colors flex items-center gap-2 whitespace-nowrap"
                         >
                           <Edit className="w-4 h-4" />
                           Rinomina tutti
@@ -2910,9 +3061,16 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
                   </div>
                 ) : (
                   filteredItems.map((item) => {
-                    // Ottieni le issues per questo item
-                    const itemId = item.tagId || item.triggerId || item.variableId || item.name;
-                    const issues = analysis?.issuesIndex?.byId?.[itemId] || [];
+                    // Ottieni le issues per questo item usando l'ID corretto in base al tab
+                    let itemId: string | undefined;
+                    if (activeTab === 'tags') {
+                      itemId = (item as GTMTag).tagId;
+                    } else if (activeTab === 'triggers') {
+                      itemId = (item as GTMTrigger).triggerId;
+                    } else if (activeTab === 'variables') {
+                      itemId = (item as GTMVariable).variableId;
+                    }
+                    const issues = itemId ? (analysis?.issuesIndex?.byId?.[itemId] || []) : [];
 
                     return (
                       <motion.div
@@ -2928,10 +3086,10 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
                                 {item.name}
                               </h3>
                               <span className="px-2 py-1 bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 text-xs rounded-full">
-                                {item.type}
+                                {getTagTypeLabel(item)}
                               </span>
                               {item.paused && (
-                                <span className="px-2 py-1 bg-orange-100 dark:bg-orange-900 text-orange-800 dark:text-orange-200 text-xs rounded-full flex items-center gap-1">
+                                <span className="px-2 py-1 bg-slate-100 dark:bg-slate-900 text-slate-800 dark:text-slate-200 text-xs rounded-full flex items-center gap-1">
                                   <Pause className="w-3 h-3" />
                                   Pausato
                                 </span>
@@ -2952,16 +3110,18 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
                             {issues.length > 0 && (
                               <div className="flex flex-wrap gap-1 mb-2">
                                 {issues.slice(0, 3).map((iss, i) => (
-                                  <span
-                                    key={i}
-                                    title={`${iss.reason}${iss.suggestion ? ' – Suggerimento: ' + iss.suggestion : ''}`}
-                                    className={`text-xs px-2 py-0.5 rounded 
-                                       ${iss.severity === 'critical' ? 'bg-red-100 text-red-800' :
-                                         iss.severity === 'major' ? 'bg-orange-100 text-orange-800' :
-                                         'bg-blue-100 text-blue-800'}`}
-                                  >
-                                    {iss.categories[0].replaceAll('_', ' ')}
-                                  </span>
+                                  iss.categories[0] === 'paused' ? null : (
+                                    <span
+                                      key={iss.categories[0] + '-' + i}
+                                      title={`${iss.reason}${iss.suggestion ? ' – Suggerimento: ' + iss.suggestion : ''}`}
+                                      className={`text-xs px-2 py-0.5 rounded 
+                                         ${iss.severity === 'critical' ? 'bg-red-100 text-red-800' :
+                                           iss.severity === 'major' ? 'bg-slate-100 text-slate-800 dark:bg-slate-900 dark:text-slate-200' :
+                                           'bg-blue-100 text-blue-800'}`}
+                                    >
+                                      {iss.categories[0] === 'naming' ? 'naming issue' : iss.categories[0].replaceAll('_', ' ')}
+                                    </span>
+                                  )
                                 ))}
                                 {issues.length > 3 && (
                                   <span className="text-xs text-gray-500">+{issues.length - 3}</span>
@@ -3019,7 +3179,7 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
                               className={`p-2 rounded-lg transition-colors ${
                                 item.paused
                                   ? 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 hover:bg-green-200 dark:hover:bg-green-800'
-                                  : 'bg-orange-100 dark:bg-orange-900 text-orange-700 dark:text-orange-300 hover:bg-orange-200 dark:hover:bg-orange-800'
+                  : 'bg-slate-100 dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800'
                               }`}
                               title={item.paused ? 'Riprendi' : 'Metti in pausa'}
                             >
@@ -3104,8 +3264,8 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-md w-full mx-4">
             <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 bg-orange-100 dark:bg-orange-900 rounded-full flex items-center justify-center">
-                <Edit className="w-5 h-5 text-orange-600 dark:text-orange-400" />
+              <div className="w-10 h-10 bg-slate-100 dark:bg-slate-900 rounded-full flex items-center justify-center">
+                <Edit className="w-5 h-5 text-slate-600 dark:text-slate-400" />
               </div>
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
                 Rinomina Tutti i Naming Issues
@@ -3129,7 +3289,7 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
                     <div key={index} className="text-sm text-gray-600 dark:text-gray-400">
                       <span className="font-medium">{item.name}</span>
                       <span className="mx-2">→</span>
-                      <span className="text-orange-600 dark:text-orange-400 font-medium">{suggestedName}</span>
+                      <span className="text-slate-600 dark:text-slate-400 font-medium">{suggestedName}</span>
                     </div>
                   );
                 })}
@@ -3150,7 +3310,7 @@ export default function ContainerManagerPage({}: ContainerManagerPageProps) {
               </button>
               <button
                 onClick={handleBulkRenameConfirm}
-                className="flex-1 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors font-medium"
+                className="flex-1 px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-700 transition-colors font-medium"
               >
                 Rinomina Tutti
               </button>

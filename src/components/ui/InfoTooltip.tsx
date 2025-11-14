@@ -2,12 +2,14 @@ import React, { useState } from 'react';
 import { Info } from 'lucide-react';
 
 interface InfoTooltipProps {
-  children: React.ReactNode;
+  children?: React.ReactNode;
   content: React.ReactNode;
   className?: string;
+  /** If true (default) the internal info icon will be hidden. Set to false only when icons are allowed. */
+  hideIcon?: boolean;
 }
 
-export function InfoTooltip({ children, content, className = '' }: InfoTooltipProps) {
+export function InfoTooltip({ children, content, className = '', hideIcon = true }: InfoTooltipProps) {
   const [isVisible, setIsVisible] = useState(false);
 
   return (
@@ -18,9 +20,9 @@ export function InfoTooltip({ children, content, className = '' }: InfoTooltipPr
         onMouseLeave={() => setIsVisible(false)}
       >
         {children}
-        <Info className="w-4 h-4 text-gray-400 hover:text-gray-600 transition-colors" />
+        {!hideIcon && <Info className="w-4 h-4 text-gray-400 hover:text-gray-600 transition-colors" />}
       </div>
-      
+
       {isVisible && (
         <div className="absolute z-50 bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 text-sm text-white bg-gray-900 rounded-lg shadow-lg whitespace-nowrap">
           {content}

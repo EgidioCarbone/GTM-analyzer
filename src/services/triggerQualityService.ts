@@ -511,45 +511,41 @@ function generateTriggerMessage(stats: {
 export function getTriggerMetricInfo(severity: 'critical' | 'major' | 'minor' | 'ok') {
   const metricInfo = {
     critical: {
-      icon: "🚨",
       title: "Qualità Trigger",
       subtitle: "Trigger con problemi critici di configurazione",
       impact: "Trigger mal configurati possono causare problemi di performance e tracking.",
       risk: "Rischio: tracking non affidabile, performance degradate.",
-      priority: "Critica",
+      priority: "Priorità: Critica",
       priorityColor: "bg-red-100 text-red-800",
       color: "bg-red-50 dark:bg-red-900/20",
       textColor: "text-red-600 dark:text-red-400"
     },
     major: {
-      icon: "⚠️",
       title: "Qualità Trigger",
       subtitle: "Trigger con problemi di configurazione",
       impact: "Alcuni trigger potrebbero essere ottimizzati per migliori performance.",
       risk: "Rischio: configurazione sub-ottimale dei trigger.",
-      priority: "Maggiore",
+      priority: "Priorità: Maggiore",
       priorityColor: "bg-orange-100 text-orange-800",
       color: "bg-orange-50 dark:bg-orange-900/20",
       textColor: "text-orange-600 dark:text-orange-400"
     },
     minor: {
-      icon: "ℹ️",
       title: "Qualità Trigger",
       subtitle: "Trigger con piccole ottimizzazioni possibili",
       impact: "Trigger configurati correttamente con margini di miglioramento.",
       risk: "Rischio: configurazione buona ma non ottimale.",
-      priority: "Bassa",
+      priority: "Priorità: Bassa",
       priorityColor: "bg-blue-100 text-blue-800",
       color: "bg-blue-50 dark:bg-blue-900/20",
       textColor: "text-blue-600 dark:text-blue-400"
     },
     ok: {
-      icon: "✅",
       title: "Qualità Trigger",
       subtitle: "Trigger configurati correttamente",
       impact: "Tutti i trigger sono configurati in modo ottimale.",
       risk: "Nessun rischio: configurazione eccellente.",
-      priority: "OK",
+      priority: "Priorità: OK",
       priorityColor: "bg-green-100 text-green-800",
       color: "bg-green-50 dark:bg-green-900/20",
       textColor: "text-green-600 dark:text-green-400"
@@ -635,7 +631,7 @@ export function runTriggerQualityTests(): boolean {
     if (tc2Result.trigger_quality.stats.unused_triggers !== 2) {
       throw new Error('TC2 failed: Should detect 2 unused triggers');
     }
-    console.log('✅ TC2 passed: Unused triggers detected');
+    console.log('TC2 passed: Unused triggers detected');
     
     // TC3: Timing errato
     const tc3Container = {

@@ -10,6 +10,7 @@ export interface AnalysisProgressState {
     status: 'pending' | 'running' | 'completed' | 'error';
     startTime?: number;
     duration?: number;
+    details?: string;
   }>;
 }
 

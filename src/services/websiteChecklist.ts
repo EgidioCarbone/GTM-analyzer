@@ -4,6 +4,8 @@ import OpenAI from "openai";
 import type {
   WebsiteChecklistResult,
   WebsiteChecklistChecks,
+  PerformanceMetrics,
+  InteractiveTestResults,
 } from "../types/websiteChecklist";
 import { cacheService } from "./cacheService";
 import { toast } from "react-hot-toast";
@@ -25,7 +27,7 @@ const openai = new OpenAI({
 
 /** 🔧 HTML Sampling Intelligente - estrae sezioni strategiche invece di troncare */
 function extractStrategicHTML(html: string, maxChars: number = 8000): string {
-  const sections = {
+  const sections: Record<'head'|'scripts'|'gtm'|'consent'|'meta'|'bodyStart', string> = {
     head: extractHeadSection(html),
     scripts: extractScriptSections(html),
     gtm: extractGTMSections(html),
@@ -35,7 +37,7 @@ function extractStrategicHTML(html: string, maxChars: number = 8000): string {
   };
 
   // Prioritizza sezioni per rilevanza
-  const priority = ['gtm', 'consent', 'scripts', 'head', 'meta', 'bodyStart'];
+  const priority: (keyof typeof sections)[] = ['gtm', 'consent', 'scripts', 'head', 'meta', 'bodyStart'];
   let result = '';
   
   for (const section of priority) {
@@ -221,10 +223,11 @@ function inferBusinessContext(url: string, html: string): { type: string; indust
     'general': 'GDPR, CCPA, ePrivacy Directive'
   };
   
+  const industryKey = industry as keyof typeof regulations;
   return {
     type: businessType,
     industry: industry,
-    regulations: regulations[industry] || regulations['general']
+    regulations: regulations[industryKey] || regulations['general']
   };
 }
 
@@ -241,6 +244,7 @@ async function fetchWebsiteData(url: string): Promise<{
   seoScore: number;
   interactiveTestResults: any;
   screenshots: string[];
+  interactive?: any;
 }> {
   const res = await fetch(
     `http://localhost:4004/api/fetchHtmlPuppeteer?url=${encodeURIComponent(url)}&multiStep=true`
@@ -447,39 +451,39 @@ function generateTechnicalSummary(params: {
   lines.push("");
 
   // GTM Analysis
-  lines.push("#### 📊 Google Tag Manager");
+  lines.push("#### Google Tag Manager");
   if (gtmIds.length > 0) {
-    lines.push(`✅ **Container GTM rilevati**: ${gtmIds.join(', ')}`);
-    lines.push(`✅ **DataLayer inizializzato**: ${dataLayerSummary.count} eventi totali`);
-    lines.push(`✅ **Eventi unici**: ${dataLayerSummary.uniqueEvents.slice(0, 5).join(', ')}`);
+    lines.push(`**Container GTM rilevati**: ${gtmIds.join(', ')}`);
+    lines.push(`**DataLayer inizializzato**: ${dataLayerSummary.count} eventi totali`);
+    lines.push(`**Eventi unici**: ${dataLayerSummary.uniqueEvents.slice(0, 5).join(', ')}`);
   } else {
-    lines.push("❌ **Nessun container GTM rilevato**");
+    lines.push("**Nessun container GTM rilevato**");
   }
   lines.push("");
 
   // Consent Mode Analysis
-  lines.push("#### 🍪 Gestione Consensi");
+  lines.push("#### Gestione Consensi");
   if (consentModePresent) {
-    lines.push("✅ **Consent Mode attivo**");
+    lines.push("**Consent Mode attivo**");
   } else {
-    lines.push("⚠️ **Consent Mode non rilevato**");
+    lines.push("**Consent Mode non rilevato**");
   }
   
   if (cookieBannerLibs.length > 0) {
-    lines.push(`✅ **Cookie Banner rilevati**: ${cookieBannerLibs.join(', ')}`);
+    lines.push(`**Cookie Banner rilevati**: ${cookieBannerLibs.join(', ')}`);
   } else {
-    lines.push("⚠️ **Nessun cookie banner rilevato**");
+    lines.push("**Nessun cookie banner rilevato**");
   }
   
   if (consentCallsFoundInHtml.length > 0) {
-    lines.push(`✅ **Chiamate gtag('consent') nell'HTML**: ${consentCallsFoundInHtml.length} rilevate`);
+    lines.push(`**Chiamate gtag('consent') nell'HTML**: ${consentCallsFoundInHtml.length} rilevate`);
   } else {
-    lines.push("ℹ️ **Nessuna chiamata gtag('consent') rilevata nell'HTML**");
+    lines.push("**Nessuna chiamata gtag('consent') rilevata nell'HTML**");
   }
   lines.push("");
 
   // Performance Analysis
-  lines.push("#### ⚡ Performance");
+  lines.push("#### Performance");
   const perfStatus = performanceScore >= 80 ? "✅" : performanceScore >= 60 ? "⚠️" : "❌";
   lines.push(`${perfStatus} **Score Performance**: ${performanceScore}/100`);
   
@@ -1165,12 +1169,42 @@ IMPORTANTISSIMO:
     console.error('Website checklist failed:', error);
     toast.error(`Errore nell'analisi del sito: ${error instanceof Error ? error.message : 'Errore sconosciuto'}`);
     
-    // Return fallback result
+    // Return fallback result with properly typed defaults
+    const defaultPerformanceMetrics: PerformanceMetrics = {
+      lcp: 0,
+      fid: 0,
+      cls: 0,
+      fcp: 0,
+      ttfb: 0,
+      speedIndex: 0,
+      totalBlockingTime: 0,
+    };
+
+    const defaultInteractiveTestResults: InteractiveTestResults = {
+      acceptAllTest: {
+        passed: false,
+        consentUpdated: false,
+        marketingTagsFired: false,
+        dataLayerEvents: [],
+      },
+      rejectAllTest: {
+        passed: false,
+        marketingTagsBlocked: false,
+        consentDenied: false,
+        dataLayerEvents: [],
+      },
+      navigationTest: {
+        passed: false,
+        consentPersisted: false,
+        gtmLoaded: false,
+      },
+    };
+
     return {
       url,
       checks: {} as WebsiteChecklistChecks,
-      aiSummary: 'Errore durante l\'analisi del sito web',
-      technicalSummary: 'Errore durante l\'analisi del sito web - impossibile generare report tecnico',
+      aiSummary: "Errore durante l'analisi del sito web",
+      technicalSummary: "Errore durante l'analisi del sito web - impossibile generare report tecnico",
       aiUsed: false,
       performanceScore: 0,
       accessibilityScore: 0,
@@ -1182,8 +1216,8 @@ IMPORTANTISSIMO:
         consentModeCalls: [],
         consentCallsFoundInHtml: [],
         dataLayerSummary: { count: 0, uniqueEvents: [], cmpSignals: [], consentEntriesCount: 0, sampleConsentEntries: [] },
-        performanceMetrics: {},
-        interactiveTestResults: {},
+        performanceMetrics: defaultPerformanceMetrics,
+        interactiveTestResults: defaultInteractiveTestResults,
         screenshots: [],
         timeline: []
       }

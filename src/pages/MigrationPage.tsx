@@ -128,7 +128,7 @@ const MigrationPage: React.FC = () => {
       {suggestions.length > 0 && (
         <button
           onClick={handleDownloadReport}
-          className="flex items-center gap-2 bg-orange-500 dark:bg-orange-600 text-white px-4 py-2 rounded hover:brightness-110 transition"
+          className="flex items-center gap-2 bg-slate-600 dark:bg-slate-700 text-white px-4 py-2 rounded hover:brightness-110 transition"
         >
           <Download className="w-4 h-4" />
           Scarica Report CSV

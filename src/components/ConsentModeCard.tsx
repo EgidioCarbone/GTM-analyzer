@@ -25,31 +25,31 @@ export const ConsentModeCard: React.FC<ConsentModeCardProps> = ({
     switch (message.status) {
       case 'critical':
         return {
-          bgColor: 'bg-red-50 dark:bg-red-900/20',
-          borderColor: 'border-red-200 dark:border-red-800',
-          textColor: 'text-red-600 dark:text-red-400',
-          buttonColor: 'bg-pink-100 hover:bg-pink-200 text-pink-800 dark:bg-pink-800 dark:hover:bg-pink-700 dark:text-pink-100'
+          bgColor: 'bg-fuchsia-50 dark:bg-fuchsia-900/20',
+          borderColor: 'border-fuchsia-200 dark:border-fuchsia-800',
+          textColor: 'text-fuchsia-700 dark:text-fuchsia-400',
+          buttonColor: 'bg-purple-600 hover:bg-purple-700 text-white'
         };
       case 'major':
         return {
-          bgColor: 'bg-orange-50 dark:bg-orange-900/20',
-          borderColor: 'border-orange-200 dark:border-orange-800',
-          textColor: 'text-orange-600 dark:text-orange-400',
-          buttonColor: 'bg-pink-100 hover:bg-pink-200 text-pink-800 dark:bg-pink-800 dark:hover:bg-pink-700 dark:text-pink-100'
+          bgColor: 'bg-purple-50 dark:bg-purple-900/20',
+          borderColor: 'border-purple-200 dark:border-purple-800',
+          textColor: 'text-purple-700 dark:text-purple-400',
+          buttonColor: 'bg-purple-600 hover:bg-purple-700 text-white'
         };
-      case 'minor':
+      case 'ok':
         return {
-          bgColor: 'bg-blue-50 dark:bg-blue-900/20',
-          borderColor: 'border-blue-200 dark:border-blue-800',
-          textColor: 'text-blue-600 dark:text-blue-400',
-          buttonColor: 'bg-pink-100 hover:bg-pink-200 text-pink-800 dark:bg-pink-800 dark:hover:bg-pink-700 dark:text-pink-100'
+          bgColor: 'bg-violet-50 dark:bg-violet-900/20',
+          borderColor: 'border-violet-200 dark:border-violet-800',
+          textColor: 'text-violet-700 dark:text-violet-400',
+          buttonColor: 'bg-purple-600 hover:bg-purple-700 text-white'
         };
       default: // 'ok'
         return {
-          bgColor: 'bg-green-50 dark:bg-green-900/20',
-          borderColor: 'border-green-200 dark:border-green-800',
-          textColor: 'text-green-600 dark:text-green-400',
-          buttonColor: 'bg-green-100 hover:bg-green-200 text-green-800 dark:bg-green-800 dark:hover:bg-green-700 dark:text-green-100'
+          bgColor: 'bg-indigo-50 dark:bg-indigo-900/20',
+          borderColor: 'border-indigo-200 dark:border-indigo-800',
+          textColor: 'text-indigo-700 dark:text-indigo-400',
+          buttonColor: 'bg-indigo-600 hover:bg-indigo-700 text-white'
         };
     }
   };
@@ -62,7 +62,7 @@ export const ConsentModeCard: React.FC<ConsentModeCardProps> = ({
       <div className={`${cardStyle.bgColor} ${cardStyle.borderColor} border-2 rounded-xl p-6 shadow-md hover:shadow-lg transition-all duration-200`}>
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
-            <span className="text-2xl">🔒</span>
+            <span className="text-2xl"></span>
             <div>
               <h3 className="text-lg font-semibold text-gray-800 dark:text-white">
                 Consent Mode
@@ -73,13 +73,13 @@ export const ConsentModeCard: React.FC<ConsentModeCardProps> = ({
             </div>
           </div>
           <InfoTooltip content="Nessun tag marketing è stato rilevato nel container. Il Consent Mode non è necessario per questo container.">
-            <span className="text-gray-400 hover:text-gray-600 cursor-help">ℹ️</span>
+            <span className="text-gray-400 hover:text-gray-600 cursor-help"></span>
           </InfoTooltip>
         </div>
         
         <div className="text-center py-4">
           <p className="text-sm text-gray-600 dark:text-gray-400">
-            ✅ Nessun controllo necessario
+            Nessun controllo necessario
           </p>
         </div>
       </div>
@@ -93,7 +93,6 @@ export const ConsentModeCard: React.FC<ConsentModeCardProps> = ({
       {/* Header con icona e titolo */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
-          <span className="text-2xl">{metricInfo.icon}</span>
           <div>
             <h3 className="text-lg font-semibold text-gray-800 dark:text-white">
               {message.title}
@@ -122,21 +121,19 @@ export const ConsentModeCard: React.FC<ConsentModeCardProps> = ({
         </div>
         
         <div className="text-center">
-          <div className="text-2xl font-bold text-green-600 dark:text-green-400">
+          <div className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">
             {consent_coverage.ok}
           </div>
           <div className="text-xs text-gray-600 dark:text-gray-400 flex items-center justify-center gap-1">
-            <span>✅</span>
             <span>Configurati</span>
           </div>
         </div>
         
         <div className="text-center">
-          <div className="text-2xl font-bold text-red-600 dark:text-red-400">
+          <div className="text-2xl font-bold text-fuchsia-600 dark:text-fuchsia-400">
             {totalIssues}
           </div>
           <div className="text-xs text-gray-600 dark:text-gray-400 flex items-center justify-center gap-1">
-            <span>⚠️</span>
             <span>Con problemi</span>
           </div>
         </div>
@@ -198,7 +195,7 @@ export const ConsentModeCard: React.FC<ConsentModeCardProps> = ({
       {/* Indicatore espansione */}
       <div className="flex justify-center mt-2">
         <span className="text-xs text-gray-500 dark:text-gray-400">
-          {isExpanded ? '🔼 Clicca per comprimere' : '🔽 Clicca per espandere'}
+          {isExpanded ? 'Clicca per comprimere' : 'Clicca per espandere'}
         </span>
       </div>
       
