@@ -23,6 +23,14 @@ function truncate(text: string, max = MAX_HTML_CHARS): string {
   return `${text.substring(0, max)}\n<!-- truncated ${text.length - max} chars -->`;
 }
 
+function truncatePlain(text: string, max = 4000, maxLines = 80): string {
+  if (!text) return '';
+  const lines = text.split('\n').slice(0, maxLines);
+  const joined = lines.join('\n');
+  if (joined.length <= max) return joined;
+  return `${joined.substring(0, max)} …`;
+}
+
 function textSnippet(html: string, maxLength = 400): string {
   const stripped = html
     .replace(/\s+/g, ' ')
@@ -294,12 +302,13 @@ ${previousNotes ? `PREVIOUS ATTEMPTS:\n${previousNotes}` : ''}`;
     pageUrl: string;
     html: string;
     languageHints?: string[];
+    interactiveSummary?: string;
   }): Promise<{
     bannerSelector: string | null;
     acceptSelector: string | null;
     rejectSelector: string | null;
   } | null> {
-    const { pageUrl, html, languageHints = [] } = options;
+    const { pageUrl, html, languageHints = [], interactiveSummary } = options;
     if (!html || !html.trim()) {
       return null;
     }
@@ -321,9 +330,14 @@ You receive the rendered HTML of a page at first load and must identify the cook
 
     const hints = languageHints.length > 0 ? languageHints.join(', ') : 'auto-detect';
 
+    const interactiveBlock = interactiveSummary && interactiveSummary.trim()
+      ? `\nINTERACTIVE ELEMENTS SNAPSHOT (within potential banner):\n${truncatePlain(interactiveSummary.trim())}\n`
+      : '';
+
     const userPrompt = `PAGE URL: ${pageUrl}
 LANGUAGE HINTS: ${hints}
 HTML SNIPPET (trimmed):\n${cleanedHtml}
+${interactiveBlock}
 
 Return JSON with keys "banner_selector", "accept_selector", "reject_selector". Use null when unsure.`;
 

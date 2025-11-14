@@ -178,7 +178,82 @@ async function detectBannerWithLLM(page: Page, llmService?: ConsentLLMService): 
 
   try {
     console.log('🤖 Tentativo rilevamento banner via LLM per:', page.url());
-    const html = await page.content();
+    const [candidateHtmlSnippets, interactiveSummary] = await Promise.all([
+      page.evaluate(() => {
+        const selectors = [
+          '[id*="cookie" i]',
+          '[class*="cookie" i]',
+          '[id*="consent" i]',
+          '[class*="consent" i]',
+          '[id*="privacy" i]',
+          '[class*="privacy" i]',
+          '[id*="banner" i]',
+          '[class*="banner" i]',
+          '[role="dialog"]',
+        ];
+        const keywords = /cookie|consent|privacy|gdpr|banner/i;
+        const results: string[] = [];
+        const seen = new Set<Element>();
+        const LIMIT = 6;
+
+        const pushIfRelevant = (el: Element) => {
+          if (results.length >= LIMIT || seen.has(el)) return;
+          const text = (el.textContent || '').trim();
+          const attrs = `${el.id || ''} ${el.className || ''}`.toString();
+          if (!keywords.test(text.toLowerCase() || '') && !keywords.test(attrs.toLowerCase())) return;
+          seen.add(el);
+          results.push(el.outerHTML.slice(0, 4000));
+        };
+
+        for (const sel of selectors) {
+          document.querySelectorAll(sel).forEach(pushIfRelevant);
+          if (results.length >= LIMIT) break;
+        }
+        return results;
+      }).catch(() => [] as string[]),
+      page.evaluate(() => {
+        const selectors = ['button', '[role="button"]', 'a', 'input[type="button"]', 'input[type="submit"]'];
+        const nodes = Array.from(document.querySelectorAll(selectors.join(',')));
+        const entries: string[] = [];
+        const keywords = /cookie|consent|privacy|gdpr|marketing|statistic|necessary|prefer|reject|accept/i;
+        const limit = 40;
+
+        for (const node of nodes) {
+          const text = (node.textContent || '').replace(/\s+/g, ' ').trim();
+          const nodeClass = ((node as HTMLElement).className || '').toString();
+          const descriptorBase = `${node.id || ''} ${nodeClass}`.toLowerCase();
+          const compound = `${text} ${descriptorBase}`;
+          if (!keywords.test(compound)) continue;
+
+          const tag = node.tagName.toLowerCase();
+          const id = node.id ? `#${node.id}` : '';
+          const classToken = nodeClass
+            ? '.' + nodeClass.trim().replace(/\s+/g, '.')
+            : '';
+          const role = node.getAttribute('role') || '';
+          const aria = node.getAttribute('aria-label') || '';
+          const dataAttrs = Array.from(node.attributes || [])
+            .filter(attr => attr.name.startsWith('data-') && attr.value)
+            .slice(0, 2)
+            .map(attr => `${attr.name}="${attr.value}"`);
+          const href = node.getAttribute('href');
+          const descriptorParts = [`<${tag}>`, id, classToken, role ? `role=${role}` : '', aria ? `aria="${aria}"` : ''];
+          if (href) descriptorParts.push(`href=${href}`);
+          if (dataAttrs.length) descriptorParts.push(`data={${dataAttrs.join(', ')}}`);
+
+          entries.push(
+            `${entries.length + 1}. ${descriptorParts.filter(Boolean).join(' ').trim()} text="${text.slice(0, 120) || '(no text)'}"`
+          );
+          if (entries.length >= limit) break;
+        }
+        return entries.join('\n');
+      }).catch(() => ''),
+    ]);
+
+    const html =
+      candidateHtmlSnippets.length > 0
+        ? candidateHtmlSnippets.join('\n<!-- candidate -->\n')
+        : await page.content();
     const languageHints = await page.evaluate(() => {
       const hints = new Set<string>();
       if (navigator.language) hints.add(navigator.language);
@@ -199,6 +274,7 @@ async function detectBannerWithLLM(page: Page, llmService?: ConsentLLMService): 
       pageUrl: page.url(),
       html,
       languageHints,
+      interactiveSummary: interactiveSummary || undefined,
     });
     
     console.log('🤖 RISPOSTA LLM (banner detection):');

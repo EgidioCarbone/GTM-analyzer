@@ -1,204 +1,6 @@
 {
   "version": 1,
   "modules": {
-    "italgas": {
-      "moduleId": "italgas",
-      "updatedAt": "2025-11-10T10:20:48.282Z",
-      "cmp": {
-        "selector": "#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll",
-        "vendor": "cookiebot",
-        "testUrl": "https://www.italgas.it/",
-        "validatedAt": "2025-11-10T10:20:48.277Z",
-        "lastValidation": {
-          "status": "ACCEPTED",
-          "reasoning": "Il consenso è stato accettato con successo, come indicato dall'evento 'cookie_consent_update' con tutti i valori impostati su 'granted'.",
-          "executedAt": "2025-11-10T10:20:48.277Z",
-          "evidence": [
-            "cookie_consent_update: {ad_storage: 'granted', ad_user_data: 'granted', ad_personalization: 'granted', analytics_storage: 'granted', functionality_storage: 'granted', personalization_storage: 'granted', security_storage: 'granted'}",
-            "gtm.click: consentProcessed: '1'"
-          ],
-          "eventsCaptured": 18,
-          "sampleEvents": [
-            {
-              "event": "initialDelivery",
-              "postMessageData": {
-                "event": "initialDelivery",
-                "info": {
-                  "apiInterface": [
-                    "cueVideoById",
-                    "loadVideoById",
-                    "cueVideoByUrl",
-                    "loadVideoByUrl",
-                    "playVideo",
-                    "pauseVideo",
-                    "stopVideo",
-                    "clearVideo",
-                    "getVideoBytesLoaded",
-                    "getVideoBytesTotal",
-                    "getVideoLoadedFraction",
-                    "getVideoStartBytes",
-                    "cuePlaylist",
-                    "loadPlaylist",
-                    "nextVideo",
-                    "previousVideo",
-                    "playVideoAt",
-                    "setShuffle",
-                    "setLoop",
-                    "getPlaylist",
-                    "getPlaylistIndex",
-                    "getPlaylistId",
-                    "loadModule",
-                    "unloadModule",
-                    "setOption",
-                    "getOption",
-                    "getOptions",
-                    "mute",
-                    "unMute",
-                    "isMuted",
-                    "setVolume",
-                    "getVolume",
-                    "seekTo",
-                    "getPlayerMode",
-                    "getPlayerState",
-                    "getAvailablePlaybackRates",
-                    "getPlaybackQuality",
-                    "setPlaybackQuality",
-                    "getAvailableQualityLevels",
-                    "getCurrentTime",
-                    "getDuration",
-                    "addEventListener",
-                    "removeEventListener",
-                    "getDebugText",
-                    "getVideoData",
-                    "addCueRange",
-                    "removeCueRange",
-                    "setSize",
-                    "getApiInterface",
-                    "destroy",
-                    "mutedAutoplay",
-                    "getVideoEmbedCode",
-                    "getVideoUrl",
-                    "getMediaReferenceTime",
-                    "getSize",
-                    "setFauxFullscreen",
-                    "setCenterCrop",
-                    "logImaAdEvent",
-                    "preloadVideoById",
-                    "wakeUpControls",
-                    "showVideoInfo",
-                    "hideVideoInfo",
-                    "isVideoInfoVisible",
-                    "getPlaybackRate",
-                    "setPlaybackRate",
-                    "getSphericalProperties",
-                    "setSphericalProperties"
-                  ],
-                  "videoBytesLoaded": 0,
-                  "videoBytesTotal": 1,
-                  "videoLoadedFraction": 0,
-                  "videoStartBytes": 0,
-                  "playlist": null,
-                  "playlistIndex": -1,
-                  "playlistId": null,
-                  "option": null,
-                  "options": [],
-                  "muted": false,
-                  "volume": 100,
-                  "playerMode": {},
-                  "playerState": 5,
-                  "availablePlaybackRates": [
-                    0.25,
-                    0.5,
-                    0.75,
-                    1,
-                    1.25,
-                    1.5,
-                    1.75,
-                    2
-                  ],
-                  "playbackQuality": "unknown",
-                  "availableQualityLevels": [],
-                  "currentTime": 0,
-                  "duration": 108,
-                  "debugText": "{\n  \"debug_videoId\": \"R8V5fhzwh6M\",\n  \"debug_playbackQuality\": \"unknown\",\n  \"debug_date\": \"Mon Nov 10 2025 11:20:35 GMT+0100 (Ora standard dell’Europa centrale)\",\n  \"origin\": \"https://www.youtube.com\",\n  \"timestamp\": 1762770035480\n}",
-                  "videoEmbedCode": "<iframe width=\"1425\" height=\"612\" src=\"https://www.youtube.com/embed/R8V5fhzwh6M\" title=\"Shaping a new energy\" frameborder=\"0\" allow=\"accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share\" referrerpolicy=\"strict-origin-when-cross-origin\" allowfullscreen></iframe>",
-                  "videoUrl": "https://www.youtube.com/watch?v=R8V5fhzwh6M",
-                  "mediaReferenceTime": 0,
-                  "size": {
-                    "width": 1425,
-                    "height": 612
-                  },
-                  "videoInfoVisible": false,
-                  "playbackRate": 1,
-                  "sphericalProperties": {},
-                  "videoData": {
-                    "video_id": "R8V5fhzwh6M",
-                    "author": "",
-                    "title": "Shaping a new energy",
-                    "isPlayable": true,
-                    "errorCode": null,
-                    "backgroundable": false,
-                    "cpn": "1lkt86vegerGyW8A",
-                    "isLive": false,
-                    "isWindowedLive": false,
-                    "isManifestless": false,
-                    "allowLiveDvr": false,
-                    "isListed": false,
-                    "isMultiChannelAudio": false,
-                    "hasProgressBarBoundaries": false,
-                    "isPremiere": false,
-                    "itct": "CAAQru4BIhMIq_aHjq7nkAMVUV96BR0UwwLI",
-                    "playerResponseCpn": "",
-                    "progressBarStartPositionUtcTimeMillis": null,
-                    "progressBarEndPositionUtcTimeMillis": null,
-                    "paidContentOverlayDurationMs": 0
-                  },
-                  "currentTimeLastUpdated_": 1762770035.481
-                },
-                "channel": "widget",
-                "id": 1
-              }
-            },
-            {
-              "event": "onReady",
-              "postMessageData": {
-                "event": "onReady",
-                "info": null,
-                "channel": "widget",
-                "id": 1
-              }
-            },
-            {
-              "event": "alreadyInitialized",
-              "postMessageData": {
-                "event": "alreadyInitialized",
-                "info": null,
-                "channel": "widget",
-                "id": 3
-              }
-            },
-            {
-              "event": "alreadyInitialized",
-              "postMessageData": {
-                "event": "alreadyInitialized",
-                "info": null,
-                "channel": "widget",
-                "id": 1
-              }
-            },
-            {
-              "event": "alreadyInitialized",
-              "postMessageData": {
-                "event": "alreadyInitialized",
-                "info": null,
-                "channel": "widget",
-                "id": 3
-              }
-            }
-          ]
-        }
-      }
-    },
     "actalis": {
       "moduleId": "actalis",
       "updatedAt": "2025-11-11T15:41:47.640Z",
@@ -233,6 +35,75 @@
             },
             {
               "event": "cookie_consent_marketing"
+            }
+          ]
+        }
+      }
+    },
+    "httpswwwitalgasit": {
+      "moduleId": "httpswwwitalgasit",
+      "updatedAt": "2025-11-14T10:51:13.411Z",
+      "cmp": {
+        "selector": "#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll",
+        "vendor": "cookiebot",
+        "testUrl": "https://www.italgas.it/",
+        "validatedAt": "2025-11-14T10:51:13.409Z",
+        "lastValidation": {
+          "status": "ACCEPTED",
+          "reasoning": "Il consenso è stato accettato con successo, come indicato dall'evento 'cookie_consent_update' con tutti i valori impostati su 'granted'. Inoltre, il click sul pulsante di accettazione è stato registrato.",
+          "executedAt": "2025-11-14T10:51:13.409Z",
+          "evidence": [
+            "cookie_consent_update: {ad_storage: 'granted', ad_user_data: 'granted', ad_personalization: 'granted', analytics_storage: 'granted', functionality_storage: 'granted', personalization_storage: 'granted', security_storage: 'granted'}",
+            "gtm.click: {gtm.elementId: 'CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll'}"
+          ],
+          "eventsCaptured": 19,
+          "sampleEvents": [
+            {
+              "event": "onReady",
+              "postMessageData": {
+                "event": "onReady",
+                "info": null,
+                "channel": "widget",
+                "id": 3
+              }
+            },
+            {
+              "event": "alreadyInitialized",
+              "postMessageData": {
+                "event": "alreadyInitialized",
+                "info": null,
+                "channel": "widget",
+                "id": 1
+              }
+            },
+            {
+              "event": "alreadyInitialized",
+              "postMessageData": {
+                "event": "alreadyInitialized",
+                "info": null,
+                "channel": "widget",
+                "id": 1
+              }
+            },
+            {
+              "event": "alreadyInitialized",
+              "postMessageData": {
+                "event": "alreadyInitialized",
+                "info": null,
+                "channel": "widget",
+                "id": 3
+              }
+            },
+            {
+              "event": "gtm.timer",
+              "gtm.timerId": 205,
+              "gtm.timerEventNumber": 1,
+              "gtm.timerInterval": 15000,
+              "gtm.timerLimit": 20,
+              "gtm.timerStartTime": 1763117454063,
+              "gtm.timerCurrentTime": 1763117469065,
+              "gtm.timerElapsedTime": 15002,
+              "gtm.triggers": "31722537_94"
             }
           ]
         }

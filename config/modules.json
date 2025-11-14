@@ -110,15 +110,14 @@
     },
     {
       "meta": {
-        "id": "italgas",
+        "id": "httpswwwitalgasit",
         "title": "ITALGAS",
-        "description": "eventi italgas super!!!",
+        "description": "navigagtion",
         "tags": [
-          "navigation",
-          "click"
+          "navigation"
         ],
-        "accentColor": "#ff5d05",
-        "icon": "Sparkles"
+        "accentColor": "#6366f1",
+        "icon": "ShieldCheck"
       },
       "supportedHosts": [
         "www.italgas.it"
