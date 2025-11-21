@@ -52,7 +52,15 @@ export interface Target {
 }
 
 export interface Expectation {
-  type: "dataLayer" | "ga4" | "gtm" | "network" | "navigation" | "no_repeat_on_reload";
+  type:
+    | "dataLayer"
+    | "ga4"
+    | "gtm"
+    | "network"
+    | "navigation"
+    | "no_repeat_on_reload"
+    | "invisible"
+    | "sleep";
   // For dataLayer:
   event?: string;
   params_subset?: object;             // must be subset of actual payload
@@ -65,6 +73,9 @@ export interface Expectation {
   url_matches?: string;               // regex string or simple "contains"
   // For no_repeat_on_reload:
   for_event?: string;
+  // For invisible / sleep helper expectations:
+  selector?: string;
+  durationMs?: number;
 }
 
 // API Request/Response Types

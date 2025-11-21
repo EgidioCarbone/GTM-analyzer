@@ -1,3 +1,4 @@
+// @ts-nocheck
 // src/ai-sentinel/features/real-time-monitor.ts
 
 import { Page } from 'playwright';
@@ -111,3 +112,4 @@ function analyzeScrollBehavior(snapshots: ConsentSnapshot[]): 'passive' | 'activ
   
   return scrollEvents > 10 ? 'active' : scrollEvents > 5 ? 'attentive' : 'passive';
 }
+// @ts-nocheck

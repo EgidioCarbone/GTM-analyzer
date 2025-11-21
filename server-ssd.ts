@@ -26,9 +26,12 @@ import { SSDPuppeteerRunner, SSDRunnerError, type RunOptions } from './src/servi
 import { normalizeOrigin, isValidUrl } from './src/utils/url.js';
 import { extractCookieBannerWithPuppeteer } from './src/services/cookieBannerExtractor.js';
 import puppeteer from 'puppeteer';
+import type { Browser as PuppeteerBrowser, Page as PuppeteerPage } from 'puppeteer';
 import { runConsentTest, ConsentTestInputSchema, type ConsentRunnerDependencies } from './src/ai-sentinel/pw-runner.js';
 import { ConsentLLMService } from './src/ai-sentinel/llm/consent-llm-service.js';
 import ga4InsightsRouter from './src/services/ga4-insights.server.ts';
+import ga4ChatRouter from './src/services/ga4-chat.server.ts';
+import ga4SearchRouter from './src/services/ga4-search.server.ts';
 import { modelSupportsCustomTemperature } from './src/utils/openaiCapabilities.ts';
 import { SSD_DEFAULTS, getConfigValue, parseArray } from './src/config/ssd-defaults.js';
 import {
@@ -59,6 +62,7 @@ import type {
 } from './src/modules/types.js';
 import type { TestSpec, Step, TestResult, ModuleSource, ScenarioValidationOutcome } from './src/types/ssd.js';
 import { extractExpectedPayloadExpression } from './shared/expectedPayload.ts';
+import { llmPdfSpec } from './src/services/llmPdfSpec.ts';
 
 // Global type declarations
 declare global {
@@ -109,7 +113,7 @@ interface ConsentTestResult {
 // Helper function for sleep
 const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
 
-async function installScenarioDataLayerHook(page: puppeteer.Page, events: Array<{ timestamp: number; payload: any }>): Promise<void> {
+async function installScenarioDataLayerHook(page: PuppeteerPage, events: Array<{ timestamp: number; payload: any }>): Promise<void> {
   await page.exposeFunction('__scenarioCaptureEvent', (event: any) => {
     events.push({
       timestamp: Date.now(),
@@ -862,8 +866,10 @@ app.use('/api/', limiter);
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// GA4 insights API
+// GA4 APIs
 app.use(ga4InsightsRouter);
+app.use(ga4ChatRouter);
+app.use(ga4SearchRouter);
 
 // Static files for artifacts with CORS headers
 app.use('/artifacts', (req, res, next) => {
@@ -1196,10 +1202,10 @@ Please analyze the HTML to generate accurate selectors for the test specificatio
     
     // Log original steps before filtering
     if (parsedSpec.tests && parsedSpec.tests.length > 0) {
-      parsedSpec.tests.forEach((test, testIndex) => {
+      parsedSpec.tests.forEach((test: any, testIndex: number) => {
         console.log(`📋 Test ${testIndex + 1}: ${test.section}`);
         console.log(`📋 Original steps count: ${test.steps?.length || 0}`);
-        test.steps?.forEach((step, stepIndex) => {
+        test.steps?.forEach((step: any, stepIndex: number) => {
           console.log(`  Step ${stepIndex + 1}: ${step.description}`);
         });
       });
@@ -1208,11 +1214,11 @@ Please analyze the HTML to generate accurate selectors for the test specificatio
     console.log('🔍 Applying cookie consent filter...');
     // Filter out cookie consent steps since cookies are already accepted
     if (parsedSpec.tests && parsedSpec.tests.length > 0) {
-      parsedSpec.tests.forEach((test, testIndex) => {
+      parsedSpec.tests.forEach((test: any, testIndex: number) => {
         if (test.steps) {
           const originalStepCount = test.steps.length;
           // Remove steps that are related to cookie acceptance
-          test.steps = test.steps.filter(step => {
+          test.steps = test.steps.filter((step: any) => {
             const description = step.description?.toLowerCase() || '';
             const isCookieStep = description.includes('cookie') || 
                                 description.includes('consent') || 
@@ -1234,9 +1240,9 @@ Please analyze the HTML to generate accurate selectors for the test specificatio
     console.log('🔍 DEBUG: parsedSpec.tests.length:', parsedSpec.tests?.length);
     // Convert text-based selectors to CSS selectors
     if (parsedSpec.tests && parsedSpec.tests.length > 0) {
-      parsedSpec.tests.forEach((test, testIndex) => {
+      parsedSpec.tests.forEach((test: any, testIndex: number) => {
         if (test.steps) {
-          test.steps.forEach((step, stepIndex) => {
+          test.steps.forEach((step: any, stepIndex: number) => {
             if (step.target && step.target.kind === 'text') {
               const textValue = step.target.value;
               console.log(`🔄 Converting text selector "${textValue}" to CSS selector`);
@@ -1282,7 +1288,7 @@ Please analyze the HTML to generate accurate selectors for the test specificatio
         fsSync.rmdirSync(tempDir);
       }
       console.log('✅ Temporary files cleaned up');
-    } catch (cleanupError) {
+    } catch (cleanupError: any) {
       console.log('⚠️ Error cleaning up temporary files:', cleanupError.message);
     }
     
@@ -1462,7 +1468,7 @@ async function executeCookieConsentTestFromDSL(dsl: any, options: any): Promise<
           console.log('New events:', newEvents);
           
           // Check for consent events
-          const consentEvents = newEvents.filter(event => 
+          const consentEvents = newEvents.filter((event: any) => 
             (event.event && event.event.includes('consent')) ||
             (event['0'] === 'consent') ||
             (event['1'] === 'update')
@@ -1950,7 +1956,7 @@ async function resolveHeaderCandidate(page: import('puppeteer').Page, allowedHos
         let node: Element | null = el;
         while (node && node.nodeType === 1 && node !== document.documentElement) {
           const tag = node.tagName.toLowerCase();
-          const parent = node.parentElement;
+          const parent: Element | null = node.parentElement;
           if (!parent) break;
           const currentNode = node; // capture for filter
           const idx = Array.from(parent.children).filter(c => (c as Element).tagName === currentNode.tagName).indexOf(node) + 1;
@@ -2238,7 +2244,7 @@ async function executePdfTests(testSpec: any, options: any, browserInstance: any
 
           try {
           if (step.action === 'navigate') {
-            const targetUrl = step.target?.value || normalized.site || scenarioSpec.site || testSpec.site;
+            const targetUrl = step.target?.value || normalized.site || testSpec.site;
             if (targetUrl) {
               console.log(`🌐 Navigating to ${targetUrl}`);
               await existingPage.goto(targetUrl, { waitUntil: 'networkidle0', timeout: options.navTimeoutMs || options.timeout || 60000 });
@@ -2338,7 +2344,7 @@ async function executePdfTests(testSpec: any, options: any, browserInstance: any
             }
             
             // Get element info before clicking (for debug)
-            const clickedElementInfo = await existingPage.evaluate((sel) => {
+            const clickedElementInfo = await existingPage.evaluate((sel: string) => {
               const el = document.querySelector(sel);
               if (!el) return null;
               return {
@@ -2568,8 +2574,8 @@ async function runScenarioFlow(params: {
 
   const capturedEvents: Array<{ timestamp: number; payload: any }> = [];
   const stepResults: TestResult[] = [];
-  let browser: puppeteer.Browser | null = null;
-  let page: puppeteer.Page | null = null;
+  let browser: PuppeteerBrowser | null = null;
+  let page: PuppeteerPage | null = null;
 
   const stepTimeoutMs = options.timeout ?? SSD_DEFAULTS.timeout.step;
   const navigationTimeoutMs = options.navTimeoutMs ?? SSD_DEFAULTS.timeout.navigation;
@@ -2659,7 +2665,7 @@ async function runScenarioFlow(params: {
           }
           const text = step.target.value;
           await page.waitForFunction(
-            value => document.body && document.body.innerText.includes(value),
+            (value: string) => document.body && document.body.innerText.includes(value),
             { timeout: stepTimeoutMs },
             text
           );
@@ -3144,7 +3150,7 @@ async function executeCookieConsentTest(testSpec: any, page: any) {
           // Get outerHTML of the button if element is found
           if (element) {
             try {
-              (result as any).cookieBtnOuterHTML = await page.$eval(selector, el => el.outerHTML);
+              (result as any).cookieBtnOuterHTML = await page.$eval(selector, (el: any) => el.outerHTML);
               console.log(`Cookie button outerHTML captured: ${(result as any).cookieBtnOuterHTML?.substring(0, 200)}...`);
             } catch (outerHTMLError) {
               console.log(`Warning: Could not capture outerHTML: ${(outerHTMLError as Error).message}`);
@@ -3214,8 +3220,8 @@ async function executeCookieConsentTest(testSpec: any, page: any) {
                       element = elements[0];
                       console.log(`✓ Found element using XPath`);
                     }
-                  } catch (e) {
-                    console.log('XPath search failed:', e.message);
+                  } catch (e: any) {
+                    console.log('XPath search failed:', e instanceof Error ? e.message : String(e));
                   }
                 }
               }
@@ -3262,7 +3268,7 @@ async function executeCookieConsentTest(testSpec: any, page: any) {
                 console.log('No new events detected in dataLayer');
               }
             }
-          } catch (selectorError) {
+          } catch (selectorError: any) {
             stepResult.error = `Selector error: ${selectorError.message}`;
             console.log(`✗ Selector error: ${selectorError.message}`);
           }
@@ -3708,7 +3714,7 @@ function buildDefaultScenarioSteps(
   eventDefinition: ReturnType<typeof getModuleEventDefinition>
 ): ScenarioStep[] {
   if (!eventDefinition) return [];
-  return eventDefinition.steps.map(step => ({
+  return eventDefinition.steps.map((step: any) => ({
     id: step.id,
     type: step.type,
     label: step.label,
@@ -3842,14 +3848,14 @@ function sanitizeTestSpecPlaceholders(spec: TestSpec): TestSpec {
 
       if (sanitizedStep.expect) {
         sanitizedStep.expect = sanitizedStep.expect
-          .map(expectation => {
+          .map((expectation: any) => {
             const sanitizedExpectation: any = { ...expectation };
             if (sanitizedExpectation.params_subset) {
               sanitizedExpectation.params_subset = normalizeManualExpectedPayload(sanitizedExpectation.params_subset);
             }
             return sanitizedExpectation;
           })
-          .filter(expectation => expectation != null);
+          .filter((expectation: any) => expectation != null);
 
         if (sanitizedStep.expect.length === 0) {
           delete sanitizedStep.expect;
@@ -4039,7 +4045,7 @@ function buildManualScenarioTestSpec(moduleId: ModuleId, scenario: ModuleScenari
   return {
     site: scenario.url,
     allowed_hosts: Array.from(allowedHosts),
-    consent: ['accept'],
+    consent: ['accept'] as ('accept' | 'reject')[],
     tests: [
       {
         section: `Evento manuale: ${rawEventName || 'dataLayer'}`,
@@ -4084,7 +4090,7 @@ async function generateScenarioTestSpecForScenario(
         targetUrl: scenario.url,
         cmp: cmpAcceptSelector
           ? {
-              vendor: cmpContext?.vendor ?? null,
+              vendor: cmpContext?.vendor ?? undefined,
               acceptAllSelector: cmpAcceptSelector,
             }
           : undefined,
@@ -4234,7 +4240,7 @@ function mergeScenarioSteps(
     return sanitizeManualSteps(rawSteps);
   }
   const defaults = buildDefaultScenarioSteps(eventDefinition).map(step => {
-    const def = eventDefinition.steps.find(def => def.id === step.id);
+    const def = eventDefinition.steps.find((def: any) => def.id === step.id);
     if (def?.input?.id) {
       const preset = config?.[def.input.id];
       if (typeof preset === 'string') {
@@ -4255,7 +4261,7 @@ function mergeScenarioSteps(
   );
 
   return defaults.map(step => {
-    const def = eventDefinition.steps.find(def => def.id === step.id);
+    const def = eventDefinition.steps.find((def: any) => def.id === step.id);
     const raw = rawMap.get(step.id);
     const selector =
       raw && typeof raw.selector === 'string'
@@ -4300,7 +4306,7 @@ function ensureConfigFromSteps(
 ): Record<string, unknown> {
   if (!eventDefinition) return config;
   const updated = { ...config };
-  eventDefinition.steps.forEach(stepDef => {
+  eventDefinition.steps.forEach((stepDef: any) => {
     if (stepDef.input?.id) {
       const step = steps.find(s => s.id === stepDef.id);
       if (stepDef.input.type === 'selector') {
@@ -4367,7 +4373,7 @@ function ensureRequiredInputs(
 
   const missing: string[] = [];
 
-  (eventDefinition.steps || []).forEach(stepDef => {
+  (eventDefinition.steps || []).forEach((stepDef: any) => {
     if (!stepDef.input?.required) return;
     const step = steps.find(s => s.id === stepDef.id);
     const value = step?.selector ?? step?.value;
@@ -4637,7 +4643,7 @@ app.post('/api/modules/:moduleId/cmp/validate', async (req, res) => {
     const cmpSpec: TestSpec = {
       site: testUrl,
       allowed_hosts: [host],
-      consent: ['accept'],
+      consent: ['accept'] as ('accept' | 'reject')[],
       tests: [
         {
           section: 'cmp-validation',
@@ -4725,7 +4731,7 @@ app.post('/api/modules/:moduleId/cmp/validate', async (req, res) => {
         executedAt: new Date().toISOString(),
         evidence: evaluation.evidence,
         eventsCaptured: capturedEvents.length,
-        sampleEvents: capturedEvents.slice(-5).map(event => event.payload),
+        sampleEvents: capturedEvents.slice(-5).map((event: any) => event.payload),
       },
     };
 
@@ -5039,8 +5045,8 @@ app.get('/api/fetchHtml', async (req, res) => {
     // ✅ Cache lato edge (5 minuti)
     res.setHeader('Cache-Control', 's-maxage=300');
     return res.status(200).send(html);
-  } catch (err) {
-    const httpError = toHttpError(err instanceof Error ? err : new Error(err.message || 'Unknown error'));
+  } catch (err: any) {
+    const httpError = toHttpError(err instanceof Error ? err : new Error(err?.message || 'Unknown error'));
     return res.status(httpError.httpStatus).json({ error: { code: httpError.code, message: httpError.message, details: httpError.details } });
   }
 });
@@ -6100,7 +6106,7 @@ app.post('/api/consent/audit-pw', async (req, res) => {
       });
     }
     
-    const scenarios = customScenarios?.filter(scenario => {
+    const scenarios = customScenarios?.filter((scenario: any) => {
       const isValid = typeof scenario === 'object' && scenario !== null && !Array.isArray(scenario) && scenario.hasOwnProperty('custom');
       if (isValid) {
         console.log(`[${correlationId}] Valid custom scenario found:`, scenario);
@@ -6136,7 +6142,7 @@ app.post('/api/consent/audit-pw', async (req, res) => {
 
 
 // Error handling middleware
-app.use((error, req, res, next) => {
+app.use((error: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
   console.error('Server Error:', error);
   const httpError = toHttpError(error instanceof Error ? error : new Error('Unknown error'));
   res.status(httpError.httpStatus).json({ error: { code: httpError.code, message: httpError.message, details: httpError.details } });
@@ -6153,7 +6159,7 @@ app.options('/api/screenshot/*', (req, res) => {
 
 // Serve screenshot images
 app.get('/api/screenshot/*', (req, res) => {
-  const imagePath = req.params[0];
+  const imagePath = (req as any).params[0];
   console.log('📸 Screenshot request:', imagePath);
   
   const fullPath = path.join(process.cwd(), imagePath);

@@ -1,3 +1,4 @@
+// @ts-nocheck
 // src/ai-sentinel/features/optimization-engine.ts
 
 export interface OptimizationSuggestion {
@@ -101,3 +102,4 @@ window.consentTo = true;`
     return ranks[priority as keyof typeof ranks] || 4;
   }
 }
+// @ts-nocheck

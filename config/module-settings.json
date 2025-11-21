@@ -40,28 +40,28 @@
         }
       }
     },
-    "httpswwwitalgasit": {
-      "moduleId": "httpswwwitalgasit",
-      "updatedAt": "2025-11-14T10:51:13.411Z",
+    "italgas": {
+      "moduleId": "italgas",
+      "updatedAt": "2025-11-21T14:15:49.540Z",
       "cmp": {
         "selector": "#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll",
         "vendor": "cookiebot",
         "testUrl": "https://www.italgas.it/",
-        "validatedAt": "2025-11-14T10:51:13.409Z",
+        "validatedAt": "2025-11-21T14:15:49.536Z",
         "lastValidation": {
           "status": "ACCEPTED",
-          "reasoning": "Il consenso è stato accettato con successo, come indicato dall'evento 'cookie_consent_update' con tutti i valori impostati su 'granted'. Inoltre, il click sul pulsante di accettazione è stato registrato.",
-          "executedAt": "2025-11-14T10:51:13.409Z",
+          "reasoning": "Il consenso è stato accettato con successo, come indicato dall'evento 'consent update' con tutti i valori impostati su 'granted'. Inoltre, l'evento 'cookie_consent_update' conferma l'accettazione del consenso.",
+          "executedAt": "2025-11-21T14:15:49.536Z",
           "evidence": [
-            "cookie_consent_update: {ad_storage: 'granted', ad_user_data: 'granted', ad_personalization: 'granted', analytics_storage: 'granted', functionality_storage: 'granted', personalization_storage: 'granted', security_storage: 'granted'}",
-            "gtm.click: {gtm.elementId: 'CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll'}"
+            "consent update: {ad_storage: 'granted', ad_user_data: 'granted', ad_personalization: 'granted', analytics_storage: 'granted', functionality_storage: 'granted', personalization_storage: 'granted', security_storage: 'granted'}",
+            "cookie_consent_update"
           ],
-          "eventsCaptured": 19,
+          "eventsCaptured": 24,
           "sampleEvents": [
             {
-              "event": "onReady",
+              "event": "alreadyInitialized",
               "postMessageData": {
-                "event": "onReady",
+                "event": "alreadyInitialized",
                 "info": null,
                 "channel": "widget",
                 "id": 3
@@ -82,6 +82,15 @@
                 "event": "alreadyInitialized",
                 "info": null,
                 "channel": "widget",
+                "id": 3
+              }
+            },
+            {
+              "event": "alreadyInitialized",
+              "postMessageData": {
+                "event": "alreadyInitialized",
+                "info": null,
+                "channel": "widget",
                 "id": 1
               }
             },
@@ -93,17 +102,6 @@
                 "channel": "widget",
                 "id": 3
               }
-            },
-            {
-              "event": "gtm.timer",
-              "gtm.timerId": 205,
-              "gtm.timerEventNumber": 1,
-              "gtm.timerInterval": 15000,
-              "gtm.timerLimit": 20,
-              "gtm.timerStartTime": 1763117454063,
-              "gtm.timerCurrentTime": 1763117469065,
-              "gtm.timerElapsedTime": 15002,
-              "gtm.triggers": "31722537_94"
             }
           ]
         }

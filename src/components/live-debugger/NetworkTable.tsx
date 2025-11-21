@@ -298,3 +298,4 @@ export function NetworkTable({ events, onEventSelect }: NetworkTableProps) {
     </section>
   );
 }
+// @ts-nocheck

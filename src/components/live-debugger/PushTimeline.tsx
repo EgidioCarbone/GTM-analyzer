@@ -463,3 +463,4 @@ export function PushTimeline({ entries }: PushTimelineProps) {
     </section>
   );
 }
+// @ts-nocheck

@@ -102,118 +102,116 @@ export default function ResultsStep({
                 key={index}
                 className={`border rounded-lg p-4 ${cardClasses}`}
               >
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center">
-                  <IconComponent className={`w-5 h-5 mr-2 ${isPass ? 'text-green-600' : isBlocked ? 'text-amber-600' : 'text-red-600'}`} />
-                  <span className="font-medium">{result.section}</span>
-                  <Badge
-                    variant={badgeVariant}
-                    className="ml-2"
-                  >
-                    {result.status}
-                  </Badge>
-                </div>
-                <span className="text-sm text-gray-600">
-                  {result.timings?.duration || 0}ms
-                </span>
-              </div>
-              
-              {result.description && (
-                <p className="text-sm text-gray-700 mb-2">{result.description}</p>
-              )}
-              
-              {result.reasons && result.reasons.length > 0 && (
-                <div className="text-sm text-red-700">
-                  <p className="font-medium">Reasons:</p>
-                  <ul className="list-disc list-inside">
-                    {result.reasons.map((reason, reasonIndex) => (
-                      <li key={reasonIndex}>{reason}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {/* Evidence */}
-              <div className="mt-3 space-y-3">
-                {result.evidence?.dataLayerEvents?.length ? (
-                  <div>
-                    <p className="text-sm font-medium text-gray-700">DataLayer Events:</p>
-                    <div className="bg-gray-100 rounded p-3 text-xs font-mono max-h-32 overflow-y-auto">
-                      {result.evidence.dataLayerEvents.map((event, eventIndex) => (
-                        <div key={eventIndex} className="mb-2 p-2 bg-white rounded border">
-                          <div className="text-blue-600 font-semibold">
-                            {event.payload?.event || 'Unknown Event'}
-                          </div>
-                          <div className="text-gray-600 mt-1">
-                            {new Date(event.timestamp).toLocaleTimeString()}
-                          </div>
-                          <div className="text-gray-800 mt-1">
-                            {JSON.stringify(event.payload, null, 2)}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center">
+                    <IconComponent className={`w-5 h-5 mr-2 ${isPass ? 'text-green-600' : isBlocked ? 'text-amber-600' : 'text-red-600'}`} />
+                    <span className="font-medium">{result.section}</span>
+                    <Badge variant={badgeVariant} className="ml-2">
+                      {result.status}
+                    </Badge>
                   </div>
-                ) : null}
-                
-                {result.evidence?.trackingHits?.length ? (
-                  <div>
-                    <p className="text-sm font-medium text-gray-700">Tracking Hits:</p>
-                    <div className="bg-gray-100 rounded p-3 text-xs font-mono max-h-32 overflow-y-auto">
-                      {result.evidence.trackingHits.map((hit, hitIndex) => (
-                        <div key={hitIndex} className="mb-2 p-2 bg-white rounded border">
-                          <div className="flex items-center justify-between">
-                            <span className="text-green-600 font-semibold">{hit.domain}</span>
-                            <span className="text-gray-500">{hit.method}</span>
-                          </div>
-                          <div className="text-gray-600 mt-1">
-                            {new Date(hit.timestamp).toLocaleTimeString()}
-                          </div>
-                          <div className="text-gray-800 mt-1 truncate">
-                            {hit.url}
-                          </div>
-                          {hit.status && (
-                            <div className={`text-xs mt-1 ${
-                              hit.status >= 200 && hit.status < 300 ? 'text-green-600' : 'text-red-600'
-                            }`}>
-                              Status: {hit.status}
+                  <span className="text-sm text-gray-600">
+                    {result.timings?.duration || 0}ms
+                  </span>
+                </div>
+
+                {result.description && (
+                  <p className="text-sm text-gray-700 mb-2">{result.description}</p>
+                )}
+
+                {result.reasons && result.reasons.length > 0 && (
+                  <div className="text-sm text-red-700">
+                    <p className="font-medium">Reasons:</p>
+                    <ul className="list-disc list-inside">
+                      {result.reasons.map((reason, reasonIndex) => (
+                        <li key={reasonIndex}>{reason}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* Evidence */}
+                <div className="mt-3 space-y-3">
+                  {result.evidence?.dataLayerEvents?.length ? (
+                    <div>
+                      <p className="text-sm font-medium text-gray-700">DataLayer Events:</p>
+                      <div className="bg-gray-100 rounded p-3 text-xs font-mono max-h-32 overflow-y-auto">
+                        {result.evidence.dataLayerEvents.map((event, eventIndex) => (
+                          <div key={eventIndex} className="mb-2 p-2 bg-white rounded border">
+                            <div className="text-blue-600 font-semibold">
+                              {event.payload?.event || 'Unknown Event'}
                             </div>
-                          )}
-                        </div>
-                      ))}
+                            <div className="text-gray-600 mt-1">
+                              {new Date(event.timestamp).toLocaleTimeString()}
+                            </div>
+                            <div className="text-gray-800 mt-1">
+                              {JSON.stringify(event.payload, null, 2)}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                ) : null}
+                  ) : null}
 
-                {result.evidence?.screenshotPathOrB64 && (
-                  <div>
-                    <p className="text-sm font-medium text-gray-700">Screenshot:</p>
-                    <div className="mt-2">
-                      <img
-                        src={`data:image/png;base64,${result.evidence?.screenshotPathOrB64}`}
-                        alt={`Screenshot for ${result.section} step ${result.stepIndex}`}
-                        className="max-w-full h-auto rounded border shadow-sm cursor-pointer hover:shadow-md transition-shadow"
-                        onClick={() => {
-                          // Open screenshot in new tab
-                          const newWindow = window.open();
-                          if (newWindow) {
-                            newWindow.document.write(`
-                              <html>
-                                <head><title>Screenshot - ${result.section} Step ${result.stepIndex}</title></head>
-                                <body style="margin:0; padding:20px; background:#f5f5f5;">
-                                  <img src="data:image/png;base64,${result.evidence?.screenshotPathOrB64}" 
-                                       style="max-width:100%; height:auto; border-radius:8px; box-shadow:0 4px 8px rgba(0,0,0,0.1);" />
-                                </body>
-                              </html>
-                            `);
-                          }
-                        }}
-                      />
+                  {result.evidence?.trackingHits?.length ? (
+                    <div>
+                      <p className="text-sm font-medium text-gray-700">Tracking Hits:</p>
+                      <div className="bg-gray-100 rounded p-3 text-xs font-mono max-h-32 overflow-y-auto">
+                        {result.evidence.trackingHits.map((hit, hitIndex) => (
+                          <div key={hitIndex} className="mb-2 p-2 bg-white rounded border">
+                            <div className="flex items-center justify-between">
+                              <span className="text-green-600 font-semibold">{hit.domain}</span>
+                              <span className="text-gray-500">{hit.method}</span>
+                            </div>
+                            <div className="text-gray-600 mt-1">
+                              {new Date(hit.timestamp).toLocaleTimeString()}
+                            </div>
+                            <div className="text-gray-800 mt-1 truncate">
+                              {hit.url}
+                            </div>
+                            {hit.status && (
+                              <div
+                                className={`text-xs mt-1 ${
+                                  hit.status >= 200 && hit.status < 300 ? 'text-green-600' : 'text-red-600'
+                                }`}
+                              >
+                                Status: {hit.status}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                ) : null}
+                  ) : null}
+
+                  {result.evidence?.screenshotPathOrB64 && (
+                    <div>
+                      <p className="text-sm font-medium text-gray-700">Screenshot:</p>
+                      <div className="mt-2">
+                        <img
+                          src={`data:image/png;base64,${result.evidence?.screenshotPathOrB64}`}
+                          alt={`Screenshot for ${result.section} step ${result.stepIndex}`}
+                          className="max-w-full h-auto rounded border shadow-sm cursor-pointer hover:shadow-md transition-shadow"
+                          onClick={() => {
+                            const newWindow = window.open();
+                            if (newWindow) {
+                              newWindow.document.write(`
+                                <html>
+                                  <head><title>Screenshot - ${result.section} Step ${result.stepIndex}</title></head>
+                                  <body style="margin:0; padding:20px; background:#f5f5f5;">
+                                    <img src="data:image/png;base64,${result.evidence?.screenshotPathOrB64}" 
+                                         style="max-width:100%; height:auto; border-radius:8px; box-shadow:0 4px 8px rgba(0,0,0,0.1);" />
+                                  </body>
+                                </html>
+                              `);
+                            }
+                          }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
             );
           })}
         </div>

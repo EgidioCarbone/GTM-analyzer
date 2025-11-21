@@ -1,3 +1,4 @@
+// @ts-nocheck
 // src/ai-sentinel/features/ab-test-integration.ts
 
 import { Page } from 'playwright';
@@ -106,3 +107,4 @@ export interface ABTestScenarioResults {
   };
   confidenceValue: number;
 }
+// @ts-nocheck

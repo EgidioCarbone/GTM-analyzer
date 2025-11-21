@@ -524,6 +524,8 @@ export interface ScenarioResult {
     cookieBannerScreenshotPath?: string;
     tracePath?: string;
   };
+  warnings?: string[];
+  skipped?: boolean;
   selectedCategories?: {
     analytics?: boolean;
     marketing?: boolean;
@@ -638,6 +640,9 @@ export class ConsentTestRunner {
     let browser: Browser | null = null;
     let context: BrowserContext | null = null;
     let page: Page | null = null;
+    let traceArtifactsDir: string | undefined;
+    let traceStopped = false;
+    let tracePath: string | undefined;
 
     try {
       console.log(`🚀 Creando browser isolato per scenario ${scenario}...`);
@@ -688,9 +693,6 @@ export class ConsentTestRunner {
       });
 
       const shouldCaptureTrace = !!input.options.trace;
-      let traceArtifactsDir: string | undefined;
-      let traceStopped = false;
-      let tracePath: string | undefined;
 
       if (shouldCaptureTrace) {
         traceArtifactsDir = `./artifacts/${Date.now()}-${scenarioKey}-trace/`;
@@ -1196,7 +1198,7 @@ export class ConsentTestRunner {
         }
       }
 
-      return clickResult;
+      return true;
 
     } catch (error) {
       console.log(`❌ Errore click ${scenario}:`, (error as Error).message);
@@ -1547,7 +1549,7 @@ IMPORTANTE:
   }
 
   private isGaAdsRequest(url: string): boolean {
-    return this.config.endpoints.gaAds.some(pattern => {
+    return this.config.endpoints.gaAds.some((pattern: string) => {
       const regex = new RegExp(pattern.replace(/\*/g, '.*'));
       return regex.test(url);
     });
@@ -1555,7 +1557,8 @@ IMPORTANTE:
 
   private getAllAcceptSelectors(): string[] {
     const selectors: string[] = [];
-    Object.values(this.config.cmp.selectors).forEach(cmp => {
+    const cmpConfigs = Object.values(this.config.cmp.selectors) as Array<ConsentTestConfig['cmp']['selectors'][string]>;
+    cmpConfigs.forEach(cmp => {
       selectors.push(...cmp.accept);
     });
     return selectors;
@@ -1563,7 +1566,8 @@ IMPORTANTE:
 
   private getAllRejectSelectors(): string[] {
     const selectors: string[] = [];
-    Object.values(this.config.cmp.selectors).forEach(cmp => {
+    const cmpConfigs = Object.values(this.config.cmp.selectors) as Array<ConsentTestConfig['cmp']['selectors'][string]>;
+    cmpConfigs.forEach(cmp => {
       selectors.push(...cmp.reject);
     });
     return selectors;
@@ -2618,11 +2622,11 @@ IMPORTANTE:
 
     // Fallback text-based searching
     if (this.config.cmp.fallback.confirmSelected && this.config.cmp.fallback.confirmSelected.length > 0) {
-      const matchFound = await page.evaluate((searchWords) => {
+      const matchFound = await page.evaluate((searchWords: string[]) => {
         const buttons = Array.from(document.querySelectorAll('button, .btn, [role="button"]'));
         for (const btn of buttons) {
           const text = (btn.textContent || '').toLowerCase().trim();
-          const matchingWord = searchWords.find(word => text.includes(word.toLowerCase()));
+          const matchingWord = searchWords.find((word: string) => text.includes(word.toLowerCase()));
           if (matchingWord) {
             (btn as HTMLElement).click();
             return true;

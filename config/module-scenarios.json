@@ -271,17 +271,17 @@
         "updatedAt": "2025-11-07T16:26:43.764Z"
       }
     ],
-    "httpswwwitalgasit": [
+    "italgas": [
       {
-        "id": "6ea88677-ba86-4eef-8f50-318dd79c558b",
-        "moduleId": "httpswwwitalgasit",
-        "name": "navigation_click",
+        "id": "6a08fe7c-d620-4c47-9419-c3c182f8d417",
+        "moduleId": "italgas",
+        "name": "Navigation_click",
         "eventId": "manual",
         "url": "https://www.italgas.it/",
         "config": {},
         "steps": [
           {
-            "id": "manual_1763117514486_dwgsdv",
+            "id": "manual_1763734581852_9oycru",
             "type": "click",
             "label": "Step 1",
             "selector": ".header__sidebarButton.t-label-sidebar-menu.j-openSecondMenu.j-sidebarFirstFocus",
@@ -298,15 +298,15 @@
         "testSpec": {
           "site": "https://www.italgas.it",
           "allowed_hosts": [
-            "www.italgas.it",
-            "italgas.it"
+            "italgas.it",
+            "www.italgas.it"
           ],
           "consent": [
             "accept"
           ],
           "tests": [
             {
-              "section": "navigation",
+              "section": "Navigation",
               "steps": [
                 {
                   "description": "Vai al sito indicato",
@@ -334,7 +334,7 @@
                   "severity": "critical"
                 },
                 {
-                  "description": "Click on the sidebar menu button",
+                  "description": "Click on sidebar menu button",
                   "action": "click",
                   "target": {
                     "region": "header",
@@ -348,16 +348,16 @@
           ]
         },
         "testSpecMeta": {
-          "generatedAt": "2025-11-14T10:52:53.147Z",
+          "generatedAt": "2025-11-21T14:17:07.855Z",
           "model": "gpt-4o-mini-2024-07-18",
           "tokens": {
-            "input": 872,
-            "output": 296
+            "input": 873,
+            "output": 289
           },
           "source": "scenario-llm"
         },
-        "createdAt": "2025-11-14T10:52:53.142Z",
-        "updatedAt": "2025-11-14T10:52:53.142Z"
+        "createdAt": "2025-11-21T14:17:07.849Z",
+        "updatedAt": "2025-11-21T14:17:07.849Z"
       }
     ]
   }

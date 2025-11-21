@@ -6,7 +6,7 @@ export default defineConfig({
   server: {
     proxy: {
       "/api": {
-        target: process.env.VITE_BACKEND_TARGET || "http://localhost:4010",   // <-- PORTA BACKEND
+        target: process.env.VITE_API_BASE || "http://localhost:3001",   // <-- Porta backend allineata a .env (PORT=3001)
         changeOrigin: true,
         // facoltativo ma utile per debug:
         // configure: (proxy) => {

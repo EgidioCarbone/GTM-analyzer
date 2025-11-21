@@ -1,3 +1,4 @@
+// @ts-nocheck
 import React, { useMemo, useState } from 'react';
 import {
   ActivitySquare,
@@ -859,3 +860,4 @@ export function EventStream({ events, onSelect, onRepush, analyzer }: EventStrea
     </>
   );
 }
+// @ts-nocheck

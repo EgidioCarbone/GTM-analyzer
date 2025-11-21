@@ -117,8 +117,19 @@ export const defaultConfig: ConsentTestConfig = {
         }
       },
       cookiebot: {
-        accept: ["#CybotCookiebotDialogBodyButtonAccept", ".CookiebotDialogBodyButtonAccept", "button[id*='accept']"],
-        reject: ["#CybotCookiebotDialogBodyButtonDecline", ".CookiebotDialogBodyButtonDecline", "button[id*='decline']"],
+        accept: [
+          "#CybotCookiebotDialogBodyButtonAccept",
+          ".CookiebotDialogBodyButtonAccept",
+          "button[id*='accept']",
+          "#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll",
+          "#CybotCookiebotDialogBodyButtonAcceptAll",
+        ],
+        reject: [
+          "#CybotCookiebotDialogBodyButtonDecline",
+          ".CookiebotDialogBodyButtonDecline",
+          "button[id*='decline']",
+          "#CybotCookiebotDialogBodyLevelButtonLevelOptinDeclineAll",
+        ],
         personalize: ["#CybotCookiebotDialogBodyButtonDetails", ".CookiebotDialogBodyButtonDetails", "button[id*='details']", "button:has-text('Personalizza')", "button:has-text('Impostazioni')"],
         confirmSelected: ["#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowallSelection", ".allowallselection", "button[id*='allowallselection']", "button:has-text('Accetta selezionati')", "button:has-text('Salva scelte')"],
         toggles: {
