@@ -32,6 +32,11 @@ import { ConsentLLMService } from './src/ai-sentinel/llm/consent-llm-service.js'
 import ga4InsightsRouter from './src/services/ga4-insights.server.ts';
 import ga4ChatRouter from './src/services/ga4-chat.server.ts';
 import ga4SearchRouter from './src/services/ga4-search.server.ts';
+import dashboardsBuildRouter from './src/services/dashboards-build.server.ts';
+import studioIntentRouter from './src/services/studio-intent.server.ts';
+import studioRunRouter from './src/services/studio-run.server.ts';
+import studioMetaRouter from './src/services/studio-meta.server.ts';
+import studioShareRouter from './src/services/studio-share.server.ts';
 import { modelSupportsCustomTemperature } from './src/utils/openaiCapabilities.ts';
 import { SSD_DEFAULTS, getConfigValue, parseArray } from './src/config/ssd-defaults.js';
 import {
@@ -870,6 +875,11 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use(ga4InsightsRouter);
 app.use(ga4ChatRouter);
 app.use(ga4SearchRouter);
+app.use(dashboardsBuildRouter);
+app.use(studioIntentRouter);
+app.use(studioRunRouter);
+app.use(studioShareRouter);
+app.use(studioMetaRouter);
 
 // Static files for artifacts with CORS headers
 app.use('/artifacts', (req, res, next) => {

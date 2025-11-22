@@ -70,7 +70,6 @@ const tools: Tool[] = [
     color: 'cyan',
     features: ['Test automatici', 'Rilevamento CMP', 'Report dettagliati']
   },
-  // 🔹 NUOVA CARD: GA4 Insights
   {
     id: 'ga4-insights',
     title: 'GA4 Insights',
@@ -80,7 +79,15 @@ const tools: Tool[] = [
     color: 'cyan',
     features: ['Utenti, sessioni, pageviews', 'Top canali e pagine', 'Insight generati con IA']
   },
-  // 🔹 CARD: Live Tag Debugger (Coming Soon)
+  {
+    id: 'dashboard-studio',
+    title: 'Dashboard Studio',
+    description: 'Genera e condividi dashboard GA4 a partire da prompt in linguaggio naturale',
+    requiresJson: false,
+    icon: BarChart,
+    color: 'cyan',
+    features: ['Prompt -> grafici automatici', 'KPI, trend e tabelle', 'Link di condivisione in un click']
+  },
   {
     id: 'live-debugger',
     title: 'Live Tag Debugger',
@@ -91,6 +98,7 @@ const tools: Tool[] = [
     features: ['Stream eventi GA4 live', 'Sniffer g/collect & consent', 'PII guard con redazione automatica']
   }
 ];
+
 
 // Componente per le card degli strumenti
 const ToolCard: React.FC<ToolCardProps> = ({ tool, onClick }) => {
@@ -238,7 +246,7 @@ export default function HomePage() {
         navigate('/plan?mode=plan');
       }
     } catch {
-      alert('❌ Il file non sembra un JSON valido GTM.');
+      alert('Il file non sembra un JSON valido GTM.');
     }
   };
 
@@ -264,6 +272,8 @@ export default function HomePage() {
         navigate('/ai-sentinel?mode=ai-sentinel');
       } else if (tool.id === 'ga4-insights') {
         navigate('/ga4-insights');
+      } else if (tool.id === 'dashboard-studio') {
+        navigate('/dashboard-studio/source');
       } else if (tool.id === 'live-debugger') {
         navigate('/live-debugger');
       }
