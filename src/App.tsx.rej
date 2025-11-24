@@ -1,0 +1,14 @@
+diff a/src/App.tsx b/src/App.tsx	(rejected hunks)
+@@ -13,7 +13,11 @@
+ import ConsentTestBPage from "./ai-sentinel/ConsentTestBPage";
+ import { ErrorBoundary } from "./components/ErrorBoundary";
+ import { DashboardErrorBoundary, ContainerManagerErrorBoundary } from "./components/ErrorBoundaries";
+-import GA4Insights from "./pages/GA4Insights"; // ✅ Import della pagina GA4
++import GA4Insights from "./pages/GA4Insights"; 
++import DashboardTemplateBuilder from "./pages/DashboardTemplateBuilder";
++import DashboardStudio from "./pages/DashboardStudio";
++import DashboardSource from "./pages/DashboardSource";
++
+ 
+ export default function App() {
+   const { container } = useContainer();

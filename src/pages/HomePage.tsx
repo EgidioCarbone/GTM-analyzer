@@ -273,7 +273,7 @@ export default function HomePage() {
       } else if (tool.id === 'ga4-insights') {
         navigate('/ga4-insights');
       } else if (tool.id === 'dashboard-studio') {
-        navigate('/dashboard-studio/source');
+        navigate('/dashboard-studio');
       } else if (tool.id === 'live-debugger') {
         navigate('/live-debugger');
       }
@@ -336,9 +336,6 @@ export default function HomePage() {
               transition={{ duration: 0.8, delay: 0.2 }}
               className="mb-6"
             >
-              <div className="w-20 h-20 mx-auto bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center shadow-lg">
-                <Brain className="w-10 h-10 text-white" />
-              </div>
             </motion.div>
             <motion.h2
               initial={{ opacity: 0, y: 20 }}

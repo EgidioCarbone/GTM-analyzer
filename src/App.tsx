@@ -16,7 +16,12 @@ import { DashboardErrorBoundary, ContainerManagerErrorBoundary } from "./compone
 import GA4Insights from "./pages/GA4Insights";
 import DashboardSource from "./pages/DashboardSource";
 import DashboardStudio from "./pages/DashboardStudio";
+import DashboardHome from "./pages/DashboardHome";
 import LiveDebuggerPage from "./pages/LiveDebuggerPage";
+import { Ga4PropertyProvider } from "./context/Ga4PropertyContext";
+import { DashboardStoreProvider } from "./context/DashboardStoreContext";
+import DashboardBuilder from "./pages/DashboardBuilder";
+import DashboardPublic from "./pages/DashboardPublic";
 
 export default function App() {
   const { container } = useContainer();
@@ -38,70 +43,75 @@ export default function App() {
   }, [container, navigate, location.pathname]);
 
   return (
-    <ErrorBoundary>
-      <div
-        className={`min-h-screen font-sans relative overflow-hidden bg-gradient-to-br from-purple-50 via-pink-50 to-white dark:from-gray-900 dark:via-gray-950 dark:to-black transition-all duration-300 ${
-          container ? "pl-64" : ""
-        }`}
-      >
-        {/* Sfondo artistico */}
-        <div className="absolute -top-48 -left-48 w-[600px] h-[600px] bg-purple-400 opacity-30 blur-3xl rounded-full z-0" />
-        <div className="absolute -bottom-48 -right-48 w-[600px] h-[600px] bg-pink-400 opacity-30 blur-3xl rounded-full z-0" />
+    <Ga4PropertyProvider>
+      <DashboardStoreProvider>
+        <ErrorBoundary>
+          <div
+            className={`min-h-screen font-sans relative overflow-hidden bg-gradient-to-br from-purple-50 via-pink-50 to-white dark:from-gray-900 dark:via-gray-950 dark:to-black transition-all duration-300`}
+          >
+            {/* Sfondo artistico */}
+            <div className="absolute -top-48 -left-48 w-[600px] h-[600px] bg-purple-400 opacity-30 blur-3xl rounded-full z-0" />
+            <div className="absolute -bottom-48 -right-48 w-[600px] h-[600px] bg-pink-400 opacity-30 blur-3xl rounded-full z-0" />
 
-        <Toaster position="top-right" />
+            <Toaster position="top-right" />
 
-        {/* Sidebar solo se c'è container */}
-        {container && <Sidebar />}
+            {/* Sidebar off-canvas sempre disponibile */}
+            <Sidebar />
 
-        <main className="space-y-6 transition-colors relative z-10">
-          <Routes>
-            {/* Route iniziale */}
-            <Route path="/" element={<Navigate to="/home" />} />
+            <main className="space-y-6 transition-colors relative z-10">
+              <Routes>
+                {/* Route iniziale */}
+                <Route path="/" element={<Navigate to="/home" />} />
 
-            {/* Pagina iniziale */}
-            <Route path="/home" element={<HomePage />} />
+                {/* Pagina iniziale */}
+                <Route path="/home" element={<HomePage />} />
 
-            {/* Dashboard */}
-            <Route
-              path="/dashboard"
-              element={
-                <DashboardErrorBoundary>
-                  <DashboardPage />
-                </DashboardErrorBoundary>
-              }
-            />
-
-            {/* Route pubbliche */}
-            <Route path="/ssd-test" element={<SSDTestPage />} />
-            <Route path="/ai-sentinel" element={<ConsentTestBPage />} />
-            <Route path="/ga4-insights" element={<GA4Insights />} />
-            <Route path="/ga4" element={<GA4Insights />} />
-            <Route path="/dashboard-studio/source" element={<DashboardSource />} />
-            <Route path="/dashboard-studio" element={<DashboardStudio />} />
-            <Route path="/live-debugger" element={<LiveDebuggerPage />} />
-
-            {/* Route protette */}
-            {container && (
-              <>
+                {/* Dashboard */}
                 <Route
-                  path="/container-manager"
+                  path="/dashboard"
                   element={
-                    <ContainerManagerErrorBoundary>
-                      <ContainerManagerPage />
-                    </ContainerManagerErrorBoundary>
+                    <DashboardErrorBoundary>
+                      <DashboardPage />
+                    </DashboardErrorBoundary>
                   }
                 />
-                <Route path="/plan" element={<PlanPage />} />
-                <Route path="/testing" element={<TestingPage />} />
-                <Route path="/migration" element={<MigrationPage />} />
-              </>
-            )}
 
-            {/* Catch-all */}
-            <Route path="*" element={<Navigate to="/home" />} />
-          </Routes>
-        </main>
-      </div>
-    </ErrorBoundary>
+                {/* Route pubbliche */}
+                <Route path="/ssd-test" element={<SSDTestPage />} />
+                <Route path="/ai-sentinel" element={<ConsentTestBPage />} />
+                <Route path="/ga4-insights" element={<GA4Insights />} />
+                <Route path="/ga4" element={<GA4Insights />} />
+                <Route path="/dashboard-studio/source" element={<DashboardSource />} />
+                <Route path="/dashboard-studio/run" element={<DashboardStudio />} />
+                <Route path="/dashboard-studio" element={<DashboardHome />} />
+                <Route path="/dashboard-builder" element={<DashboardBuilder />} />
+                <Route path="/dashboards/:id/public" element={<DashboardPublic />} />
+                <Route path="/live-debugger" element={<LiveDebuggerPage />} />
+
+                {/* Route protette */}
+                {container && (
+                  <>
+                    <Route
+                      path="/container-manager"
+                      element={
+                        <ContainerManagerErrorBoundary>
+                          <ContainerManagerPage />
+                        </ContainerManagerErrorBoundary>
+                      }
+                    />
+                    <Route path="/plan" element={<PlanPage />} />
+                    <Route path="/testing" element={<TestingPage />} />
+                    <Route path="/migration" element={<MigrationPage />} />
+                  </>
+                )}
+
+                {/* Catch-all */}
+                <Route path="*" element={<Navigate to="/home" />} />
+              </Routes>
+            </main>
+          </div>
+        </ErrorBoundary>
+      </DashboardStoreProvider>
+    </Ga4PropertyProvider>
   );
 }
