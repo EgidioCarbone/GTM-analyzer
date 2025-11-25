@@ -4,18 +4,11 @@ import { toast } from "react-hot-toast";
 import { ArrowRight, Inbox, Wand2 } from "lucide-react";
 import ChartCard, { ChartSpec } from "../components/ChartCard";
 import { useGa4Property } from "../context/Ga4PropertyContext";
+import { useDashboardStore } from "../context/DashboardStoreContext";
 import { StudioFilters, useStudioRunner } from "../hooks/useStudioRunner";
 
 import { AddSourceModal } from "../components/AddSourceModal";
 type Mode = "dashboard" | "source" | "upload";
-type SavedDashboard = {
-  id: string;
-  title: string;
-  description: string;
-  lastRun: string;
-  charts: ChartSpec[];
-};
-
 const defaultFilters: StudioFilters = {
   startDate: (() => {
     const end = new Date();
@@ -31,6 +24,7 @@ const defaultFilters: StudioFilters = {
 export default function DashboardHome() {
   const { propertyId, setPropertyId } = useGa4Property();
   const { runDashboard, loading, error } = useStudioRunner(propertyId);
+  const { dashboards, upsertDashboard } = useDashboardStore();
   const navigate = useNavigate();
 
   const [prompt, setPrompt] = useState("");
@@ -38,7 +32,6 @@ export default function DashboardHome() {
   const [showPropertyPanel, setShowPropertyPanel] = useState(false);
   const [localProperty, setLocalProperty] = useState(propertyId || "");
   const [latestCharts, setLatestCharts] = useState<ChartSpec[] | null>(null);
-  const [dashboards, setDashboards] = useState<SavedDashboard[]>([]);
   const [showAddSourceModal, setShowAddSourceModal] = useState(false);
 
   const suggestions = [
@@ -80,7 +73,16 @@ export default function DashboardHome() {
       }
       const res = await runDashboard({ prompt, filters: computedFilters });
       const id = (crypto as any)?.randomUUID ? (crypto as any).randomUUID() : `dash_${Date.now()}`;
-      toast.success("Dashboard generata");
+      const dashboardDefinition = {
+        id,
+        title: prompt.trim().slice(0, 80) || "Dashboard",
+        charts: res.charts,
+        filters: computedFilters,
+        sourceName: "Demo Site",
+      };
+      upsertDashboard(dashboardDefinition as any);
+      setLatestCharts(res.charts);
+      toast.success("Dashboard generata e salvata");
       navigate("/dashboard-builder", {
         state: {
           prompt,
@@ -208,13 +210,13 @@ export default function DashboardHome() {
               {dashboards.map((d) => (
                 <button
                   key={d.id}
-                  onClick={() => navigate(`/dashboard-studio/run?id=${d.id}`)}
+                  onClick={() => navigate(`/dashboard-builder`, { state: { dashboardId: d.id, charts: d.charts, filters: d.filters, prompt: d.title } })}
                   className="text-left bg-white border border-gray-200 rounded-2xl shadow-sm p-4 hover:border-violet-200 hover:shadow transition"
                 >
                   <div className="text-base font-semibold text-gray-900">{d.title}</div>
-                  <div className="text-sm text-gray-600 mt-1">{d.description}</div>
+                  <div className="text-sm text-gray-600 mt-1">{d.sourceName || "Dashboard"}</div>
                   <div className="text-xs text-gray-500 mt-2">
-                    Ultimo run: {new Date(d.lastRun).toLocaleString()}
+                    Ultimo salvataggio: {d.updatedAt ? new Date(d.updatedAt).toLocaleString() : "—"}
                   </div>
                 </button>
               ))}

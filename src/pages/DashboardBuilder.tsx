@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { ChevronDown, ArrowLeft } from "lucide-react";
-import ChartCard from "../components/ChartCard";
+import { ChevronDown, ArrowLeft, Pencil, Check, Copy, Trash2 } from "lucide-react";
+import ChartCard, { ChartType } from "../components/ChartCard";
 import { useDashboardStore } from "../context/DashboardStoreContext";
 import { useStudioRunner } from "../hooks/useStudioRunner";
 import { useGa4Property } from "../context/Ga4PropertyContext";
@@ -23,10 +23,25 @@ export default function DashboardBuilder() {
   const { runDashboard, loading } = useStudioRunner(propertyId);
   const [selectedChartId, setSelectedChartId] = useState<string | null>(null);
   const [sidebarPrompt, setSidebarPrompt] = useState("");
+  const [chatMessages, setChatMessages] = useState<
+    {
+      id: string;
+      role: "user" | "ai";
+      text: string;
+      chartsLinked?: string[];
+      attachments?: { id: string; name: string }[];
+      createdAt?: string;
+    }[]
+  >([]);
+  const [pendingAttachments, setPendingAttachments] = useState<{ id: string; name: string }[]>([]);
   const runKeyRef = useRef<string | null>(null);
   const [movingChartId, setMovingChartId] = useState<string | null>(null);
   const [fullscreenChartId, setFullscreenChartId] = useState<string | null>(null);
   const [capturedChartId, setCapturedChartId] = useState<string | null>(null);
+  const [isEditingDashTitle, setIsEditingDashTitle] = useState(false);
+  const [dashTitleDraft, setDashTitleDraft] = useState("");
+  const [mode, setMode] = useState<"editing" | "view">("editing");
+  const [showShareModal, setShowShareModal] = useState(false);
   const dash = useMemo(() => dashboards.find((d) => d.id === activeId) || dashboards[0], [dashboards, activeId]);
 
   const gridColsClass = useMemo(() => {
@@ -35,6 +50,10 @@ export default function DashboardBuilder() {
     if (count === 2) return "grid-cols-1 md:grid-cols-2";
     return "grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4";
   }, [dash?.charts?.length]);
+
+  useEffect(() => {
+    if (dash) setDashTitleDraft(dash.title);
+  }, [dash?.title]);
 
   const processedNavRef = useRef<string | null>(null);
   useEffect(() => {
@@ -51,6 +70,15 @@ export default function DashboardBuilder() {
       });
       setActiveDashboard(state.dashboardId);
       setSelectedChartId(state.charts?.[0]?.id ?? null);
+      setDashTitleDraft(state.prompt || "Dashboard");
+      setChatMessages([
+        {
+          id: crypto.randomUUID(),
+          role: "user",
+          text: state.prompt || "Dashboard request",
+          createdAt: new Date().toISOString(),
+        },
+      ]);
     }
   }, [location.state, upsertDashboard, setActiveDashboard]);
 
@@ -80,13 +108,31 @@ export default function DashboardBuilder() {
     }
     if (!dash) return;
     try {
+      const userMsgId = crypto.randomUUID();
+      setChatMessages((prev) => [
+        ...prev,
+        { id: userMsgId, role: "user", text: promptText.trim(), chartsLinked: [], attachments: pendingAttachments },
+      ]);
       const res = await runDashboard({ prompt: promptText, filters });
       const merged = [...dash.charts, ...res.charts];
       upsertDashboard({ ...dash, charts: merged });
       setSelectedChartId(res.charts[0]?.id ?? merged[0]?.id ?? null);
       setSidebarPrompt("");
-      toast.success("Grafico aggiunto");
+      if (pendingAttachments.length) setPendingAttachments([]);
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          id: crypto.randomUUID(),
+          role: "ai",
+          text: res.charts.length ? `Created ${res.charts.length} chart(s)` : "Nessun grafico creato",
+          chartsLinked: res.charts.map((c) => c.id),
+        },
+      ]);
     } catch (e: any) {
+      setChatMessages((prev) => [
+        ...prev,
+        { id: crypto.randomUUID(), role: "ai", text: "Errore durante la generazione", chartsLinked: [] },
+      ]);
       toast.error(e?.message || "Errore durante la generazione");
     }
   }
@@ -110,10 +156,111 @@ export default function DashboardBuilder() {
         prompt={sidebarPrompt}
         onChangePrompt={setSidebarPrompt}
         onSendPrompt={() => handleSendPrompt(sidebarPrompt)}
+        messages={chatMessages}
+        attachments={pendingAttachments}
+        onAddAttachment={(file) => {
+          const att = { id: crypto.randomUUID(), name: file.name };
+          setPendingAttachments((prev) => [...prev, att]);
+        }}
+        onSelectSource={() => setShowShareModal(true)}
       />
 
       <main className="flex-1 overflow-auto p-6 space-y-4">
-        <Breadcrumb title={dash.title} onBack={() => navigate("/dashboard-studio")} sourceName={dash.sourceName} />
+        <div className="flex items-center justify-between">
+          <Breadcrumb
+            title={
+              isEditingDashTitle ? (
+                <input
+                  className="text-lg font-semibold text-gray-900 bg-transparent border-b border-gray-300 focus:outline-none"
+                  value={dashTitleDraft}
+                  onChange={(e) => setDashTitleDraft(e.target.value)}
+                  onBlur={() => {
+                    const next = dashTitleDraft.trim() || dash.title;
+                    upsertDashboard({ ...dash, title: next });
+                    setDashTitleDraft(next);
+                    setIsEditingDashTitle(false);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      const next = dashTitleDraft.trim() || dash.title;
+                      upsertDashboard({ ...dash, title: next });
+                      setDashTitleDraft(next);
+                      setIsEditingDashTitle(false);
+                    }
+                    if (e.key === "Escape") {
+                      setDashTitleDraft(dash.title);
+                      setIsEditingDashTitle(false);
+                    }
+                  }}
+                  autoFocus
+                />
+              ) : (
+                <div className="flex items-center gap-2">
+                  <span className="text-lg font-semibold text-gray-900">{dash.title}</span>
+                  <button
+                    type="button"
+                    className="text-gray-500 hover:text-gray-700 p-1 rounded"
+                    onClick={() => setIsEditingDashTitle(true)}
+                    aria-label="Edit dashboard title"
+                  >
+                    <Pencil className="w-4 h-4" />
+                  </button>
+                </div>
+              )
+            }
+            onBack={() => navigate("/dashboard-studio")}
+            sourceName={dash.sourceName}
+          />
+          <div className="flex items-center gap-2">
+            {isEditingDashTitle && (
+              <button
+                type="button"
+                className="px-3 py-1.5 rounded-lg bg-black text-white text-sm flex items-center gap-2"
+                onClick={() => {
+                  const next = dashTitleDraft.trim() || dash.title;
+                  upsertDashboard({ ...dash, title: next });
+                  setDashTitleDraft(next);
+                  setIsEditingDashTitle(false);
+                }}
+              >
+                <Check className="w-4 h-4" /> Salva
+              </button>
+            )}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="px-4 py-2 rounded-lg border text-sm font-semibold bg-white text-black border-black hover:bg-gray-50"
+                onClick={() => {
+                  const slug = dash.publicSlug || (crypto as any)?.randomUUID?.() || `pub_${Date.now()}`;
+                  upsertDashboard({ ...dash, publicSlug: slug, isPublic: true });
+                  setShowShareModal(true);
+                }}
+              >
+                Pubblica
+              </button>
+              <button
+                type="button"
+                className={`px-4 py-2 rounded-lg border text-sm font-semibold ${
+                  mode === "editing"
+                    ? "bg-black text-white border-black"
+                    : "bg-white text-black border-black hover:bg-gray-50"
+                }`}
+                onClick={() => {
+                  if (mode === "editing") {
+                    upsertDashboard({ ...dash });
+                    setMode("view");
+                  } else {
+                    setMode("editing");
+                  }
+                }}
+                title="Le modifiche vengono salvate e puoi riaprirle da Your projects"
+              >
+                {mode === "editing" ? "Done editing" : "Edit"}
+              </button>
+            </div>
+          </div>
+        </div>
         <FilterBar
           filters={filters}
           onChangeRange={(r) => setFilters({ ...filters, ...r })}
@@ -125,34 +272,40 @@ export default function DashboardBuilder() {
           {dash.charts.map((c) => (
             <ChartPanel
               key={c.id}
-              title={c.title}
+              title={c.customTitle || c.title}
+              defaultTitle={c.title}
               selected={c.id === selectedChartId}
+              moving={movingChartId === c.id}
+              canEdit={mode === "editing"}
               onSelect={() => setSelectedChartId(c.id)}
+              onTitleChange={(next) => {
+                const updated = dash.charts.map((chart) =>
+                  chart.id === c.id ? { ...chart, customTitle: next } : chart
+                );
+                upsertDashboard({ ...dash, charts: updated });
+              }}
             >
               <ChartCard
                 spec={c as any}
-                onTypeChange={(id, next) => {
+                onTypeChange={(id: string, next: ChartType) => {
                   const updated = dash.charts.map((chart) =>
                     chart.id === id ? { ...chart, type: next } : chart
                   );
                   upsertDashboard({ ...dash, charts: updated });
                 }}
-                onTitleChange={(id, title) => {
-                  const updated = dash.charts.map((chart) =>
-                    chart.id === id ? { ...chart, title } : chart
-                  );
-                  upsertDashboard({ ...dash, charts: updated });
-                }}
-                onMove={(id) => setMovingChartId((prev) => (prev === id ? null : id))}
+                onMove={mode === "editing" ? (id) => setMovingChartId((prev) => (prev === id ? null : id)) : undefined}
                 onFullscreen={(id) => setFullscreenChartId(id)}
                 onScreenshot={(id) => {
                   setCapturedChartId(id);
                   setTimeout(() => setCapturedChartId((prev) => (prev === id ? null : prev)), 1200);
                 }}
-                onRemove={(id) =>
-                  upsertDashboard({ ...dash, charts: dash.charts.filter((x) => x.id !== id) })
+                onRemove={
+                  mode === "editing"
+                    ? (id) => upsertDashboard({ ...dash, charts: dash.charts.filter((x) => x.id !== id) })
+                    : undefined
                 }
                 isCaptured={capturedChartId === c.id}
+                canEdit={mode === "editing"}
               />
             </ChartPanel>
           ))}
@@ -169,15 +322,9 @@ export default function DashboardBuilder() {
               <div className="p-4">
                 <ChartCard
                   spec={dash.charts.find((c) => c.id === fullscreenChartId) as any}
-                  onTypeChange={(id, next) => {
+                  onTypeChange={(id: string, next: ChartType) => {
                     const updated = dash.charts.map((chart) =>
                       chart.id === id ? { ...chart, type: next } : chart
-                    );
-                    upsertDashboard({ ...dash, charts: updated });
-                  }}
-                  onTitleChange={(id, title) => {
-                    const updated = dash.charts.map((chart) =>
-                      chart.id === id ? { ...chart, title } : chart
                     );
                     upsertDashboard({ ...dash, charts: updated });
                   }}
@@ -193,11 +340,83 @@ export default function DashboardBuilder() {
         )}
         {loading && <div className="text-sm text-gray-500">Refreshing data…</div>}
       </main>
+
+      {showShareModal && (
+        <div className="fixed inset-0 z-[14000] flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setShowShareModal(false)} />
+          <div className="relative bg-white rounded-2xl shadow-2xl w-[420px] max-w-[90vw] p-5 space-y-4">
+            <div className="space-y-1">
+              <h3 className="text-lg font-semibold text-gray-900">Share this Dashboard</h3>
+              <p className="text-sm text-gray-600">
+                Visitors will only be able to view this dashboard and will not be able to edit or interact with the AI.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <label className="text-xs text-gray-500">Public link</label>
+              <div className="flex items-center gap-2">
+                <input
+                  className="flex-1 border rounded-lg px-3 py-2 text-sm bg-gray-50"
+                  readOnly
+                  value={
+                    typeof window !== "undefined"
+                      ? `${window.location.origin}/dashboards/${dash.publicSlug || dash.id}/public`
+                      : ""
+                  }
+                />
+                <button
+                  type="button"
+                  className="p-2 rounded-lg border bg-white hover:bg-gray-50"
+                  onClick={() => {
+                    const url =
+                      typeof window !== "undefined"
+                        ? `${window.location.origin}/dashboards/${dash.publicSlug || dash.id}/public`
+                        : "";
+                    if (url) navigator.clipboard?.writeText(url);
+                  }}
+                >
+                  <Copy className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+            <div className="text-xs text-gray-500">
+              Created by demo@example.com on {new Date().toLocaleDateString()}
+            </div>
+            <div className="flex justify-between">
+              <button
+                type="button"
+                className="px-3 py-2 rounded-lg text-red-600 border border-red-200 hover:bg-red-50 text-sm flex items-center gap-2"
+                onClick={() => {
+                  upsertDashboard({ ...dash, isPublic: false, publicSlug: undefined });
+                  setShowShareModal(false);
+                }}
+              >
+                <Trash2 className="w-4 h-4" /> Remove Link
+              </button>
+              <button
+                type="button"
+                className="px-3 py-2 rounded-lg bg-black text-white text-sm"
+                onClick={() => setShowShareModal(false)}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-function Breadcrumb({ title, onBack, sourceName }: { title: string; onBack: () => void; sourceName?: string }) {
+type BreadcrumbProps = { title: React.ReactNode; onBack: () => void; sourceName?: string };
+
+function Breadcrumb({ title, onBack, sourceName }: BreadcrumbProps) {
+  const titleContent =
+    typeof title === "string" ? (
+      <span className="font-semibold text-gray-900 truncate">{title}</span>
+    ) : (
+      title
+    );
+
   return (
     <div className="flex items-center gap-2 text-sm text-gray-600">
       <button onClick={onBack} className="flex items-center gap-1 text-gray-700 hover:text-gray-900">
@@ -205,7 +424,7 @@ function Breadcrumb({ title, onBack, sourceName }: { title: string; onBack: () =
         Projects
       </button>
       <span>/</span>
-      <span className="font-semibold text-gray-900">{title}</span>
+      <div className="min-w-0">{titleContent}</div>
       {sourceName && (
         <>
           <span>/</span>
@@ -293,7 +512,6 @@ function FilterBar({
         <ChevronDown className="w-4 h-4" />
       </div>
       <div className="ml-auto flex gap-2">
-        <button className="px-4 py-2 bg-black text-white rounded-lg">Done editing</button>
         <button className="px-4 py-2 border border-black text-black rounded-lg" onClick={onPublish}>
           Pubblica
         </button>
@@ -489,17 +707,45 @@ function getTwoMonths(endDate: Date) {
 
 function ChartPanel({
   title,
+  defaultTitle,
   selected,
   moving,
+  canEdit,
   onSelect,
+  onTitleChange,
   children,
 }: {
   title: string;
+  defaultTitle: string;
   selected: boolean;
   moving?: boolean;
+  canEdit: boolean;
   onSelect: () => void;
+  onTitleChange: (next: string) => void;
   children: React.ReactNode;
 }) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [draft, setDraft] = useState(title);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    setDraft(title);
+  }, [title]);
+
+  useEffect(() => {
+    if (isEditing && canEdit) {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }
+  }, [isEditing, canEdit]);
+
+  const commit = () => {
+    const next = draft.trim() || defaultTitle;
+    onTitleChange(next);
+    setDraft(next);
+    setIsEditing(false);
+  };
+
   return (
     <div
       className={`bg-white rounded-2xl border shadow-sm p-3 ${
@@ -507,7 +753,41 @@ function ChartPanel({
       } ${moving ? "border-dashed border-2 border-indigo-300" : ""}`}
     >
       <div className="flex items-center justify-between mb-2">
-        <div className="font-semibold text-gray-900 truncate">{title}</div>
+        {isEditing && canEdit ? (
+          <input
+            ref={inputRef}
+            className="text-sm font-semibold text-gray-900 bg-transparent border-b border-gray-300 flex-1 outline-none"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commit}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                commit();
+              }
+              if (e.key === "Escape") {
+                setDraft(title);
+                setIsEditing(false);
+              }
+            }}
+          />
+        ) : (
+          <div className="flex items-center gap-2 flex-1 min-w-0">
+            <span className="font-semibold text-gray-900 truncate" title={title}>
+              {title}
+            </span>
+            {canEdit && (
+              <button
+                type="button"
+                className="text-gray-500 hover:text-gray-700 p-1 rounded"
+                onClick={() => setIsEditing(true)}
+                aria-label="Edit chart title"
+              >
+                <Pencil className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+        )}
       </div>
       <div onClick={onSelect}>{children}</div>
     </div>
@@ -522,6 +802,10 @@ function Sidebar({
   prompt,
   onChangePrompt,
   onSendPrompt,
+  messages,
+  attachments,
+  onAddAttachment,
+  onSelectSource,
 }: {
   dashboardTitle: string;
   charts: any[];
@@ -530,30 +814,94 @@ function Sidebar({
   prompt: string;
   onChangePrompt: (v: string) => void;
   onSendPrompt: () => void;
+  messages: Array<{ id: string; role: "user" | "ai"; text: string; chartsLinked?: string[]; attachments?: { id: string; name: string }[] }>;
+  attachments: { id: string; name: string }[];
+  onAddAttachment: (file: File) => void;
+  onSelectSource: () => void;
 }) {
+  const historyRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    historyRef.current?.scrollTo({ top: historyRef.current.scrollHeight, behavior: "smooth" });
+  }, [messages]);
+
   return (
     <aside className="w-80 border-r bg-white flex flex-col">
       <div className="px-3 py-2 font-semibold text-gray-800 border-b truncate">{dashboardTitle}</div>
-      <div className="flex-1 overflow-auto">
-        {charts.map((c) => (
-          <button
-            key={c.id}
-            onClick={() => onSelectChart(c.id)}
-            className={`w-full text-left px-3 py-2 border-b hover:bg-slate-50 ${
-              selectedChartId === c.id ? "bg-slate-100" : ""
-            }`}
-          >
-            {c.title}
-          </button>
-        ))}
+
+      <div className="flex-1 overflow-auto border-b" ref={historyRef}>
+        <div className="divide-y">
+          {messages.map((m) => (
+            <div key={m.id} className="px-3 py-2 text-sm">
+              <div className={`font-medium ${m.role === "user" ? "text-indigo-700" : "text-gray-700"}`}>
+                {m.role === "user" ? "You" : "AI"}
+              </div>
+              <div className="text-gray-800 whitespace-pre-wrap">{m.text}</div>
+              {m.attachments?.length ? (
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {m.attachments.map((a) => (
+                    <span key={a.id} className="text-[11px] px-2 py-1 rounded-full bg-gray-100 text-gray-700">
+                      {a.name}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+              {m.chartsLinked?.length ? (
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {m.chartsLinked.map((cid) => (
+                    <span key={cid} className="text-[11px] px-2 py-1 rounded-full bg-indigo-50 text-indigo-700">
+                      Chart {cid}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ))}
+        </div>
       </div>
-      <div className="p-3 border-t space-y-2">
-        <textarea
-          className="w-full border rounded-lg p-2 text-sm"
-          placeholder="Ask Graphed to see..."
-          value={prompt}
-          onChange={(e) => onChangePrompt(e.target.value)}
-        />
+
+      <div className="p-3 space-y-2">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className="p-2 rounded-lg border bg-white hover:bg-gray-50"
+            aria-label="Select source"
+            onClick={onSelectSource}
+          >
+            🗄️
+          </button>
+          <label className="p-2 rounded-lg border bg-white hover:bg-gray-50 cursor-pointer" aria-label="Attach file">
+            📎
+            <input
+              type="file"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) onAddAttachment(file);
+              }}
+            />
+          </label>
+          <input
+            className="flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+            placeholder="Ask Graphed to see..."
+            value={prompt}
+            onChange={(e) => onChangePrompt(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                onSendPrompt();
+              }
+            }}
+          />
+        </div>
+        {attachments.length > 0 && (
+          <div className="flex flex-wrap gap-1">
+            {attachments.map((a) => (
+              <span key={a.id} className="text-[11px] px-2 py-1 rounded-full bg-green-100 text-green-700">
+                {a.name}
+              </span>
+            ))}
+          </div>
+        )}
         <button
           onClick={onSendPrompt}
           className="w-full bg-indigo-600 text-white rounded-lg py-2 text-sm font-semibold"

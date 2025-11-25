@@ -4,6 +4,7 @@ export type ChartType = "big_number" | "line" | "bar" | "table";
 export type ChartSpec = {
   id: string;
   title: string;
+  customTitle?: string;
   type: ChartType;
   x?: string;
   y?: string;
@@ -14,12 +15,12 @@ export type ChartSpec = {
 type Props = {
   spec: ChartSpec;
   onTypeChange?: (id: string, next: ChartType) => void;
-  onTitleChange?: (id: string, next: string) => void;
   onMove?: (id: string) => void;
   onFullscreen?: (id: string) => void;
   onScreenshot?: (id: string) => void;
   onRemove?: (id: string) => void;
   isCaptured?: boolean;
+  canEdit?: boolean;
 };
 
 const TYPES: ChartType[] = ["big_number", "line", "bar", "table"];
@@ -40,39 +41,17 @@ const toLabel = (v: string) => {
 export default function ChartCard({
   spec,
   onTypeChange,
-  onTitleChange,
   onMove,
   onFullscreen,
   onScreenshot,
   onRemove,
   isCaptured,
+  canEdit = true,
 }: Props) {
   const xk = spec?.x || "date";
   const yk = spec?.y || "value";
-  const [isEditingTitle, setIsEditingTitle] = useState(false);
-  const [localTitle, setLocalTitle] = useState(spec.title);
-  const titleInputRef = useRef<HTMLInputElement | null>(null);
-
-  useEffect(() => {
-    setLocalTitle(spec.title);
-  }, [spec.title]);
-
-  useEffect(() => {
-    if (isEditingTitle) {
-      titleInputRef.current?.focus();
-      titleInputRef.current?.select();
-    }
-  }, [isEditingTitle]);
-
-  const commitTitle = () => {
-    const trimmed = localTitle.trim();
-    if (!trimmed) {
-      setLocalTitle(spec.title);
-    } else {
-      onTitleChange?.(spec.id, trimmed);
-    }
-    setIsEditingTitle(false);
-  };
+  const baseTitle = spec?.title || "Untitled chart";
+  const displayTitle = spec?.customTitle || baseTitle;
 
   // normalizzo i dati per asse X
   const data = (spec?.data || []).map((r: any) => ({
@@ -86,38 +65,15 @@ export default function ChartCard({
     <div className="border rounded-2xl overflow-hidden bg-white shadow-sm">
       <div className="px-3 py-2 border-b flex items-center justify-between bg-gradient-to-b from-white to-gray-50">
         <div className="flex items-center gap-2 flex-1 min-w-0">
-          {isEditingTitle ? (
-            <input
-              ref={titleInputRef}
-              className="text-sm font-semibold truncate bg-transparent outline-none flex-1"
-              value={localTitle}
-              onChange={(e) => setLocalTitle(e.target.value)}
-              onBlur={commitTitle}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  commitTitle();
-                } else if (e.key === "Escape") {
-                  setLocalTitle(spec.title);
-                  setIsEditingTitle(false);
-                }
-              }}
-            />
-          ) : (
-            <button
-              type="button"
-              className="text-left text-sm font-semibold truncate hover:text-gray-700"
-              onClick={() => setIsEditingTitle(true)}
-              title={spec.title}
-            >
-              {spec.title}
-            </button>
-          )}
+          <span className="text-left text-sm font-semibold truncate" title={displayTitle}>
+            {displayTitle}
+          </span>
         </div>
         <div className="flex items-center gap-2">
           <select
             className="text-xs border rounded px-2 py-1 bg-white"
             value={spec.type}
+            disabled={!canEdit}
             onChange={(e) => onTypeChange?.(spec.id, e.target.value as ChartType)}
             onClick={(e) => e.stopPropagation()}
           >
@@ -128,10 +84,10 @@ export default function ChartCard({
             ))}
           </select>
           <div className="flex items-center gap-1">
-            <IconButton ariaLabel="Move" onClick={(e) => onMove?.(spec.id)} icon="move" />
+            {canEdit && <IconButton ariaLabel="Move" onClick={(e) => onMove?.(spec.id)} icon="move" />}
             <IconButton ariaLabel="Fullscreen" onClick={(e) => onFullscreen?.(spec.id)} icon="fullscreen" />
             <IconButton ariaLabel="Screenshot" onClick={(e) => onScreenshot?.(spec.id)} icon="camera" />
-            <IconButton ariaLabel="Remove" onClick={(e) => onRemove?.(spec.id)} icon="close" />
+            {canEdit && <IconButton ariaLabel="Remove" onClick={(e) => onRemove?.(spec.id)} icon="close" />}
           </div>
         </div>
       </div>
