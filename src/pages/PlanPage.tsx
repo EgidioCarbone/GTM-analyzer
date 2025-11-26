@@ -1,47 +1,30 @@
-// src/pages/PlanPage.tsx
-import { useEffect, useRef, useState } from "react";
-import toast            from "react-hot-toast";
-import Markdown         from "react-markdown";
-import remarkGfm        from "remark-gfm";
-import {
-  Sparkles, Loader2, RefreshCcw,
-  Tag, ToggleLeft, Code2, PackageSearch, Box,
-}                        from "lucide-react";
-import { Tab }          from "@headlessui/react";
-import { motion }       from "framer-motion";
-import Lottie           from "lottie-react";
+import { useEffect, useState } from "react";
+import toast from "react-hot-toast";
+import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { Loader2, RefreshCcw, Tag } from "lucide-react";
+import Lottie from "lottie-react";
 
 import { useContainer } from "../context/ContainerContext";
-import { analyzeGtmSection, polishContext, buildTagsTable, generateMeasurementDoc } from "../services/generateMeasurementDoc";
+import { buildTagsTable, generateMeasurementDoc } from "../services/generateMeasurementDoc";
 import { renderMeasurementDoc } from "../services/renderMeasurementDoc";
-import { Card, CardContent }   from "../components/ui/card";
-import { Button }              from "../components/ui/button";
-import { ScrollArea }          from "../components/ui/scroll-area";
-import { Skeleton }            from "../components/ui/Skeleton";
+import { Card, CardContent } from "../components/ui/card";
+import { ScrollArea } from "../components/ui/scroll-area";
 
 import animationData from "../assets/background-ai-loader.json";
 
-/*─────────────────────────── type-writer hook ───────────────────────────*/
-function useCyclingTypewriter(
-  texts: string[],
-  speed = 70,
-  hold  = 3000,
-): { text: string; step: number } {
-  const [step, setStep]       = useState(0);        // frase corrente
-  const [sub,  setSub]        = useState(0);        // indice carattere
-  const [text, setText]       = useState("");
+function useCyclingTypewriter(texts: string[], speed = 70, hold = 3000): { text: string; step: number } {
+  const [step, setStep] = useState(0);
+  const [sub, setSub] = useState(0);
+  const [text, setText] = useState("");
 
   useEffect(() => {
     let t: NodeJS.Timeout;
-
-    /* fase di typing -----------------------------------------------------*/
     if (sub < texts[step].length) {
       setText(texts[step].slice(0, sub + 1));
       t = setTimeout(() => setSub(sub + 1), speed);
       return () => clearTimeout(t);
     }
-
-    /* fase di pausa ------------------------------------------------------*/
     t = setTimeout(() => {
       setSub(0);
       setStep((s) => (s + 1) % texts.length);
@@ -52,68 +35,51 @@ function useCyclingTypewriter(
   return { text, step };
 }
 
-/*─────────────────────────── componente ───────────────────────────*/
 export default function PlanPage() {
   const { container } = useContainer();
 
   const [preview, setPreview] = useState<{ tags?: string }>({});
-  const [status,  setStatus]  = useState<{ tags: boolean }>({ tags: false });
   const [loading, setLoading] = useState(false);
   const [contextText, setContextText] = useState("");
 
   const steps = [
-    { label: "Analisi dei tag in corso…",   icon: Tag },
-    { label: "Elaborazione dei trigger…",   icon: ToggleLeft },
-    { label: "Verifica delle variabili…",   icon: Code2 },
-    { label: "Stiamo cercando criticità…",  icon: PackageSearch },
-    { label: "Compilazione del documento…", icon: Box },
+    { label: "Step 1: Brief", desc: "Inserisci il contesto del cliente" },
+    { label: "Step 2: Analisi AI", desc: "Elaboriamo e normalizziamo i tag" },
+    { label: "Step 3: Documento", desc: "Scarica il Measurement Plan" },
   ];
 
-  const { text: typing, step } = useCyclingTypewriter(
-    (Array.isArray(steps) ? steps : []).map((s) => s.label.replace("�", "")).map((s) => s.replace(/\?+$/, "…")),
-    70,   // ms/carattere
-    3000, // pausa
-  );
+  const { text: typing } = useCyclingTypewriter(steps.map((s) => s.label), 70, 3000);
+  const CurrentIcon = Loader2;
 
-  const CurrentIcon =
-    steps[step] && typeof steps[step].icon === "function" ? steps[step].icon : Loader2;
-
-  /* restore anteprima */
   useEffect(() => {
     const saved = localStorage.getItem("gtmAnalyzerPreview");
     if (saved) {
       const parsed = JSON.parse(saved);
       setPreview({ tags: parsed.tags });
-      setStatus({ tags: true });
     }
     const ctx = localStorage.getItem("gtmAnalyzerContext");
     if (ctx) setContextText(ctx);
   }, []);
 
-  /* helpers */
   const clean = (md: string) => {
     const lines = md.split("\n");
     const headerRe = /^#{0,6}\s*(Tags|Triggers|Variables) Analysis\s*$/i;
-    return lines.filter(l => !headerRe.test(l.trim())).join("\n");
+    return lines.filter((l) => !headerRe.test(l.trim())).join("\n");
   };
 
   const Spinner = () => <Loader2 className="h-4 w-4 animate-spin inline-block ml-1" />;
 
-  /* export */
   const handleExport = async () => {
     if (!container) return toast.error("Carica prima un container GTM!");
     setLoading(true);
-  setStatus({ tags: false });
-    toast.loading("Analisi AI in corso…", { id: "plan" });
+    toast.loading("Analisi AI in corso.", { id: "plan" });
 
     try {
-  // Costruiamo la tabella dei tag (usa AI per normalizzare tipi e descrizioni) e la mostriamo in anteprima
-  const tagsMd = await buildTagsTable(container.tag ?? [], container.trigger ?? []);
+      const tagsMd = await buildTagsTable(container.tag ?? [], container.trigger ?? []);
       const cleaned = { tags: clean(tagsMd) };
       setPreview(cleaned);
       localStorage.setItem("gtmAnalyzerPreview", JSON.stringify(cleaned));
 
-      // Generiamo il documento completo (usa polishContext internamente)
       const doc = await generateMeasurementDoc({
         tags: container.tag ?? [],
         triggers: container.trigger ?? [],
@@ -129,140 +95,128 @@ export default function PlanPage() {
       toast.error("Errore nella generazione del piano.", { id: "plan" });
     } finally {
       setLoading(false);
-      try { toast.dismiss("plan"); } catch {}
+      try {
+        toast.dismiss("plan");
+      } catch {}
     }
   };
 
   const clearPreview = () => {
     localStorage.removeItem("gtmAnalyzerPreview");
     setPreview({});
-    setStatus({ tags: false });
-    toast("Anteprima resettata.", { icon: "✅" });
+    toast("Anteprima resettata.", { icon: "i" });
   };
 
-  /*────────────────────────── JSX ──────────────────────────*/
   return (
-    <div className="relative flex flex-col items-center justify-center min-h-screen px-6 overflow-hidden">
-      {/* overlay loader */}
-      {loading && (
-        <div className="fixed inset-0 z-50 bg-gradient-to-br from-purple-50 via-pink-50 to-white dark:from-gray-900 dark:via-gray-950 dark:to-black flex items-center justify-center overflow-hidden">
-          <div className="absolute -top-48 -left-48  w-[600px] h-[600px] bg-purple-400 opacity-30 blur-3xl rounded-full" />
-          <div className="absolute -bottom-48 -right-48 w-[600px] h-[600px] bg-pink-400   opacity-30 blur-3xl rounded-full" />
+    <div className="min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-pink-50 relative overflow-hidden py-12 px-4">
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute -top-40 -left-32 w-96 h-96 bg-purple-300 rounded-full mix-blend-multiply filter blur-3xl opacity-40" />
+        <div className="absolute -bottom-48 -right-20 w-[430px] h-[430px] bg-blue-200 rounded-full mix-blend-multiply filter blur-3xl opacity-35" />
+      </div>
 
-          <div className="relative flex flex-col items-center">
-            <div className="w-[500px] max-w-[90%]">
+      {loading && (
+        <div className="fixed inset-0 z-50 bg-white/70 flex items-center justify-center">
+          <div className="relative flex flex-col items-center bg-white rounded-2xl shadow-2xl p-6 w-[90%] max-w-md">
+            <div className="w-56">
               <Lottie animationData={animationData} loop autoplay />
-              <div className="flex items-center justify-center gap-2 mt-4">
-                <CurrentIcon className="w-5 h-5 text-purple-600 shrink-0" />
-                <p className="text-gray-800 dark:text-white text-lg font-semibold min-h-[1.5rem]">
-                  {typing || "Stiamo analizzando il tuo container…"}
-                </p>
-                <Loader2 className="w-5 h-5 text-purple-600 animate-spin" />
-              </div>
+            </div>
+            <div className="flex items-center justify-center gap-2 mt-2 text-gray-800 text-sm font-semibold">
+              <CurrentIcon className="w-4 h-4 text-gray-700 shrink-0 animate-spin" />
+              <p className="min-h-[1.5rem]">{typing || "Stiamo analizzando il tuo container."}</p>
             </div>
           </div>
         </div>
       )}
 
-      {/* hero */}
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={{ duration: 0.7 }}
-        className="relative z-10 flex flex-col items-center text-center gap-4 max-w-2xl"
-      >
-        <Sparkles className="h-10 w-10 text-purple-500 animate-bounce" />
-        <h1 className="text-4xl md:text-5xl font-extrabold bg-gradient-to-r from-purple-600 to-pink-500 text-transparent bg-clip-text drop-shadow-sm">
-          AI-Powered GTM Measurement Plan
-        </h1>
-        <p className="text-gray-700 dark:text-gray-300 text-base md:text-lg max-w-lg leading-relaxed">
-          Analizza il tuo container GTM con l’AI, individua criticità e genera un piano di misurazione
-          completo e professionale.
-        </p>
+      <div className="max-w-6xl mx-auto relative z-10 flex flex-col space-y-8">
+        <div className="text-center space-y-4">
+          <div className="inline-flex items-center gap-2 px-4 py-1 rounded-full bg-white/80 shadow-sm text-purple-600 text-sm font-medium">
+            <Tag className="w-4 h-4" />
+            AI-Powered Measurement Plan
+          </div>
+          <h1 className="text-4xl md:text-5xl font-semibold text-slate-900">Crea il tuo GTM Measurement Plan</h1>
+          <p className="text-slate-600 text-base md:text-lg max-w-3xl mx-auto">
+            Analizza il tuo container GTM, individua criticita e genera un piano di misurazione completo e professionale.
+          </p>
+        </div>
 
-        {/* CONTEXT textarea */}
-        <div className="w-full bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 mt-4">
-          <textarea
-            value={contextText}
-            onChange={(e) => { setContextText(e.target.value); localStorage.setItem("gtmAnalyzerContext", e.target.value); }}
-            placeholder={"Inserisci qui informazioni contestuali: cliente, sito/area, obiettivi di misurazione, KPI, note..."}
-            className="w-full min-h-[120px] p-3 rounded-md border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 text-sm text-gray-900 dark:text-gray-100"
-          />
+        <div className="max-w-5xl w-full mx-auto">
+          <div className="bg-white/80 backdrop-blur border border-white/60 rounded-3xl shadow-2xl p-6 space-y-6">
+            <div>
+              <label className="block text-sm font-semibold text-slate-800 mb-2">Descrizione del container / contesto del cliente</label>
+              <textarea
+                value={contextText}
+                onChange={(e) => {
+                  setContextText(e.target.value);
+                  localStorage.setItem("gtmAnalyzerContext", e.target.value);
+                }}
+                placeholder="Inserisci informazioni contestuali: cliente, sito/area, obiettivi di misurazione, KPI, note..."
+                className="w-full min-h-[200px] p-4 rounded-2xl border border-gray-200 bg-white/70 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-200 shadow-inner"
+              />
+            </div>
+
+            {preview.tags && (
+              <div className="flex items-start gap-3 bg-amber-50 text-amber-800 text-sm px-4 py-3 rounded-2xl border border-amber-200 shadow-sm">
+                <span className="mt-0.5 font-bold">!</span>
+                <div>
+                  Hai gia una <strong>anteprima salvata</strong>. Puoi rigenerare o resettarla.
+                </div>
+              </div>
+            )}
+
+            <div className="flex flex-col sm:flex-row gap-3 justify-end">
+              <button
+                onClick={clearPreview}
+                className="px-4 py-2 rounded-full border border-purple-200 text-sm font-semibold text-purple-700 bg-white hover:bg-purple-50 transition shadow-sm"
+              >
+                <RefreshCcw className="inline-block mr-2 h-4 w-4 align-middle" />
+                Resetta anteprima
+              </button>
+              <button
+                onClick={handleExport}
+                disabled={loading}
+                className="px-5 py-2 rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 text-white text-sm font-semibold shadow-lg shadow-purple-200/80 hover:opacity-95 disabled:opacity-60 transition"
+              >
+                {loading ? (
+                  <>
+                    Generazione in corso. <Spinner />
+                  </>
+                ) : (
+                  "Genera il doc"
+                )}
+              </button>
+            </div>
+          </div>
         </div>
 
         {preview.tags && (
-          <div className="bg-yellow-100 text-yellow-800 text-sm px-4 py-2 rounded-md border border-yellow-300 w-full">
-            📝 Hai già una <strong>anteprima salvata</strong>. Puoi rigenerare o resettarla.
+          <div className="w-full">
+            <ScrollArea>
+              <Card className="bg-white/90 backdrop-blur shadow-xl rounded-3xl border border-white/60">
+                <CardContent className="p-4 prose max-w-none">
+                  <Markdown
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      table: ({ children }) => (
+                        <div className="overflow-x-auto rounded-2xl border border-gray-200 shadow-sm my-4 bg-white/80">
+                          <table className="min-w-full divide-y divide-gray-200 text-sm text-left">{children}</table>
+                        </div>
+                      ),
+                      th: ({ children }) => (
+                        <th className="px-4 py-2 bg-gray-100 font-semibold text-slate-700 border-b border-gray-200">{children}</th>
+                      ),
+                      td: ({ children }) => <td className="px-4 py-2 border-t border-gray-200 whitespace-pre-wrap">{children}</td>,
+                      tr: ({ children }) => <tr className="hover:bg-gray-50 transition-colors">{children}</tr>,
+                    }}
+                  >
+                    {preview.tags ?? ""}
+                  </Markdown>
+                </CardContent>
+              </Card>
+            </ScrollArea>
           </div>
         )}
-
-        <div className="flex flex-wrap gap-3 justify-center mt-4">
-          <Button
-            onClick={handleExport}
-            disabled={loading}
-            className="relative overflow-hidden bg-gradient-to-r from-purple-500 to-pink-500 text-white px-6 py-2 rounded-full font-semibold shadow-lg transition-all duration-300 hover:scale-105 hover:shadow-xl"
-          >
-            {loading ? (
-              <>
-                Generazione in corso… <Spinner />
-              </>
-            ) : (
-              <>
-                Genera il doc <Sparkles className="w-4 h-4" />
-              </>
-            )}
-            <span className="absolute inset-0 bg-white dark:bg-gray-200 opacity-10 blur-sm animate-pulse" />
-          </Button>
-
-          <Button
-            onClick={clearPreview}
-            variant="outline"
-            className="border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 px-5 py-2 rounded-full transition-colors duration-200"
-          >
-            <RefreshCcw className="mr-2 h-4 w-4" />
-            Resetta anteprima
-          </Button>
-        </div>
-      </motion.div>
-
-      {/* risultati */}
-      {preview.tags && (
-        <div className="mt-12 w-full max-w-4xl animate-fade-in">
-          <ScrollArea>
-            <Card className="bg-white dark:bg-gray-800 shadow-md rounded-xl">
-              <CardContent className="p-4 prose dark:prose-invert max-w-none">
-                <Markdown
-                  remarkPlugins={[remarkGfm]}
-                  components={{
-                    table: ({ children }) => (
-                      <div className="overflow-x-auto rounded-lg border border-gray-300 dark:border-gray-600 shadow-sm my-4">
-                        <table className="min-w-full divide-y divide-gray-300 dark:divide-gray-600 text-sm text-left">
-                          {children}
-                        </table>
-                      </div>
-                    ),
-                    th: ({ children }) => (
-                      <th className="px-4 py-2 bg-gray-100 dark:bg-gray-700 font-semibold text-gray-700 dark:text-gray-300 border-b dark:border-gray-600">
-                        {children}
-                      </th>
-                    ),
-                    td: ({ children }) => (
-                      <td className="px-4 py-2 border-t border-gray-200 dark:border-gray-600 whitespace-pre-wrap">
-                        {children}
-                      </td>
-                    ),
-                    tr: ({ children }) => (
-                      <tr className="hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">{children}</tr>
-                    ),
-                  }}
-                >
-                  {preview.tags ?? ""}
-                </Markdown>
-              </CardContent>
-            </Card>
-          </ScrollArea>
-        </div>
-      )}
+      </div>
     </div>
   );
 }

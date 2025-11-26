@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-hot-toast";
 import { ArrowRight, Inbox, Wand2 } from "lucide-react";
@@ -158,16 +158,20 @@ export default function DashboardHome() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-100">
-      <div className="max-w-5xl mx-auto px-6 py-12">
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-10 space-y-10">
+    <div className="min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-pink-50 relative overflow-hidden">
+      <div className="pointer-events-none absolute -top-48 -left-48 w-[520px] h-[520px] bg-purple-300 opacity-25 blur-3xl rounded-full" />
+      <div className="pointer-events-none absolute -bottom-56 -right-32 w-[520px] h-[520px] bg-indigo-200 opacity-30 blur-3xl rounded-full" />
+      <div className="max-w-6xl mx-auto px-6 py-12 relative z-10">
+        <div className="bg-white rounded-3xl shadow-2xl border border-gray-100 p-12 space-y-12">
           <div className="text-center space-y-3">
             <p className="text-sm text-gray-500 uppercase tracking-wide">Dashboard Studio</p>
-            <h1 className="text-4xl md:text-5xl font-bold text-gray-900">{heroSubtitle}</h1>
-            <p className="text-base text-gray-600">Type a question or request and we will build the dashboard for you.</p>
+            <h1 className="text-4xl md:text-5xl font-extrabold text-slate-900">{heroSubtitle}</h1>
+            <p className="text-base text-slate-600">
+              Type a question or request and we will build the dashboard for you.
+            </p>
           </div>
 
-          <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4 md:p-5 space-y-4">
+          <div className="bg-white border border-gray-100 rounded-3xl shadow-xl p-6 md:p-7 space-y-5">
             <div className="flex flex-col md:flex-row md:items-center md:gap-3">
               <div className="flex flex-wrap gap-2 mb-3 md:mb-0">
                 <ModeChip label="Dashboard" selected={mode === "dashboard"} onClick={() => setMode("dashboard")} />
@@ -183,7 +187,7 @@ export default function DashboardHome() {
               </div>
               <div className="flex-1 flex flex-col md:flex-row md:items-center gap-3 w-full">
                 <input
-                  className="flex-1 text-lg py-3 px-4 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-400 bg-white"
+                  className="flex-1 text-lg py-3 px-4 rounded-2xl border border-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-100 bg-white shadow-inner"
                   placeholder="Show me some charts about this data"
                   value={prompt}
                   onChange={(e) => setPrompt(e.target.value)}
@@ -191,7 +195,7 @@ export default function DashboardHome() {
                 <button
                   onClick={handleSend}
                   disabled={loading}
-                  className="whitespace-nowrap px-5 py-3 rounded-lg bg-gray-900 text-white text-base font-semibold hover:bg-gray-800 disabled:opacity-60 flex items-center justify-center gap-2 shadow-sm"
+                  className="whitespace-nowrap px-5 py-3 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 text-white text-base font-semibold hover:from-purple-600 hover:to-pink-600 disabled:opacity-60 flex items-center justify-center gap-2 shadow-xl"
                 >
                   {loading ? "Running..." : "Send message"}
                   {!loading && <ArrowRight className="w-4 h-4" />}
@@ -204,9 +208,9 @@ export default function DashboardHome() {
                 <button
                   key={s}
                   onClick={() => setPrompt(s)}
-                  className="text-xs px-3 py-1.5 rounded-full border border-gray-200 bg-gray-50 hover:bg-gray-100 text-gray-700 flex items-center gap-2"
+                  className="text-xs px-3 py-1.5 rounded-full border border-gray-100 bg-white/70 hover:bg-white text-slate-700 flex items-center gap-2 shadow-sm"
                 >
-                  <Wand2 className="w-4 h-4 text-gray-500" />
+                  <Wand2 className="w-4 h-4 text-indigo-500" />
                   {s}
                 </button>
               ))}
@@ -216,14 +220,14 @@ export default function DashboardHome() {
           </div>
 
           {latestCharts && (
-            <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6 space-y-4">
+            <div className="bg-white border border-gray-100 rounded-2xl shadow-xl p-6 space-y-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <h2 className="text-xl font-semibold text-gray-900">Generated dashboard</h2>
-                  <p className="text-sm text-gray-600">Based on your last prompt</p>
+                  <h2 className="text-xl font-semibold text-slate-900">Generated dashboard</h2>
+                  <p className="text-sm text-slate-600">Based on your last prompt</p>
                 </div>
                 <button
-                  className="text-sm text-gray-800 hover:text-gray-900 font-semibold"
+                  className="text-sm text-indigo-600 hover:text-indigo-700 font-semibold"
                   onClick={() => navigate("/dashboard-studio/run")}
                 >
                   Open in builder
@@ -239,10 +243,10 @@ export default function DashboardHome() {
 
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-gray-900">Your dashboards</h3>
+              <h3 className="text-lg font-semibold text-slate-900">Your dashboards</h3>
             </div>
             {dashboards.length === 0 ? (
-              <div className="flex items-center gap-3 text-gray-500 text-sm bg-white border border-dashed border-gray-300 rounded-xl p-4">
+              <div className="flex items-center gap-3 text-slate-500 text-sm bg-white border border-dashed border-gray-300 rounded-xl p-4 shadow-sm">
                 <Inbox className="w-4 h-4" />
                 Nessuna dashboard salvata. Genera la prima usando il prompt qui sopra.
               </div>
@@ -256,11 +260,11 @@ export default function DashboardHome() {
                         state: { dashboardId: d.id, charts: d.charts, filters: d.filters, prompt: d.title },
                       })
                     }
-                    className="text-left bg-white border border-gray-200 rounded-2xl shadow-sm p-4 hover:border-gray-300 hover:shadow-md transition"
+                    className="text-left bg-white border border-gray-100 rounded-2xl shadow-xl p-5 hover:border-indigo-200 hover:shadow-2xl transition"
                   >
-                    <div className="text-base font-semibold text-gray-900">{d.title}</div>
-                    <div className="text-sm text-gray-600 mt-1">{d.sourceName || "Dashboard"}</div>
-                    <div className="text-xs text-gray-500 mt-2">
+                    <div className="text-base font-semibold text-slate-900">{d.title}</div>
+                    <div className="text-sm text-slate-600 mt-1">{d.sourceName || "Dashboard"}</div>
+                    <div className="text-xs text-slate-500 mt-2">
                       Ultimo salvataggio: {d.updatedAt ? new Date(d.updatedAt).toLocaleString() : "-"}
                     </div>
                   </button>
@@ -281,23 +285,23 @@ export default function DashboardHome() {
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/40" onClick={() => setShowPropertyPanel(false)} />
           <div className="relative bg-white rounded-2xl shadow-xl w-[420px] max-w-[92vw] p-6 space-y-4">
-            <div className="text-lg font-semibold text-gray-900">Set GA4 property ID</div>
-            <p className="text-sm text-gray-600">Inserisci l'ID della property GA4 da usare per generare i dati.</p>
+            <div className="text-lg font-semibold text-slate-900">Set GA4 property ID</div>
+            <p className="text-sm text-slate-600">Inserisci l'ID della property GA4 da usare per generare i dati.</p>
             <input
-              className="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-400"
+              className="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-100"
               placeholder="Es. 452166144"
               value={localProperty}
               onChange={(e) => setLocalProperty(e.target.value)}
             />
             <div className="flex justify-end gap-2">
               <button
-                className="px-3 py-2 rounded-lg border border-gray-200 text-sm"
+                className="px-3 py-2 rounded-lg border border-gray-100 text-sm"
                 onClick={() => setShowPropertyPanel(false)}
               >
                 Annulla
               </button>
               <button
-                className="px-3 py-2 rounded-lg bg-gray-900 text-white text-sm hover:bg-gray-800"
+                className="px-3 py-2 rounded-lg bg-gradient-to-r from-purple-500 to-pink-500 text-white text-sm hover:from-purple-600 hover:to-pink-600"
                 onClick={handleSaveProperty}
               >
                 Salva
@@ -325,10 +329,11 @@ function ModeChip({
       className={`px-3 py-1.5 rounded-full border text-xs font-medium transition ${
         selected
           ? "bg-gray-100 text-gray-900 border-gray-300"
-          : "bg-white text-gray-700 border-gray-200 hover:border-gray-300"
+          : "bg-white text-gray-700 border-gray-100 hover:border-gray-300"
       }`}
     >
       {label}
     </button>
   );
 }
+

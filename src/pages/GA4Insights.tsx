@@ -362,40 +362,45 @@ export default function GA4Chat() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="max-w-5xl mx-auto px-6 py-10 space-y-8">
+    <div className="min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-pink-50 relative overflow-hidden">
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute -top-40 -left-32 w-96 h-96 bg-purple-300 rounded-full mix-blend-multiply filter blur-3xl opacity-35" />
+        <div className="absolute -bottom-48 -right-24 w-[420px] h-[420px] bg-blue-200 rounded-full mix-blend-multiply filter blur-3xl opacity-30" />
+      </div>
+
+      <div className="max-w-4xl mx-auto px-5 md:px-8 py-12 space-y-8 relative z-10">
         {/* Hero */}
-        <div className="text-center space-y-3">
-          <div className="mx-auto h-12 w-12 rounded-full bg-indigo-600/10 text-indigo-600 flex items-center justify-center">
-            <svg viewBox="0 0 24 24" fill="currentColor" className="h-6 w-6">
+        <div className="text-center space-y-4">
+          <div className="inline-flex items-center gap-2 px-4 py-1 rounded-full bg-white/80 shadow-sm text-purple-600 text-sm font-medium">
+            <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4">
               <path d="M12 2l1.9 5.7h6L15 11.3 16.9 17 12 13.7 7.1 17 9 11.3 4.1 7.7h6L12 2z" />
             </svg>
+            GA4 Insights
           </div>
-          <h1 className="text-3xl font-bold tracking-tight text-gray-900">Il tuo analista AI per i dati GA4</h1>
-          <p className="text-gray-600 max-w-2xl mx-auto">Fai domande in linguaggio naturale e ottieni insight immediati dai tuoi dati GA4.</p>
+          <h1 className="text-4xl md:text-5xl font-semibold text-slate-900">Il tuo analista AI per i dati GA4</h1>
+          <p className="text-slate-600 text-base md:text-lg max-w-2xl mx-auto">Fai domande in linguaggio naturale e ottieni insight immediati dai tuoi dati GA4.</p>
         </div>
 
-        {/* Input pill (sticky) */}
-        <div className="sticky top-0 z-10 bg-gray-50/80 backdrop-blur supports-[backdrop-filter]:bg-gray-50/60 py-2">
-          {/* Toolbar superiore: link Reset */}
-          <div className="mb-2 flex items-center justify-end">
+        {/* Input card */}
+        <div className="bg-white/85 backdrop-blur border border-white/60 rounded-3xl shadow-2xl p-5 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="text-sm text-slate-500">Chiedi qualunque insight sui tuoi dati GA4</div>
             <button
               type="button"
               onClick={handleReset}
-              className="inline-flex items-center gap-1 text-xs font-medium text-gray-600 hover:text-gray-900"
+              className="inline-flex items-center gap-1 text-xs font-medium text-purple-600 hover:text-purple-700"
               title="Resetta la conversazione"
             >
               <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4"><path d="M12 5V2L8 6l4 4V7c2.8 0 5 2.2 5 5a5 5 0 01-8.5 3.5l-1.4 1.4A7 7 0 0019 12c0-3.9-3.1-7-7-7z"/></svg>
               Resetta
             </button>
           </div>
-          <div className="rounded-full border border-gray-200 bg-white shadow-sm px-4 py-2 flex items-center gap-3">
+          <div className="rounded-[22px] border border-white/70 bg-white/90 shadow-xl px-4 py-3 flex items-center gap-3">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-5 w-5 text-gray-400">
               <path d="M21 15v4a2 2 0 0 1-2 2H7l-4 3V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
-            {/* Enter=Invia, Shift+Enter=a capo (solo UI) */}
             <textarea
-              className="flex-1 bg-transparent placeholder:text-gray-400 focus:outline-none text-gray-900 resize-none leading-6"
+              className="flex-1 bg-transparent placeholder:text-gray-400 focus:outline-none text-gray-900 resize-none leading-6 min-h-[52px]"
               rows={1}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
@@ -410,7 +415,7 @@ export default function GA4Chat() {
             <button
               onClick={ask}
               disabled={loading}
-              className="inline-flex items-center gap-2 rounded-full bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-purple-200/80 hover:opacity-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-200 disabled:cursor-not-allowed disabled:opacity-60"
             >
               <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4">
                 <path d="M2 21l21-9L2 3v7l15 2-15 2v7z" />
@@ -418,9 +423,8 @@ export default function GA4Chat() {
               {loading ? "Elaboro..." : "Invia"}
             </button>
           </div>
-          {/* Stato di caricamento */}
           {loading && (
-            <div className="mt-2 text-xs text-gray-600 flex items-center gap-2">
+            <div className="text-xs text-slate-600 flex items-center gap-2">
               <svg className="h-4 w-4 animate-spin text-indigo-600" viewBox="0 0 24 24">
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
@@ -431,21 +435,20 @@ export default function GA4Chat() {
         </div>
 
         {/* Errori */}
-        {error && <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-red-700">{error}</div>}
+        {error && <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-red-700 shadow-sm">{error}</div>}
 
         {/* Skeleton durante il loading */}
         {loading && (
-          <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm animate-pulse">
+          <div className="rounded-2xl border border-white/60 bg-white/85 p-6 shadow-xl animate-pulse">
             <div className="h-4 w-1/3 bg-gray-200 rounded mb-4"></div>
             <div className="h-32 w-full bg-gray-100 rounded"></div>
           </div>
         )}
 
-        
         {/* Conversazione / risultati */}
-        <div className="space-y-6 mt-6">
+        <div className="space-y-6">
           {cards.map((card) => (
-            <div key={card.id} className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+            <div key={card.id} className="rounded-3xl border border-white/60 bg-white/90 p-6 shadow-xl">
               <div className="flex items-start justify-between gap-4">
                 <div>
                   {card.range && (
@@ -454,7 +457,6 @@ export default function GA4Chat() {
                 </div>
                 {/* Toolbar card: testo, tabella, grafico, fullscreen, download, save */}
                 <div className="flex items-center gap-2">
-                  {/* text */}
                   <button title="Vista testo" onClick={() => setCardView(card.id, "text")} className={`h-8 px-2 inline-flex items-center justify-center rounded-md border ${card.view === "text" ? "bg-indigo-50 text-indigo-700 border-indigo-200" : "bg-white text-gray-600 border-gray-200"} hover:bg-gray-50`}>
                     <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4"><path d="M4 6h16v2H4V6zm0 4h10v2H4v-2zm0 4h16v2H4v-2z"/></svg>
                   </button>
@@ -545,7 +547,7 @@ export default function GA4Chat() {
             </div>
           ))}
           {cards.length === 0 && !loading && (
-            <div className="rounded-xl border border-dashed border-gray-200 bg-white p-10 text-center text-gray-500">
+            <div className="rounded-3xl border border-white/60 bg-white/85 p-10 text-center text-gray-500 shadow-lg">
               Invia una domanda per vedere i risultati qui sotto.
             </div>
           )}
