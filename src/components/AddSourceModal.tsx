@@ -210,12 +210,12 @@ export function AddSourceModal({ isOpen, onClose, onSelectSource }: Props) {
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} aria-hidden="true" />
-      <div className="relative w-full max-w-6xl mx-auto px-4">
-        <div className="bg-white rounded-3xl shadow-xl border border-gray-200 p-6 md:p-8 animate-[fadeIn_150ms_ease,slideUp_200ms_ease]">
-          <div className="flex justify-between items-start">
+      <div className="relative w-full max-w-5xl mx-auto px-4">
+        <div className="bg-white rounded-2xl shadow-xl border border-gray-200 max-h-[90vh] overflow-hidden animate-[fadeIn_150ms_ease,slideUp_200ms_ease]">
+          <div className="sticky top-0 bg-white px-6 pt-6 pb-4 border-b border-gray-100 flex items-start justify-between">
             <div>
-              <h2 className="text-3xl font-semibold text-gray-900">Select a source</h2>
-              <p className="text-lg text-gray-600 mt-1">Scegli una source esistente oppure creane una nuova.</p>
+              <h2 className="text-2xl font-semibold text-gray-900">Select a source</h2>
+              <p className="text-sm text-gray-600 mt-1">Scegli una source esistente oppure creane una nuova.</p>
             </div>
             <button
               onClick={onClose}
@@ -226,117 +226,119 @@ export function AddSourceModal({ isOpen, onClose, onSelectSource }: Props) {
             </button>
           </div>
 
-          <div className="mt-5 flex flex-col lg:flex-row gap-6">
-            <div className="flex-1 space-y-4">
-              <div className="flex items-center gap-2 border border-gray-300 rounded-xl px-3 py-2 focus-within:ring-2 focus-within:ring-orange-200">
-                <input
-                  className="w-full outline-none text-sm text-gray-800 placeholder-gray-400"
-                  placeholder="Cerca tra le source salvate"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                />
-              </div>
+          <div className="px-6 pb-6 overflow-y-auto" style={{ maxHeight: "calc(90vh - 88px)" }}>
+            <div className="flex flex-col lg:flex-row gap-6">
+              <div className="flex-1 space-y-4">
+                <div className="flex items-center gap-2 border border-gray-300 rounded-xl px-3 py-2 focus-within:ring-2 focus-within:ring-orange-200 bg-white">
+                  <input
+                    className="w-full outline-none text-sm text-gray-800 placeholder-gray-400"
+                    placeholder="Cerca tra le source salvate"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                  />
+                </div>
 
-              <div className="bg-gray-50 rounded-2xl border border-gray-200 p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <div>
-                    <div className="text-sm font-semibold text-gray-900">Data Sources</div>
-                    <p className="text-xs text-gray-600">Le source salvate rimangono disponibili per il tuo workspace.</p>
+                <div className="bg-gray-50 rounded-2xl border border-gray-200 p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <div className="text-sm font-semibold text-gray-900">Data Sources</div>
+                      <p className="text-xs text-gray-600">Le source salvate rimangono disponibili per il tuo workspace.</p>
+                    </div>
+                  </div>
+                  <div className="space-y-2 max-h-60 overflow-auto pr-1">
+                    {filteredSources.length === 0 && (
+                      <div className="text-sm text-gray-500 border border-dashed border-gray-200 rounded-lg px-3 py-2">
+                        Nessuna source salvata. Aggiungine una con il form a destra.
+                      </div>
+                    )}
+                    {filteredSources.map((s) => (
+                      <button
+                        key={s.id}
+                        onClick={() => handlePickExisting(s.id)}
+                        className="w-full text-left px-3 py-2 rounded-lg border border-gray-200 bg-white hover:border-orange-200 hover:shadow-sm flex items-center justify-between"
+                      >
+                        <div>
+                          <div className="text-sm font-semibold text-gray-900">{s.name}</div>
+                          <div className="text-xs text-gray-600">
+                            {s.type.toUpperCase()} · {s.externalId || "ID mancante"}
+                          </div>
+                        </div>
+                        <div className="text-xs text-orange-600 font-semibold">Select</div>
+                      </button>
+                    ))}
                   </div>
                 </div>
-                <div className="space-y-2 max-h-64 overflow-auto pr-1">
-                  {filteredSources.length === 0 && (
-                    <div className="text-sm text-gray-500 border border-dashed border-gray-200 rounded-lg px-3 py-2">
-                      Nessuna source salvata. Aggiungine una con il form a destra.
-                    </div>
-                  )}
-                  {filteredSources.map((s) => (
-                    <button
-                      key={s.id}
-                      onClick={() => handlePickExisting(s.id)}
-                      className="w-full text-left px-3 py-2 rounded-lg border border-gray-200 bg-white hover:border-orange-200 hover:shadow-sm flex items-center justify-between"
+
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="text-sm font-semibold text-gray-900">Suggerimenti</div>
+                    <div className="text-xs text-gray-500">Clicca per precompilare il form</div>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {filteredTemplates.map((source) => (
+                      <SourceCard key={source.id} source={source} onSelect={() => handleTemplateSelect(source)} />
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="w-full lg:w-[360px]">
+                <form onSubmit={handleSubmit} className="border border-gray-200 rounded-2xl p-4 space-y-3 bg-white shadow-sm">
+                  <div>
+                    <div className="text-base font-semibold text-gray-900">+ Add a new source</div>
+                    <p className="text-xs text-gray-600">Nome e ID sono obbligatori. Verrà salvata in locale per i prossimi usi.</p>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs text-gray-600">Name *</label>
+                    <input
+                      className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-200"
+                      placeholder='Es. "GA4 – Ecommerce sito A"'
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs text-gray-600">Type</label>
+                    <select
+                      className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-200"
+                      value={type}
+                      onChange={(e) => setType(e.target.value as SourceType)}
                     >
-                      <div>
-                        <div className="text-sm font-semibold text-gray-900">{s.name}</div>
-                        <div className="text-xs text-gray-600">
-                          {s.type.toUpperCase()} · {s.externalId || "ID mancante"}
-                        </div>
-                      </div>
-                      <div className="text-xs text-orange-600 font-semibold">Select</div>
+                      <option value="ga4">GA4</option>
+                      <option value="api">API</option>
+                      <option value="db">Database</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs text-gray-600">Source ID *</label>
+                    <input
+                      className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-200"
+                      placeholder="Measurement ID / Property ID"
+                      value={externalId}
+                      onChange={(e) => setExternalId(e.target.value)}
+                    />
+                  </div>
+                  <div className="flex justify-end gap-2 pt-1">
+                    <button
+                      type="button"
+                      className="px-3 py-2 rounded-lg border border-gray-200 text-sm"
+                      onClick={onClose}
+                    >
+                      Cancel
                     </button>
-                  ))}
-                </div>
+                    <button
+                      type="submit"
+                      disabled={!name.trim() || !externalId.trim() || saving}
+                      className={`px-3 py-2 rounded-lg text-sm text-white ${
+                        name.trim() && externalId.trim() && !saving ? "bg-black hover:opacity-90" : "bg-gray-400 cursor-not-allowed"
+                      }`}
+                    >
+                      {saving ? "Saving..." : "Save & select"}
+                    </button>
+                  </div>
+                </form>
               </div>
-
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="text-sm font-semibold text-gray-900">Suggerimenti</div>
-                  <div className="text-xs text-gray-500">Clicca per precompilare il form</div>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {filteredTemplates.map((source) => (
-                    <SourceCard key={source.id} source={source} onSelect={() => handleTemplateSelect(source)} />
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <div className="w-full lg:w-[360px]">
-              <form onSubmit={handleSubmit} className="border border-gray-200 rounded-2xl p-4 space-y-3 bg-white shadow-sm">
-                <div>
-                  <div className="text-base font-semibold text-gray-900">+ Add a new source</div>
-                  <p className="text-xs text-gray-600">Nome e ID sono obbligatori. Verrà salvata in locale per i prossimi usi.</p>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs text-gray-600">Name *</label>
-                  <input
-                    className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-200"
-                    placeholder='Es. "GA4 – Ecommerce sito A"'
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs text-gray-600">Type</label>
-                  <select
-                    className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-200"
-                    value={type}
-                    onChange={(e) => setType(e.target.value as SourceType)}
-                  >
-                    <option value="ga4">GA4</option>
-                    <option value="api">API</option>
-                    <option value="db">Database</option>
-                    <option value="other">Other</option>
-                  </select>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs text-gray-600">Source ID *</label>
-                  <input
-                    className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-200"
-                    placeholder="Measurement ID / Property ID"
-                    value={externalId}
-                    onChange={(e) => setExternalId(e.target.value)}
-                  />
-                </div>
-                <div className="flex justify-end gap-2 pt-1">
-                  <button
-                    type="button"
-                    className="px-3 py-2 rounded-lg border border-gray-200 text-sm"
-                    onClick={onClose}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={!name.trim() || !externalId.trim() || saving}
-                    className={`px-3 py-2 rounded-lg text-sm text-white ${
-                      name.trim() && externalId.trim() && !saving ? "bg-black hover:opacity-90" : "bg-gray-400 cursor-not-allowed"
-                    }`}
-                  >
-                    {saving ? "Saving..." : "Save & select"}
-                  </button>
-                </div>
-              </form>
             </div>
           </div>
         </div>

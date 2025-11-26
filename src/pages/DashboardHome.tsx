@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+﻿import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-hot-toast";
 import { ArrowRight, Inbox, Wand2 } from "lucide-react";
@@ -7,8 +7,8 @@ import { useGa4Property } from "../context/Ga4PropertyContext";
 import { useDashboardStore } from "../context/DashboardStoreContext";
 import { StudioFilters, useStudioRunner } from "../hooks/useStudioRunner";
 import { useSourceStore } from "../context/SourceStoreContext";
-
 import { AddSourceModal } from "../components/AddSourceModal";
+
 type Mode = "dashboard" | "source" | "upload";
 const defaultFilters: StudioFilters = {
   startDate: (() => {
@@ -58,13 +58,9 @@ export default function DashboardHome() {
     return defaultFilters;
   }, [prompt]);
 
-  const heroSubtitle = useMemo(
-    () => "What would you like to see today?",
-    []
-  );
+  const heroSubtitle = useMemo(() => "What would you like to see today?", []);
 
   useEffect(() => {
-    // ensure we always have a selected source to avoid empty data calls
     if (!selectedSource && sources.length) {
       selectSource(sources[0].id);
     }
@@ -96,6 +92,7 @@ export default function DashboardHome() {
       }
       if (activeSource.type === "ga4" && isValidGaId(activeSource.externalId)) {
         setPropertyId(activeSource.externalId);
+        setLocalProperty(activeSource.externalId);
       }
       const res = await runDashboard({
         prompt,
@@ -161,111 +158,116 @@ export default function DashboardHome() {
   }
 
   return (
-    <div className="relative min-h-screen bg-gradient-to-br from-purple-50 via-pink-50 to-white dark:from-gray-900 dark:via-gray-950 dark:to-black">
-      <div className="absolute -top-40 -left-40 w-[520px] h-[520px] bg-purple-300 opacity-30 blur-3xl rounded-full" />
-      <div className="absolute -bottom-40 -right-40 w-[520px] h-[520px] bg-pink-300 opacity-30 blur-3xl rounded-full" />
-
-      <div className="relative max-w-6xl mx-auto px-4 py-12 space-y-10">
-        <div className="text-center space-y-3">
-          <p className="text-sm text-gray-500">Dashboard Studio</p>
-          <h1 className="text-4xl md:text-5xl font-semibold text-gray-900">{heroSubtitle}</h1>
-          <p className="text-base text-gray-600">Type a question or request and we will build the dashboard for you.</p>
-        </div>
-
-        <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-4 md:p-6 space-y-4">
-          <div className="flex flex-col md:flex-row md:items-center md:gap-3">
-            <div className="flex flex-wrap gap-2 mb-3 md:mb-0">
-              <ModeChip label="Dashboard" selected={mode === "dashboard"} onClick={() => setMode("dashboard")} />
-              <ModeChip
-                label="Select a source"
-                selected={mode === "source"}
-                onClick={() => {
-                  setMode("source");
-                  setShowAddSourceModal(true);
-                }}
-              />
-              <ModeChip label="Upload a file" selected={mode === "upload"} onClick={() => setMode("upload")} />
-            </div>
-            <div className="flex-1 flex flex-col md:flex-row md:items-center gap-3 w-full">
-              <input
-                className="flex-1 text-lg py-3 px-4 rounded-xl border border-gray-200 shadow-sm focus:outline-none focus:ring-2 focus:ring-violet-300"
-                placeholder="Show me some charts about this data"
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-              />
-              <button
-                onClick={handleSend}
-                disabled={loading}
-                className="whitespace-nowrap px-4 py-3 rounded-lg bg-black text-white text-base font-medium hover:opacity-90 disabled:opacity-60 flex items-center justify-center gap-2"
-              >
-                {loading ? "Running..." : "Send message"}
-                {!loading && <ArrowRight className="w-4 h-4" />}
-              </button>
-            </div>
+    <div className="min-h-screen bg-gray-100">
+      <div className="max-w-5xl mx-auto px-6 py-12">
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-10 space-y-10">
+          <div className="text-center space-y-3">
+            <p className="text-sm text-gray-500 uppercase tracking-wide">Dashboard Studio</p>
+            <h1 className="text-4xl md:text-5xl font-bold text-gray-900">{heroSubtitle}</h1>
+            <p className="text-base text-gray-600">Type a question or request and we will build the dashboard for you.</p>
           </div>
 
-          <div className="flex flex-wrap gap-2">
-            {suggestions.map((s) => (
-              <button
-                key={s}
-                onClick={() => setPrompt(s)}
-                className="text-xs px-3 py-1.5 rounded-full border border-gray-200 bg-white hover:bg-gray-50 flex items-center gap-2"
-              >
-                <Wand2 className="w-4 h-4 text-violet-500" />
-                {s}
-              </button>
-            ))}
-          </div>
-
-          {error && <div className="text-sm text-red-600">Errore: {error}</div>}
-        </div>
-
-        {latestCharts && (
-          <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-6 space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-xl font-semibold text-gray-900">Generated dashboard</h2>
-                <p className="text-sm text-gray-600">Based on your last prompt</p>
+          <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4 md:p-5 space-y-4">
+            <div className="flex flex-col md:flex-row md:items-center md:gap-3">
+              <div className="flex flex-wrap gap-2 mb-3 md:mb-0">
+                <ModeChip label="Dashboard" selected={mode === "dashboard"} onClick={() => setMode("dashboard")} />
+                <ModeChip
+                  label="Select a source"
+                  selected={mode === "source"}
+                  onClick={() => {
+                    setMode("source");
+                    setShowAddSourceModal(true);
+                  }}
+                />
+                <ModeChip label="Upload a file" selected={mode === "upload"} onClick={() => setMode("upload")} />
               </div>
-              <button
-                className="text-sm text-violet-600 hover:text-violet-700"
-                onClick={() => navigate("/dashboard-studio/run")}
-              >
-                Open in builder
-              </button>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {latestCharts.map((chart) => (
-                <ChartCard key={chart.id} spec={chart as Required<ChartSpec>} />
-              ))}
-            </div>
-          </div>
-        )}
-
-        <div className="space-y-3">
-          <h3 className="text-lg font-semibold text-gray-900">Your dashboards</h3>
-          {dashboards.length === 0 ? (
-            <div className="flex items-center gap-3 text-gray-500 text-sm bg-white border border-dashed border-gray-200 rounded-xl p-4">
-              <Inbox className="w-4 h-4" />
-              Nessuna dashboard salvata. Genera la prima usando il prompt qui sopra.
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {dashboards.map((d) => (
+              <div className="flex-1 flex flex-col md:flex-row md:items-center gap-3 w-full">
+                <input
+                  className="flex-1 text-lg py-3 px-4 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-400 bg-white"
+                  placeholder="Show me some charts about this data"
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                />
                 <button
-                  key={d.id}
-                  onClick={() => navigate(`/dashboard-builder`, { state: { dashboardId: d.id, charts: d.charts, filters: d.filters, prompt: d.title } })}
-                  className="text-left bg-white border border-gray-200 rounded-2xl shadow-sm p-4 hover:border-violet-200 hover:shadow transition"
+                  onClick={handleSend}
+                  disabled={loading}
+                  className="whitespace-nowrap px-5 py-3 rounded-lg bg-gray-900 text-white text-base font-semibold hover:bg-gray-800 disabled:opacity-60 flex items-center justify-center gap-2 shadow-sm"
                 >
-                  <div className="text-base font-semibold text-gray-900">{d.title}</div>
-                  <div className="text-sm text-gray-600 mt-1">{d.sourceName || "Dashboard"}</div>
-                  <div className="text-xs text-gray-500 mt-2">
-                    Ultimo salvataggio: {d.updatedAt ? new Date(d.updatedAt).toLocaleString() : "?"}
-                  </div>
+                  {loading ? "Running..." : "Send message"}
+                  {!loading && <ArrowRight className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              {suggestions.map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setPrompt(s)}
+                  className="text-xs px-3 py-1.5 rounded-full border border-gray-200 bg-gray-50 hover:bg-gray-100 text-gray-700 flex items-center gap-2"
+                >
+                  <Wand2 className="w-4 h-4 text-gray-500" />
+                  {s}
                 </button>
               ))}
             </div>
+
+            {error && <div className="text-sm text-red-600">Errore: {error}</div>}
+          </div>
+
+          {latestCharts && (
+            <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-xl font-semibold text-gray-900">Generated dashboard</h2>
+                  <p className="text-sm text-gray-600">Based on your last prompt</p>
+                </div>
+                <button
+                  className="text-sm text-gray-800 hover:text-gray-900 font-semibold"
+                  onClick={() => navigate("/dashboard-studio/run")}
+                >
+                  Open in builder
+                </button>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {latestCharts.map((chart) => (
+                  <ChartCard key={chart.id} spec={chart as Required<ChartSpec>} />
+                ))}
+              </div>
+            </div>
           )}
+
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-gray-900">Your dashboards</h3>
+            </div>
+            {dashboards.length === 0 ? (
+              <div className="flex items-center gap-3 text-gray-500 text-sm bg-white border border-dashed border-gray-300 rounded-xl p-4">
+                <Inbox className="w-4 h-4" />
+                Nessuna dashboard salvata. Genera la prima usando il prompt qui sopra.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {dashboards.map((d) => (
+                  <button
+                    key={d.id}
+                    onClick={() =>
+                      navigate(`/dashboard-builder`, {
+                        state: { dashboardId: d.id, charts: d.charts, filters: d.filters, prompt: d.title },
+                      })
+                    }
+                    className="text-left bg-white border border-gray-200 rounded-2xl shadow-sm p-4 hover:border-gray-300 hover:shadow-md transition"
+                  >
+                    <div className="text-base font-semibold text-gray-900">{d.title}</div>
+                    <div className="text-sm text-gray-600 mt-1">{d.sourceName || "Dashboard"}</div>
+                    <div className="text-xs text-gray-500 mt-2">
+                      Ultimo salvataggio: {d.updatedAt ? new Date(d.updatedAt).toLocaleString() : "-"}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -282,7 +284,7 @@ export default function DashboardHome() {
             <div className="text-lg font-semibold text-gray-900">Set GA4 property ID</div>
             <p className="text-sm text-gray-600">Inserisci l'ID della property GA4 da usare per generare i dati.</p>
             <input
-              className="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-300"
+              className="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-400"
               placeholder="Es. 452166144"
               value={localProperty}
               onChange={(e) => setLocalProperty(e.target.value)}
@@ -295,7 +297,7 @@ export default function DashboardHome() {
                 Annulla
               </button>
               <button
-                className="px-3 py-2 rounded-lg bg-black text-white text-sm hover:opacity-90"
+                className="px-3 py-2 rounded-lg bg-gray-900 text-white text-sm hover:bg-gray-800"
                 onClick={handleSaveProperty}
               >
                 Salva
@@ -321,15 +323,12 @@ function ModeChip({
     <button
       onClick={onClick}
       className={`px-3 py-1.5 rounded-full border text-xs font-medium transition ${
-        selected ? "bg-black text-white border-black" : "bg-white text-gray-700 border-gray-200 hover:border-gray-300"
+        selected
+          ? "bg-gray-100 text-gray-900 border-gray-300"
+          : "bg-white text-gray-700 border-gray-200 hover:border-gray-300"
       }`}
     >
       {label}
     </button>
   );
 }
-
-
-
-
-
