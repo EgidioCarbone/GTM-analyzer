@@ -1,10 +1,12 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ChevronDown, ArrowLeft, Pencil, Check, Copy, Trash2 } from "lucide-react";
 import ChartCard, { ChartType } from "../components/ChartCard";
+import { AddSourceModal } from "../components/AddSourceModal";
 import { useDashboardStore } from "../context/DashboardStoreContext";
 import { useStudioRunner } from "../hooks/useStudioRunner";
 import { useGa4Property } from "../context/Ga4PropertyContext";
+import { useSourceStore } from "../context/SourceStoreContext";
 import { toast } from "react-hot-toast";
 
 function presetRange(key: "last_28_days" | "last_3_months") {
@@ -18,8 +20,9 @@ function presetRange(key: "last_28_days" | "last_3_months") {
 export default function DashboardBuilder() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { propertyId } = useGa4Property();
+  const { propertyId, setPropertyId } = useGa4Property();
   const { dashboards, activeId, setActiveDashboard, upsertDashboard, filters, setFilters } = useDashboardStore();
+  const { sources, selectedSource, selectSource } = useSourceStore();
   const { runDashboard, loading } = useStudioRunner(propertyId);
   const [selectedChartId, setSelectedChartId] = useState<string | null>(null);
   const [sidebarPrompt, setSidebarPrompt] = useState("");
@@ -42,6 +45,7 @@ export default function DashboardBuilder() {
   const [dashTitleDraft, setDashTitleDraft] = useState("");
   const [mode, setMode] = useState<"editing" | "view">("editing");
   const [showShareModal, setShowShareModal] = useState(false);
+  const [showSourceModal, setShowSourceModal] = useState(false);
   const dash = useMemo(() => dashboards.find((d) => d.id === activeId) || dashboards[0], [dashboards, activeId]);
 
   const gridColsClass = useMemo(() => {
@@ -51,9 +55,29 @@ export default function DashboardBuilder() {
     return "grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4";
   }, [dash?.charts?.length]);
 
+  const isValidGaId = useCallback((id: string | null | undefined) => {
+    if (!id) return false;
+    const trimmed = id.trim();
+    if (!trimmed) return false;
+    if (trimmed === "GA4-000000") return false;
+    return true;
+  }, []);
+
   useEffect(() => {
     if (dash) setDashTitleDraft(dash.title);
   }, [dash?.title]);
+
+  useEffect(() => {
+    if (!selectedSource && sources.length) {
+      selectSource(sources[0].id);
+    }
+  }, [selectedSource, sources, selectSource]);
+
+  useEffect(() => {
+    if (selectedSource?.type === "ga4" && isValidGaId(selectedSource.externalId)) {
+      setPropertyId(selectedSource.externalId);
+    }
+  }, [selectedSource, setPropertyId, isValidGaId]);
 
   const processedNavRef = useRef<string | null>(null);
   useEffect(() => {
@@ -61,12 +85,22 @@ export default function DashboardBuilder() {
     if (state?.dashboardId && state?.charts) {
       if (processedNavRef.current === state.dashboardId) return;
       processedNavRef.current = state.dashboardId;
+      const activeSource = state.sourceId
+        ? sources.find((s) => s.id === state.sourceId)
+        : selectedSource || sources[0];
+      if (activeSource) {
+        selectSource(activeSource.id);
+        if (activeSource.type === "ga4" && activeSource.externalId) {
+          setPropertyId(activeSource.externalId);
+        }
+      }
       upsertDashboard({
         id: state.dashboardId,
         title: state.prompt || "Dashboard",
         charts: state.charts,
         filters: state.filters,
-        sourceName: "Demo Site",
+        sourceName: activeSource?.name || "Demo Site",
+        sourceId: activeSource?.id,
       });
       setActiveDashboard(state.dashboardId);
       setSelectedChartId(state.charts?.[0]?.id ?? null);
@@ -80,42 +114,70 @@ export default function DashboardBuilder() {
         },
       ]);
     }
-  }, [location.state, upsertDashboard, setActiveDashboard]);
+  }, [location.state, upsertDashboard, setActiveDashboard, selectedSource, selectSource, setPropertyId, sources]);
 
   useEffect(() => {
-    if (!dash || !propertyId) return;
-    const key = `${propertyId}|${dash.id}|${filters.startDate}|${filters.endDate}|${filters.granularity}`;
+    const activeSource = selectedSource || sources[0];
+    const effectiveProperty = isValidGaId(activeSource?.externalId) ? activeSource?.externalId : propertyId;
+    if (!dash || !effectiveProperty) return;
+    const key = `${effectiveProperty}|${activeSource?.id || "none"}|${dash.id}|${filters.startDate}|${filters.endDate}|${filters.granularity}`;
     if (runKeyRef.current === key) return;
     runKeyRef.current = key;
-    console.log("[builder] fetching charts", { propertyId, dashId: dash.id, filters, count: dash.charts.length });
-    runDashboard({ prompt: dash.title, filters, charts: dash.charts })
-      .then((res) => upsertDashboard({ ...dash, charts: res.charts, filters }))
+    console.log("[builder] fetching charts", {
+      propertyId: effectiveProperty,
+      sourceId: activeSource?.id,
+      dashId: dash.id,
+      filters,
+      count: dash.charts.length,
+    });
+    runDashboard({
+      prompt: dash.title,
+      filters,
+      charts: dash.charts,
+      sourceId: activeSource?.id,
+      propertyIdOverride: effectiveProperty,
+    })
+      .then((res) => upsertDashboard({ ...dash, charts: res.charts, filters, sourceId: activeSource?.id }))
       .catch((err) => {
         console.error("[builder] runDashboard error", err);
       });
     // NOTE: dipendenze ridotte per evitare loop di richieste; usiamo id e filtri
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dash?.id, filters.startDate, filters.endDate, filters.granularity, propertyId]);
+  }, [dash?.id, filters.startDate, filters.endDate, filters.granularity, propertyId, selectedSource, sources]);
 
   async function handleSendPrompt(promptText: string) {
     if (!promptText.trim()) {
       toast.error("Scrivi una richiesta");
       return;
     }
-    if (!propertyId) {
-      toast.error("Imposta una GA4 property ID");
-      return;
-    }
     if (!dash) return;
     try {
       const userMsgId = crypto.randomUUID();
+      const activeSource = selectedSource || sources[0];
+      if (!activeSource) {
+        toast.error("Seleziona una source");
+        return;
+      }
+      const effectiveProperty = isValidGaId(activeSource.externalId) ? activeSource.externalId : propertyId;
+      if (activeSource?.type === "ga4" && isValidGaId(activeSource.externalId)) {
+        setPropertyId(activeSource.externalId);
+      }
+      if (!effectiveProperty) {
+        toast.error("Imposta un ID per la source selezionata");
+        return;
+      }
       setChatMessages((prev) => [
         ...prev,
         { id: userMsgId, role: "user", text: promptText.trim(), chartsLinked: [], attachments: pendingAttachments },
       ]);
-      const res = await runDashboard({ prompt: promptText, filters });
+      const res = await runDashboard({
+        prompt: promptText,
+        filters,
+        sourceId: activeSource?.id,
+        propertyIdOverride: effectiveProperty,
+      });
       const merged = [...dash.charts, ...res.charts];
-      upsertDashboard({ ...dash, charts: merged });
+      upsertDashboard({ ...dash, charts: merged, sourceId: activeSource?.id, sourceName: activeSource?.name || dash.sourceName });
       setSelectedChartId(res.charts[0]?.id ?? merged[0]?.id ?? null);
       setSidebarPrompt("");
       if (pendingAttachments.length) setPendingAttachments([]);
@@ -144,6 +206,18 @@ export default function DashboardBuilder() {
     navigate(`/dashboards/${slug}/public`);
   }
 
+  function handleSelectSource(id: string) {
+    const src = sources.find((s) => s.id === id);
+    selectSource(id);
+    if (src?.type === "ga4" && isValidGaId(src.externalId)) {
+      setPropertyId(src.externalId);
+    }
+    if (dash && src) {
+      upsertDashboard({ ...dash, sourceName: src.name, sourceId: src.id });
+    }
+    setShowSourceModal(false);
+  }
+
   if (!dash) return <div className="p-6">Nessuna dashboard</div>;
 
   return (
@@ -162,7 +236,8 @@ export default function DashboardBuilder() {
           const att = { id: crypto.randomUUID(), name: file.name };
           setPendingAttachments((prev) => [...prev, att]);
         }}
-        onSelectSource={() => setShowShareModal(true)}
+        selectedSourceName={selectedSource?.name || dash.sourceName}
+        onOpenSourcePicker={() => setShowSourceModal(true)}
       />
 
       <main className="flex-1 overflow-auto p-6 space-y-4">
@@ -341,6 +416,12 @@ export default function DashboardBuilder() {
         {loading && <div className="text-sm text-gray-500">Refreshing data…</div>}
       </main>
 
+      <AddSourceModal
+        isOpen={showSourceModal}
+        onClose={() => setShowSourceModal(false)}
+        onSelectSource={handleSelectSource}
+      />
+
       {showShareModal && (
         <div className="fixed inset-0 z-[14000] flex items-center justify-center">
           <div className="absolute inset-0 bg-black/50" onClick={() => setShowShareModal(false)} />
@@ -512,9 +593,7 @@ function FilterBar({
         <ChevronDown className="w-4 h-4" />
       </div>
       <div className="ml-auto flex gap-2">
-        <button className="px-4 py-2 border border-black text-black rounded-lg" onClick={onPublish}>
-          Pubblica
-        </button>
+       
       </div>
     </div>
   );
@@ -805,7 +884,8 @@ function Sidebar({
   messages,
   attachments,
   onAddAttachment,
-  onSelectSource,
+  selectedSourceName,
+  onOpenSourcePicker,
 }: {
   dashboardTitle: string;
   charts: any[];
@@ -817,7 +897,8 @@ function Sidebar({
   messages: Array<{ id: string; role: "user" | "ai"; text: string; chartsLinked?: string[]; attachments?: { id: string; name: string }[] }>;
   attachments: { id: string; name: string }[];
   onAddAttachment: (file: File) => void;
-  onSelectSource: () => void;
+  selectedSourceName?: string;
+  onOpenSourcePicker: () => void;
 }) {
   const historyRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
@@ -825,8 +906,8 @@ function Sidebar({
   }, [messages]);
 
   return (
-    <aside className="w-80 border-r bg-white flex flex-col">
-      <div className="px-3 py-2 font-semibold text-gray-800 border-b truncate">{dashboardTitle}</div>
+    <aside className="w-80 border-r bg-white flex flex-col h-screen">
+      <div className="px-3 py-2 font-semibold text-gray-800 border-b truncate shrink-0">{dashboardTitle}</div>
 
       <div className="flex-1 overflow-auto border-b" ref={historyRef}>
         <div className="divide-y">
@@ -859,18 +940,19 @@ function Sidebar({
         </div>
       </div>
 
-      <div className="p-3 space-y-2">
-        <div className="flex items-center gap-2">
+      <div className="p-3 space-y-2 border-t bg-white sticky bottom-0">
+        <div className="flex items-center gap-2 w-full">
           <button
             type="button"
-            className="p-2 rounded-lg border bg-white hover:bg-gray-50"
+            className="px-3 py-2 rounded-lg border bg-white hover:bg-gray-50 text-left min-w-[150px]"
             aria-label="Select source"
-            onClick={onSelectSource}
+            onClick={onOpenSourcePicker}
           >
-            🗄️
+            <div className="text-[10px] uppercase tracking-wide text-gray-500">Data source</div>
+            <div className="text-sm font-semibold text-gray-900 truncate">{selectedSourceName || "Select a source"}</div>
           </button>
-          <label className="p-2 rounded-lg border bg-white hover:bg-gray-50 cursor-pointer" aria-label="Attach file">
-            📎
+          <label className="p-2 rounded-lg border bg-white hover:bg-gray-50 cursor-pointer text-xs font-semibold text-gray-700" aria-label="Attach file">
+            Attach
             <input
               type="file"
               className="hidden"
@@ -880,8 +962,10 @@ function Sidebar({
               }}
             />
           </label>
+        </div>
+        <div className="w-full">
           <input
-            className="flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+            className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
             placeholder="Ask Graphed to see..."
             value={prompt}
             onChange={(e) => onChangePrompt(e.target.value)}

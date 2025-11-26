@@ -7,6 +7,7 @@ export type DashboardDefinition = {
   title: string;
   charts: ChartSpec[];
   filters: StudioFilters;
+  sourceId?: string | null;
   isPublic?: boolean;
   publicSlug?: string;
   sourceName?: string;
@@ -41,7 +42,8 @@ export function DashboardStoreProvider({ children }: { children: React.ReactNode
   const [dashboards, setDashboards] = useState<DashboardDefinition[]>(() => {
     try {
       const raw = localStorage.getItem("dashboards");
-      return raw ? (JSON.parse(raw) as DashboardDefinition[]) : [];
+      const parsed = raw ? (JSON.parse(raw) as DashboardDefinition[]) : [];
+      return normalizeDashboards(parsed);
     } catch {
       return [];
     }
@@ -61,15 +63,35 @@ export function DashboardStoreProvider({ children }: { children: React.ReactNode
       setFilters,
       setActiveDashboard: (id) => setActiveId(id),
       upsertDashboard: (d) => {
-        setDashboards((prev) => {
-          const idx = prev.findIndex((p) => p.id === d.id);
-          const next = { ...d, updatedAt: new Date().toISOString() };
-          if (idx === -1) return [next, ...prev];
-          const clone = [...prev];
-          clone[idx] = next;
-          return clone;
+        const nextStamp = new Date().toISOString();
+      setDashboards((prev) => {
+          const nextStamp = new Date().toISOString();
+          const normalizedTitle = (d.title || "").trim().toLowerCase();
+          const sourceKey = d.sourceId || "none";
+          const key = `${normalizedTitle}|${sourceKey}`;
+
+          // Reuse existing dashboard id if same title+source already exists
+          const existingByKey = prev.find(
+            (p) => (p.title || "").trim().toLowerCase() === normalizedTitle && (p.sourceId || "none") === sourceKey
+          );
+          const targetId = existingByKey?.id || d.id;
+          const nextDash: DashboardDefinition = { ...d, id: targetId, updatedAt: nextStamp };
+
+          const merged = prev.filter((p) => !( (p.title || "").trim().toLowerCase() === normalizedTitle && (p.sourceId || "none") === sourceKey ));
+          merged.push(nextDash);
+
+          const normalized = normalizeDashboards(merged);
+          const sorted = normalized.sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""));
+          return sorted;
         });
-        setActiveId(d.id);
+        const normalizedTitle = (d.title || "").trim().toLowerCase();
+        const sourceKey = d.sourceId || "none";
+        const key = `${normalizedTitle}|${sourceKey}`;
+        const match = dashboards.find(
+          (p) => (p.title || "").trim().toLowerCase() === normalizedTitle && (p.sourceId || "none") === sourceKey
+        );
+        const targetId = match?.id || d.id;
+        setActiveId(targetId);
       },
       deleteDashboard: (id) => {
         setDashboards((prev) => prev.filter((d) => d.id !== id));
@@ -86,4 +108,26 @@ export function useDashboardStore() {
   const ctx = useContext(DashboardStoreContext);
   if (!ctx) throw new Error("useDashboardStore must be used within DashboardStoreProvider");
   return ctx;
+}
+
+function normalizeDashboards(list: DashboardDefinition[] | null | undefined) {
+  if (!Array.isArray(list)) return [];
+  const byKey: Record<string, DashboardDefinition> = {};
+
+  const pickLatest = (existing: DashboardDefinition | undefined, current: DashboardDefinition) => {
+    if (!existing) return current;
+    const existingTs = existing.updatedAt || "";
+    const currentTs = current.updatedAt || "";
+    return currentTs.localeCompare(existingTs) >= 0 ? current : existing;
+  };
+
+  list.forEach((d) => {
+    if (!d?.id) return;
+    const titleKey = (d.title || "").trim().toLowerCase();
+    const sourceKey = d.sourceId || "none";
+    const key = `${titleKey}|${sourceKey}`;
+    byKey[key] = pickLatest(byKey[key], d);
+  });
+
+  return Object.values(byKey).sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""));
 }

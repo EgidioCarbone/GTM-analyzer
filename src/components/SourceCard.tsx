@@ -9,7 +9,7 @@ export type SourceItem = {
 
 type Props = {
   source: SourceItem;
-  onSelect: (id: string) => void;
+  onSelect: (id?: string) => void;
 };
 
 export function SourceCard({ source, onSelect }: Props) {

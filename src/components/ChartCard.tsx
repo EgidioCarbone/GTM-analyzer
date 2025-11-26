@@ -126,7 +126,7 @@ function renderContent(
   if (type === "table") {
     const rows = data?.slice(0, 10) || [];
     return (
-      <div className="overflow-auto">
+      <div className="overflow-auto max-h-72">
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-gray-500">

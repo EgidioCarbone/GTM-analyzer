@@ -20,6 +20,7 @@ import DashboardHome from "./pages/DashboardHome";
 import LiveDebuggerPage from "./pages/LiveDebuggerPage";
 import { Ga4PropertyProvider } from "./context/Ga4PropertyContext";
 import { DashboardStoreProvider } from "./context/DashboardStoreContext";
+import { SourceStoreProvider } from "./context/SourceStoreContext";
 import DashboardBuilder from "./pages/DashboardBuilder";
 import DashboardPublic from "./pages/DashboardPublic";
 
@@ -44,8 +45,9 @@ export default function App() {
 
   return (
     <Ga4PropertyProvider>
-      <DashboardStoreProvider>
-        <ErrorBoundary>
+      <SourceStoreProvider>
+        <DashboardStoreProvider>
+          <ErrorBoundary>
           <div
             className={`min-h-screen font-sans relative overflow-hidden bg-gradient-to-br from-purple-50 via-pink-50 to-white dark:from-gray-900 dark:via-gray-950 dark:to-black transition-all duration-300`}
           >
@@ -110,8 +112,9 @@ export default function App() {
               </Routes>
             </main>
           </div>
-        </ErrorBoundary>
-      </DashboardStoreProvider>
+          </ErrorBoundary>
+        </DashboardStoreProvider>
+      </SourceStoreProvider>
     </Ga4PropertyProvider>
   );
 }

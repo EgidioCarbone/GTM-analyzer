@@ -1,4 +1,4 @@
-﻿import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-hot-toast";
 import { ArrowRight, Inbox, Wand2 } from "lucide-react";
@@ -6,6 +6,7 @@ import ChartCard, { ChartSpec } from "../components/ChartCard";
 import { useGa4Property } from "../context/Ga4PropertyContext";
 import { useDashboardStore } from "../context/DashboardStoreContext";
 import { StudioFilters, useStudioRunner } from "../hooks/useStudioRunner";
+import { useSourceStore } from "../context/SourceStoreContext";
 
 import { AddSourceModal } from "../components/AddSourceModal";
 type Mode = "dashboard" | "source" | "upload";
@@ -25,6 +26,7 @@ export default function DashboardHome() {
   const { propertyId, setPropertyId } = useGa4Property();
   const { runDashboard, loading, error } = useStudioRunner(propertyId);
   const { dashboards, upsertDashboard } = useDashboardStore();
+  const { sources, selectSource, selectedSource } = useSourceStore();
   const navigate = useNavigate();
 
   const [prompt, setPrompt] = useState("");
@@ -33,6 +35,7 @@ export default function DashboardHome() {
   const [localProperty, setLocalProperty] = useState(propertyId || "");
   const [latestCharts, setLatestCharts] = useState<ChartSpec[] | null>(null);
   const [showAddSourceModal, setShowAddSourceModal] = useState(false);
+  const [activeDashId, setActiveDashId] = useState<string | null>(null);
 
   const suggestions = [
     "Page views and sessions by channel group last 30 days",
@@ -60,27 +63,62 @@ export default function DashboardHome() {
     []
   );
 
+  useEffect(() => {
+    // ensure we always have a selected source to avoid empty data calls
+    if (!selectedSource && sources.length) {
+      selectSource(sources[0].id);
+    }
+  }, [selectedSource, sources, selectSource]);
+
+  const isValidGaId = (id: string | null | undefined) => {
+    if (!id) return false;
+    const trimmed = id.trim();
+    if (!trimmed) return false;
+    if (trimmed === "GA4-000000") return false;
+    return true;
+  };
+
   async function handleSend() {
     try {
-      if (!propertyId) {
-        toast.error("Imposta una GA4 property ID per continuare");
-        setShowPropertyPanel(true);
-        return;
-      }
       if (!prompt.trim()) {
         toast.error("Scrivi cosa vuoi vedere");
         return;
       }
-      const res = await runDashboard({ prompt, filters: computedFilters });
-      const id = (crypto as any)?.randomUUID ? (crypto as any).randomUUID() : `dash_${Date.now()}`;
+      const activeSource = selectedSource || sources[0];
+      if (!activeSource) {
+        toast.error("Seleziona una source per continuare");
+        return;
+      }
+      if (activeSource.type === "ga4" && !isValidGaId(activeSource.externalId)) {
+        toast.error("Imposta un GA4 Measurement/Property ID valido per questa source");
+        setShowPropertyPanel(true);
+        return;
+      }
+      if (activeSource.type === "ga4" && isValidGaId(activeSource.externalId)) {
+        setPropertyId(activeSource.externalId);
+      }
+      const res = await runDashboard({
+        prompt,
+        filters: computedFilters,
+        sourceId: activeSource.id,
+        propertyIdOverride: isValidGaId(activeSource.externalId) ? activeSource.externalId : propertyId,
+      });
+
+      const normalizedTitle = prompt.trim().toLowerCase();
+      const existing = dashboards.find(
+        (d) => (d.title || "").trim().toLowerCase() === normalizedTitle && (d.sourceId || "none") === activeSource.id
+      );
+      const id = existing?.id || ((crypto as any)?.randomUUID ? (crypto as any).randomUUID() : `dash_${Date.now()}`);
       const dashboardDefinition = {
         id,
         title: prompt.trim().slice(0, 80) || "Dashboard",
         charts: res.charts,
         filters: computedFilters,
-        sourceName: "Demo Site",
+        sourceName: activeSource.name,
+        sourceId: activeSource.id,
       };
       upsertDashboard(dashboardDefinition as any);
+      setActiveDashId(id);
       setLatestCharts(res.charts);
       toast.success("Dashboard generata e salvata");
       navigate("/dashboard-builder", {
@@ -89,6 +127,7 @@ export default function DashboardHome() {
           charts: res.charts,
           filters: computedFilters,
           dashboardId: id,
+          sourceId: activeSource.id,
         },
       });
     } catch (e: any) {
@@ -97,12 +136,17 @@ export default function DashboardHome() {
   }
 
   function handleSelectSource(id: string) {
-    if (id === "ga4") {
-      setShowPropertyPanel(true);
-      setShowAddSourceModal(false);
-      return;
+    selectSource(id);
+    const src = sources.find((s) => s.id === id);
+    if (src?.type === "ga4") {
+      if (src.externalId) {
+        setPropertyId(src.externalId);
+        setLocalProperty(src.externalId);
+      } else {
+        setShowPropertyPanel(true);
+      }
     }
-    toast.success(`Source selezionata: ${id}`);
+    toast.success(`Source selezionata: ${src?.name || id}`);
     setShowAddSourceModal(false);
   }
 
@@ -216,7 +260,7 @@ export default function DashboardHome() {
                   <div className="text-base font-semibold text-gray-900">{d.title}</div>
                   <div className="text-sm text-gray-600 mt-1">{d.sourceName || "Dashboard"}</div>
                   <div className="text-xs text-gray-500 mt-2">
-                    Ultimo salvataggio: {d.updatedAt ? new Date(d.updatedAt).toLocaleString() : "—"}
+                    Ultimo salvataggio: {d.updatedAt ? new Date(d.updatedAt).toLocaleString() : "?"}
                   </div>
                 </button>
               ))}
@@ -284,6 +328,7 @@ function ModeChip({
     </button>
   );
 }
+
 
 
 
