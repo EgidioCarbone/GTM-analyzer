@@ -1,7 +1,18 @@
 import React, { useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { BarChart, Brain, TestTube, Shield, ArrowRight, CheckCircle, Upload, Bug } from 'lucide-react';
+import {
+  ArrowRight,
+  BarChart3,
+  BrainCircuit,
+  Bug,
+  CheckCircle,
+  FlaskConical,
+  LayoutDashboard,
+  LineChart,
+  ShieldCheck,
+  Upload,
+} from 'lucide-react';
 import { useContainer } from '../context/ContainerContext';
 import { AnimatedBackdrop } from '../components/AnimatedBackdrop';
 
@@ -14,7 +25,9 @@ type ColorClasses = {
   arrow: string;
   dot: string;
   hover: string;
-  overlay: string;
+  pill: string;
+  pillText: string;
+  border: string;
 };
 
 export interface Tool {
@@ -39,7 +52,7 @@ const tools: Tool[] = [
     title: 'GTM Analytics',
     description: 'Analisi completa e gestione container GTM con dashboard integrata',
     requiresJson: true,
-    icon: BarChart,
+    icon: BarChart3,
     color: 'blue',
     features: ['Analisi dettagliata', 'Dashboard interattiva', 'Report avanzati']
   },
@@ -48,7 +61,7 @@ const tools: Tool[] = [
     title: 'AI Plan',
     description: 'Pianificazione intelligente e strategica con intelligenza artificiale',
     requiresJson: true,
-    icon: Brain,
+    icon: BrainCircuit,
     color: 'purple',
     features: ['Pianificazione AI', 'Strategie personalizzate', 'Raccomandazioni smart']
   },
@@ -57,7 +70,7 @@ const tools: Tool[] = [
     title: 'SDD Test',
     description: 'Test automatizzati da documenti SDD con esecuzione browser',
     requiresJson: false,
-    icon: TestTube,
+    icon: FlaskConical,
     color: 'green',
     features: ['Test automatici', 'Esecuzione browser', 'Report dettagliati']
   },
@@ -66,7 +79,7 @@ const tools: Tool[] = [
     title: 'AI Sentinel',
     description: 'Test automatico del consenso con Playwright per GDPR/CCPA',
     requiresJson: false,
-    icon: CheckCircle,
+    icon: ShieldCheck,
     color: 'cyan',
     features: ['Test automatici', 'Rilevamento CMP', 'Report dettagliati']
   },
@@ -75,7 +88,7 @@ const tools: Tool[] = [
     title: 'GA4 Insights',
     description: 'KPI, trend e insight con IA dai dati di Google Analytics 4',
     requiresJson: false,
-    icon: BarChart,
+    icon: LineChart,
     color: 'cyan',
     features: ['Utenti, sessioni, pageviews', 'Top canali e pagine', 'Insight generati con IA']
   },
@@ -84,7 +97,7 @@ const tools: Tool[] = [
     title: 'Dashboard Studio',
     description: 'Genera e condividi dashboard GA4 a partire da prompt in linguaggio naturale',
     requiresJson: false,
-    icon: BarChart,
+    icon: LayoutDashboard,
     color: 'cyan',
     features: ['Prompt -> grafici automatici', 'KPI, trend e tabelle', 'Link di condivisione in un click']
   },
@@ -111,40 +124,50 @@ const ToolCard: React.FC<ToolCardProps> = ({ tool, onClick }) => {
       icon: 'bg-blue-500',
       arrow: 'text-blue-500',
       dot: 'bg-blue-400',
-      hover: 'hover:border-blue-300',
-      overlay: 'from-blue-500/5'
+      hover: 'hover:border-blue-200 hover:shadow-2xl',
+      pill: 'bg-blue-100',
+      pillText: 'text-blue-700',
+      border: 'border-blue-50'
     },
     purple: {
       header: 'bg-gradient-to-r from-purple-50 to-purple-100',
       icon: 'bg-purple-500',
       arrow: 'text-purple-500',
       dot: 'bg-purple-400',
-      hover: 'hover:border-purple-300',
-      overlay: 'from-purple-500/5'
+      hover: 'hover:border-purple-200 hover:shadow-2xl',
+      pill: 'bg-purple-100',
+      pillText: 'text-purple-700',
+      border: 'border-purple-50'
     },
     green: {
       header: 'bg-gradient-to-r from-green-50 to-green-100',
       icon: 'bg-green-500',
       arrow: 'text-green-500',
       dot: 'bg-green-400',
-      hover: 'hover:border-green-300',
-      overlay: 'from-green-500/5'
+      hover: 'hover:border-green-200 hover:shadow-2xl',
+      pill: 'bg-green-100',
+      pillText: 'text-green-700',
+      border: 'border-green-50'
     },
     red: {
       header: 'bg-gradient-to-r from-red-50 to-red-100',
       icon: 'bg-red-500',
       arrow: 'text-red-500',
       dot: 'bg-red-400',
-      hover: 'hover:border-red-300',
-      overlay: 'from-red-500/5'
+      hover: 'hover:border-red-200 hover:shadow-2xl',
+      pill: 'bg-red-100',
+      pillText: 'text-red-700',
+      border: 'border-red-50'
     },
     cyan: {
       header: 'bg-gradient-to-r from-cyan-50 to-cyan-100',
       icon: 'bg-cyan-500',
       arrow: 'text-cyan-500',
       dot: 'bg-cyan-400',
-      hover: 'hover:border-cyan-300',
-      overlay: 'from-cyan-500/5'
+      hover: 'hover:border-cyan-200 hover:shadow-2xl',
+      pill: 'bg-cyan-100',
+      pillText: 'text-cyan-700',
+      border: 'border-cyan-50'
     }
   };
 
@@ -156,56 +179,45 @@ const ToolCard: React.FC<ToolCardProps> = ({ tool, onClick }) => {
       whileTap={{ scale: 0.98 }}
       onClick={onClick}
       className={`
-        relative bg-white rounded-xl shadow-lg hover:shadow-xl transition-all duration-300
-        cursor-pointer group border border-gray-200 ${colors.hover}
-        overflow-hidden h-full flex flex-col
+        relative bg-white/95 backdrop-blur rounded-2xl shadow-xl transition-all duration-300
+        cursor-pointer group border ${colors.border} ${colors.hover}
+        overflow-hidden h-full flex flex-col min-h-[260px]
       `}
     >
       {/* Header con icona e colore */}
-      <div className={`${colors.header} p-4`}>
-        <div className="flex items-center justify-between">
-          <div className={`w-10 h-10 rounded-lg ${colors.icon} flex items-center justify-center`}>
-            <Icon className="w-5 h-5 text-white" />
+      <div className={`${colors.header} p-4 pb-3`}>
+        <div className="flex items-start justify-between">
+          <div className="flex items-center gap-3">
+            <div className={`w-12 h-12 rounded-xl ${colors.icon} flex items-center justify-center shadow-sm`}>
+              <Icon className="w-6 h-6 text-white" />
+            </div>
+            <div className="space-y-1">
+              <div className="text-xs uppercase tracking-wide text-slate-500">Modulo</div>
+              <div className="text-sm font-semibold text-slate-800">{tool.title}</div>
+            </div>
           </div>
-          <div className="flex items-center space-x-2">
-            {tool.requiresJson ? (
-              <div className="flex items-center text-amber-600 text-sm">
-                <Upload className="w-4 h-4 mr-1" />
-                <span>Richiede JSON</span>
-              </div>
-            ) : (
-              <div className="flex items-center text-green-600 text-sm">
-                <CheckCircle className="w-4 h-4 mr-1" />
-                <span>Pronto all'uso</span>
-              </div>
-            )}
+          <div className="flex items-center gap-2">
             <ArrowRight className={`w-5 h-5 ${colors.arrow} group-hover:translate-x-1 transition-transform`} />
           </div>
         </div>
       </div>
 
       {/* Contenuto */}
-      <div className="p-4 flex flex-col flex-grow">
-        <h3 className="text-lg font-semibold text-gray-900 mb-2">
-          {tool.title}
-        </h3>
-        <p className="text-gray-600 mb-3 leading-relaxed flex-grow text-sm">
+      <div className="p-5 flex flex-col flex-grow gap-3">
+        <p className="text-gray-700 leading-relaxed flex-grow text-sm">
           {tool.description}
         </p>
 
         {/* Features */}
-        <div className="space-y-1">
+        <div className="space-y-2">
           {tool.features.map((feature: string, index: number) => (
-            <div key={index} className="flex items-center text-xs text-gray-500">
-              <div className={`w-1 h-1 rounded-full ${colors.dot} mr-2`} />
+            <div key={index} className="flex items-center text-sm text-gray-600">
+              <div className={`w-2 h-2 rounded-full ${colors.dot} mr-3`} />
               {feature}
             </div>
           ))}
         </div>
       </div>
-
-      {/* Hover effect */}
-      <div className={`absolute inset-0 bg-gradient-to-r ${colors.overlay} to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300`} />
     </motion.div>
   );
 };
@@ -314,7 +326,7 @@ export default function HomePage() {
           <div className="flex justify-center items-center py-6">
             <div className="flex items-center">
               <div className="w-10 h-10 bg-gradient-to-r from-blue-600 to-purple-600 rounded-lg flex items-center justify-center mr-4">
-                <BarChart className="w-6 h-6 text-white" />
+                <BarChart3 className="w-6 h-6 text-white" />
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-gray-900">LikeSense</h1>
@@ -329,19 +341,21 @@ export default function HomePage() {
       <main className="flex-grow flex items-center justify-center px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto relative z-10">
         <div className="w-full">
           {/* Hero Section */}
-          <div className="text-center mb-12">
+          <div className="text-center mb-12 space-y-3">
             <motion.div
               initial={{ opacity: 0, scale: 0.8 }}
               animate={{ opacity: 1, scale: 1 }}
               transition={{ duration: 0.8, delay: 0.2 }}
-              className="mb-6"
+              className="inline-flex items-center gap-2 px-4 py-1 rounded-full bg-white/80 shadow-sm text-purple-600 text-sm font-medium"
             >
+              
+              
             </motion.div>
             <motion.h2
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6 }}
-              className="text-4xl font-bold text-gray-900 mb-4"
+              className="text-4xl font-semibold text-slate-900"
             >
               Choose Your Analytics Tool
             </motion.h2>
@@ -349,14 +363,14 @@ export default function HomePage() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 0.1 }}
-              className="text-xl text-gray-600 max-w-3xl mx-auto"
+              className="text-lg text-slate-600 max-w-3xl mx-auto"
             >
               Select the perfect tool for your GTM analysis needs. Each tool is designed for specific use cases and requirements.
             </motion.p>
           </div>
 
           {/* Tools Grid - Layout Responsivo Ottimizzato */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 items-stretch max-w-6xl mx-auto px-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 items-stretch max-w-7xl mx-auto px-2 sm:px-4">
             {tools.map((tool: Tool, index: number) => (
               <motion.div
                 key={tool.id}
