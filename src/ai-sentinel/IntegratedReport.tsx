@@ -23,6 +23,8 @@ interface ScenarioResult {
     functionality_storage: string;
     security_storage: string;
   };
+  consentSource?: 'consentMode' | 'onetrust' | 'behavior' | 'unknown';
+  activeGroups?: string[];
   cookies: Array<{
     name: string;
     domain: string;
@@ -374,6 +376,15 @@ const IntegratedReport: React.FC<IntegratedReportProps> = ({ result }) => {
     ].filter(entry => entry.value);
   }, [activeScenario]);
 
+  const consentSourceNote = useMemo(() => {
+    if (!activeScenario) return '';
+    if (!activeScenario.consentSource || activeScenario.consentSource === 'consentMode') return '';
+    if (activeScenario.consentSource === 'onetrust') {
+      return 'Stato derivato da Onetrust ActiveGroups (Consent Mode non esposto).';
+    }
+    return 'Consent Mode non disponibile: valutazione basata su comportamento/ActiveGroups.';
+  }, [activeScenario]);
+
   const consentBadgeClasses = (value: string) => {
     if (!value) return 'border border-gray-200 bg-gray-50 text-gray-600';
     const normalized = value.toLowerCase();
@@ -723,6 +734,14 @@ const IntegratedReport: React.FC<IntegratedReportProps> = ({ result }) => {
                   <span className="font-medium text-gray-900">Consent mode state</span>
                 </div>
               </div>
+              {consentSourceNote && (
+                <p className="mt-2 text-xs text-amber-700">{consentSourceNote}</p>
+              )}
+              {activeScenario?.activeGroups && activeScenario.activeGroups.length > 0 && (
+                <p className="mt-1 text-xs text-gray-600">
+                  Onetrust ActiveGroups: {activeScenario.activeGroups.join(', ')}
+                </p>
+              )}
               <div className="mt-4 grid grid-cols-1 gap-3 text-xs sm:grid-cols-2 sm:text-sm">
                 {consentEntries.length > 0 ? (
                   consentEntries.map(entry => (
