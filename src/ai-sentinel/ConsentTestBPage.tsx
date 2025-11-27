@@ -42,6 +42,8 @@ interface ScenarioResult {
     functionality_storage: string;
     security_storage: string;
   };
+  consentSource?: 'consentMode' | 'onetrust' | 'behavior' | 'unknown';
+  activeGroups?: string[];
   cookies: Array<{
     name: string;
     domain: string;

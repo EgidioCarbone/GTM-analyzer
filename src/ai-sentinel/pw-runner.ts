@@ -457,6 +457,32 @@ function isRealFrame(x: any): x is Frame {
   return !!x && typeof x.url === 'function' && typeof x.locator === 'function';
 }
 
+async function attemptOnetrustPanelConfirm(page: Page, scenario: 'accept' | 'reject') {
+  try {
+    const settingsBtn = page.locator('#onetrust-pc-btn-handler, button:has-text("Impostazioni cookie")').first();
+    if (await settingsBtn.isVisible({ timeout: 1500 }).catch(() => false)) {
+      console.log('🔁 Apro pannello OneTrust per forzare salvataggio...');
+      await settingsBtn.click({ force: true });
+      await page.waitForTimeout(500);
+    }
+    const confirmSelectors = scenario === 'reject'
+      ? ['button#onetrust-reject-all-handler', 'button[id*="reject"]', 'button:has-text("Rifiuta tutti")']
+      : ['button#onetrust-accept-btn-handler', 'button[id*="accept"]', 'button:has-text("Accetta tutti")'];
+    for (const sel of confirmSelectors) {
+      const btn = page.locator(sel).first();
+      if (await btn.isVisible({ timeout: 1000 }).catch(() => false)) {
+        console.log(`🔁 Tentativo click pannello OneTrust (${scenario}): ${sel}`);
+        await btn.click({ force: true });
+        await page.waitForTimeout(500);
+        return true;
+      }
+    }
+  } catch (e) {
+    console.log('⚠️ Errore apertura pannello OneTrust:', (e as Error).message);
+  }
+  return false;
+}
+
 // ========================================
 // Schema di validazione per l'input
 export const ConsentTestInputSchema = z.object({
@@ -517,6 +543,8 @@ export interface ScenarioResult {
   }>;
   gtagCalls: Array<[string, string, any]>;
   dataLayer: Array<any>;
+  consentSource?: 'consentMode' | 'onetrust' | 'behavior' | 'unknown';
+  activeGroups?: string[];
   llmTestResult?: boolean; // Risultato del test LLM (true = passato, false = fallito)
   llmServiceAvailable?: boolean; // Indica se il servizio LLM era disponibile durante il test
   artifacts: {
@@ -791,7 +819,7 @@ export class ConsentTestRunner {
 
       // NUOVO: Usa sempre la funzione getLatestConsentState per estrarre i dati dal dataLayer
       console.log(`[${scenario}] Estraendo consent state dal dataLayer...`);
-      const latestConsent = await this.getLatestConsentState(page);
+      let latestConsent = await this.getLatestConsentState(page);
       const cookies = await this.getSensitiveCookies(context);
       const gtagCalls = await this.getGtagCallsData(page);
       const dataLayerEvents = await this.getDataLayerEvents(page);
@@ -835,6 +863,29 @@ export class ConsentTestRunner {
             console.log(`🔍 Probe consent event ${i + 1}:`, JSON.stringify(event.args));
           });
         }
+      }
+
+      const warnings: string[] = [];
+      let consentSource: ScenarioResult['consentSource'] = 'unknown';
+
+      const hasConsentValues = Object.values(latestConsent || {}).some(v => v && v !== 'n/d');
+      if (hasConsentValues) {
+        consentSource = 'consentMode';
+      }
+
+      const activeGroups = this.extractOnetrustActiveGroups(dataLayerEvents);
+      if (!hasConsentValues && activeGroups.length > 0) {
+        const derived = this.deriveConsentFromActiveGroups(activeGroups);
+        if (derived) {
+          console.log(`🔍 Deriving consent from OnetrustActiveGroups:`, activeGroups);
+          latestConsent = derived;
+          consentSource = 'onetrust';
+          warnings.push('Consenso derivato da OnetrustActiveGroups (Consent Mode non presente)');
+        }
+      }
+
+      if (consentSource === 'unknown') {
+        warnings.push('CMP non ha esposto Consent Mode o gruppi attivi dopo il click');
       }
       
       // Log final consent state
@@ -883,6 +934,8 @@ export class ConsentTestRunner {
         gaAdsRequests,
         gtagCalls,
         dataLayer: dataLayerEvents,
+        consentSource,
+        activeGroups,
         llmTestResult: this.llmTestResult, // Include il risultato del test LLM
         llmServiceAvailable: !!this.llmService, // Indica se il servizio LLM era disponibile
         artifacts: { 
@@ -890,6 +943,7 @@ export class ConsentTestRunner {
           cookieBannerScreenshotPath: cookieBannerScreenshotPath,
           tracePath
         },
+        warnings: warnings.length ? warnings : undefined,
         selectedCategories,
         personalizaFlow 
       };
@@ -1165,6 +1219,27 @@ export class ConsentTestRunner {
           console.log(`⚠️ DataLayer finale per debug:`);
           const finalDataLayer = await page.evaluate(() => (window as any).dataLayer || []);
           console.log(JSON.stringify(finalDataLayer, null, 2));
+          const retried = await attemptOnetrustPanelConfirm(page, scenario);
+          if (retried) {
+            console.log('🔁 Ritento attesa consent dopo pannello OneTrust...');
+            const retryDetected = await page.waitForFunction(
+              (beforeLength) => {
+                const dataLayer = (window as any).dataLayer || [];
+                if (dataLayer.length <= beforeLength) return false;
+                const recentEvents = dataLayer.slice(beforeLength);
+                return recentEvents.some((event: any) => {
+                  if (Array.isArray(event) && event[0] === 'consent') return true;
+                  if (event && event[0] === 'consent') return true;
+                  if (event?.event === 'cookie_consent_update') return true;
+                  if (event?.OnetrustActiveGroups) return true;
+                  return false;
+                });
+              },
+              beforeClick.dataLayerLength,
+              { timeout: 8000, polling: 200 }
+            ).then(() => true).catch(() => false);
+            console.log(retryDetected ? '✅ Consenso rilevato dopo pannello' : '⚠️ Ancora nessun consenso dopo pannello');
+          }
         } else {
           console.log(`✅ Consent update rilevato!`);
         }
@@ -1305,6 +1380,27 @@ export class ConsentTestRunner {
 
         if (!consentDetected) {
           console.log(`⚠️ Nessun consent update rilevato entro 15s (fallback)`);
+          const retried = await attemptOnetrustPanelConfirm(page, scenario);
+          if (retried) {
+            console.log('🔁 Ritento attesa consent dopo pannello OneTrust (fallback)...');
+            const retryDetected = await page.waitForFunction(
+              (beforeLength) => {
+                const dataLayer = (window as any).dataLayer || [];
+                if (dataLayer.length <= beforeLength) return false;
+                const recentEvents = dataLayer.slice(beforeLength);
+                return recentEvents.some((event: any) => {
+                  if (Array.isArray(event) && event[0] === 'consent') return true;
+                  if (event && event[0] === 'consent') return true;
+                  if (event?.event === 'cookie_consent_update') return true;
+                  if (event?.OnetrustActiveGroups) return true;
+                  return false;
+                });
+              },
+              beforeClick.dataLayerLength,
+              { timeout: 8000, polling: 200 }
+            ).then(() => true).catch(() => false);
+            console.log(retryDetected ? '✅ Consenso rilevato dopo pannello (fallback)' : '⚠️ Ancora nessun consenso dopo pannello (fallback)');
+          }
         } else {
           console.log(`✅ Consent update rilevato! (fallback)`);
         }
@@ -1546,6 +1642,34 @@ IMPORTANTE:
       console.log(`🔍 DEBUG getDataLayerEvents: First few events:`, JSON.stringify(dataLayer.slice(0, 3), null, 2));
     }
     return dataLayer;
+  }
+
+  private extractOnetrustActiveGroups(events: Array<any>): string[] {
+    const groups = new Set<string>();
+    for (const ev of events) {
+      const maybe = (ev && ev.OnetrustActiveGroups) || (ev?.value && ev.value.OnetrustActiveGroups);
+      if (typeof maybe === 'string' && maybe.length > 0) {
+        maybe.split(',').forEach(g => {
+          const trimmed = g.trim();
+          if (trimmed) groups.add(trimmed);
+        });
+      }
+    }
+    // Rimuovi elementi vuoti
+    return Array.from(groups).filter(g => g && g !== 'C0000');
+  }
+
+  private deriveConsentFromActiveGroups(groups: string[]) {
+    if (!groups || groups.length === 0) return null;
+    const hasOptional = groups.some(g => g !== 'C0001');
+    return {
+      ad_user_data: hasOptional ? 'granted' : 'denied',
+      ad_personalization: hasOptional ? 'granted' : 'denied',
+      ad_storage: hasOptional ? 'granted' : 'denied',
+      analytics_storage: hasOptional ? 'granted' : 'denied',
+      functionality_storage: 'granted',
+      security_storage: 'granted'
+    };
   }
 
   private isGaAdsRequest(url: string): boolean {
@@ -1840,10 +1964,27 @@ IMPORTANTE:
       notes.push('REJECT: ⚠️ Scenario non eseguito');
       pass = false;
     } else if (rejectScenario.llmTestResult !== undefined && rejectScenario.llmTestResult !== null) {
+      const rejectConsent = rejectScenario.latestConsent || {};
+      const rejectCookies = rejectScenario.cookies?.length || 0;
+      const rejectRequests = rejectScenario.gaAdsRequests?.length || 0;
+      const allDenied = ['ad_storage', 'ad_personalization', 'ad_user_data', 'analytics_storage']
+        .every(key => (rejectConsent as any)?.[key] !== 'granted');
+      // considera 1 richiesta GA/Ads tollerabile (es. pre-consent)
+      const derivedPass =
+        allDenied &&
+        rejectCookies === 0 &&
+        rejectRequests <= 1;
+
       // Usa il risultato LLM per REJECT
       if (!rejectScenario.llmTestResult) {
-        notes.push('REJECT: ❌ Il test LLM ha rilevato che i consensi non sono stati rifiutati correttamente');
-        pass = false;
+        if (derivedPass) {
+          // Allinea anche il flag usato dal frontend
+          rejectScenario.llmTestResult = true;
+          notes.push('REJECT: ✅ Stato derivato (consent non esposto) mostra solo C0001/deny; sovrascritto verdetto LLM');
+        } else {
+          notes.push('REJECT: ❌ Il test LLM ha rilevato che i consensi non sono stati rifiutati correttamente');
+          pass = false;
+        }
       } else {
         notes.push('REJECT: ✅ Il test LLM ha confermato che i consensi sono stati rifiutati correttamente');
       }
@@ -1852,6 +1993,7 @@ IMPORTANTE:
       const rejectCookies = rejectScenario.cookies?.length || 0;
       const rejectRequests = rejectScenario.gaAdsRequests?.length || 0;
       const rejectConsent = rejectScenario.latestConsent || {};
+      const rejectConsentSource = rejectScenario.consentSource || 'unknown';
       
       if (rejectCookies > 0) {
         notes.push(`REJECT: 🍪 Rilevati ${rejectCookies} cookie sensibili (dovrebbero essere 0)`);
@@ -1863,9 +2005,18 @@ IMPORTANTE:
         pass = false;
       }
 
-      const rejectHasGranted = Object.values(rejectConsent).some(value => value === 'granted');
+      const rejectHasGranted = ['ad_storage', 'ad_personalization', 'ad_user_data', 'analytics_storage']
+        .some(key => (rejectConsent as any)?.[key] === 'granted');
       if (rejectHasGranted) {
         notes.push(`REJECT: ⚠️ Rilevati consensi "granted" nel Consent Mode (dovrebbero essere tutti "denied")`);
+        pass = false;
+      }
+      if (rejectConsentSource === 'unknown') {
+        notes.push('REJECT: ⚠️ Consent Mode non disponibile e nessun ActiveGroups rilevato');
+        pass = false;
+      }
+      if (rejectConsentSource !== 'consentMode' && (rejectCookies > 0 || rejectRequests > 0)) {
+        notes.push('REJECT: ⚠️ Attività tracking con Consent Mode assente (valutazione conservativa)');
         pass = false;
       }
     }
@@ -1889,10 +2040,16 @@ IMPORTANTE:
       const hasGrantedConsent = Object.values(acceptConsent).some(value => value === 'granted');
       const acceptRequests = acceptScenario.gaAdsRequests?.length || 0;
       const acceptCookies = acceptScenario.cookies?.length || 0;
+      const acceptConsentSource = acceptScenario.consentSource || 'unknown';
 
       if (!hasGrantedConsent) {
-        notes.push('ACCEPT: ⚠️ Nessun consenso "granted" rilevato dal Consent Mode');
+        notes.push(acceptConsentSource === 'onetrust'
+          ? 'ACCEPT: ⚠️ Onetrust ActiveGroups non mostrano gruppi opzionali dopo l\'accettazione'
+          : 'ACCEPT: ⚠️ Nessun consenso "granted" rilevato dal Consent Mode');
         pass = false;
+      }
+      if (acceptConsentSource === 'unknown') {
+        notes.push('ACCEPT: ⚠️ Consent Mode non disponibile e nessun ActiveGroups rilevato');
       }
 
       if (acceptRequests === 0 && acceptCookies === 0) {

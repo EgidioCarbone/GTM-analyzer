@@ -273,15 +273,15 @@
     ],
     "italgas": [
       {
-        "id": "6a08fe7c-d620-4c47-9419-c3c182f8d417",
+        "id": "0e52dbcc-fbdf-47db-97ce-4fa226ba1e27",
         "moduleId": "italgas",
-        "name": "Navigation_click",
+        "name": "navigation_click",
         "eventId": "manual",
         "url": "https://www.italgas.it/",
         "config": {},
         "steps": [
           {
-            "id": "manual_1763734581852_9oycru",
+            "id": "manual_1764247376693_7lf3rd",
             "type": "click",
             "label": "Step 1",
             "selector": ".header__sidebarButton.t-label-sidebar-menu.j-openSecondMenu.j-sidebarFirstFocus",
@@ -306,7 +306,7 @@
           ],
           "tests": [
             {
-              "section": "Navigation",
+              "section": "navigation",
               "steps": [
                 {
                   "description": "Vai al sito indicato",
@@ -348,16 +348,16 @@
           ]
         },
         "testSpecMeta": {
-          "generatedAt": "2025-11-21T14:17:07.855Z",
+          "generatedAt": "2025-11-27T12:43:07.792Z",
           "model": "gpt-4o-mini-2024-07-18",
           "tokens": {
-            "input": 873,
+            "input": 865,
             "output": 289
           },
           "source": "scenario-llm"
         },
-        "createdAt": "2025-11-21T14:17:07.849Z",
-        "updatedAt": "2025-11-21T14:17:07.849Z"
+        "createdAt": "2025-11-27T12:43:07.790Z",
+        "updatedAt": "2025-11-27T12:43:07.790Z"
       }
     ]
   }
