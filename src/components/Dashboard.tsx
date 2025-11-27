@@ -40,7 +40,7 @@ function familyLabel(key: string): string {
 }
 
 function getMetricInfo(type: string) {
-  // Minimal stub â€” the real mapping may live elsewhere in the project
+  // Minimal stub — the real mapping may live elsewhere in the project
   return { title: type };
 }
 
@@ -57,8 +57,8 @@ const Dashboard: React.FC = () => {
   
         useEffect(() => {
           if (analysis) {
-            // keep effect small and safe â€” heavy computations should be pure helpers
-            console.log('âœ… Dashboard usa analysis dal context:', (analysis as any)?.score?.total ?? 'n/a');
+            // keep effect small and safe — heavy computations should be pure helpers
+            console.log('… Dashboard usa analysis dal context:', (analysis as any)?.score?.total ?? 'n/a');
           }
         }, [analysis]);
 
@@ -129,7 +129,7 @@ const Dashboard: React.FC = () => {
         // Navigation helper
         const navigateToContainerManager = (tab: string, filter?: string) => {
           if (!tab || typeof tab !== 'string') {
-            console.warn('âš ï¸ Invalid tab parameter in navigateToContainerManager:', tab);
+            console.warn('⚠ Invalid tab parameter in navigateToContainerManager:', tab);
             return;
           }
           navigate('/container-manager', { state: { activeTab: tab, autoFilter: filter } });
@@ -137,7 +137,7 @@ const Dashboard: React.FC = () => {
 
         const handleMetricAction = (metricType: string) => {
           if (!gtmMetrics || !metricType || typeof metricType !== 'string') {
-            console.warn('âš ï¸ Invalid metric type in handleMetricAction:', metricType);
+            console.warn('⚠ Invalid metric type in handleMetricAction:', metricType);
             return;
           }
           switch (metricType) {
@@ -177,7 +177,7 @@ const Dashboard: React.FC = () => {
               navigateToContainerManager('tags', 'html');
               break;
             default:
-              console.warn('âš ï¸ Unknown metric type in handleMetricAction:', metricType);
+              console.warn('⚠ Unknown metric type in handleMetricAction:', metricType);
               break;
           }
         };
@@ -317,7 +317,7 @@ const Dashboard: React.FC = () => {
                   <p className="text-base text-slate-600">Supervisione professionale del container. Ogni insight nasce da metriche oggettive e verificabili.</p>
                 </div>
                 <div className="flex flex-col items-end gap-4">
-                  <div className="ls-subcard bg-gradient-to-r from-[#7A5BFF] via-[#9D6BFF] to-[#ED5FA7] text-white shadow-xl min-w-[220px] border border-white/50">
+                  <div className="rounded-[24px] bg-gradient-to-r from-[#7A5BFF] via-[#9D6BFF] to-[#ED5FA7] text-white shadow-xl min-w-[220px] border border-white/40 p-5">
                     <p className="text-xs uppercase tracking-[0.28em] text-white/80">Quality score</p>
                     <div className="flex items-center gap-2">
                       <p className="text-4xl font-semibold">{formattedScore}%</p>

@@ -265,7 +265,7 @@ export const VariableQualityCard: React.FC<VariableQualityCardProps> = ({
                   <span className="font-bold text-slate-800">{issue.name}</span>
                   <span className="ml-2">- {issue.reason}</span>
                   <div className="text-xs text-blue-600 mt-1 ml-4">
-                    â†’ {issue.suggestion}
+                    → {issue.suggestion}
                   </div>
                 </div>
               ))}

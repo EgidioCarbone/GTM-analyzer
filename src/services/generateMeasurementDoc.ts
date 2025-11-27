@@ -1,106 +1,17 @@
 import OpenAI from "openai";
 import { buildPrompt } from "./buildChatPrompt";
 
-const openai = new OpenAI({
-  apiKey: import.meta.env.VITE_OPENAI_API_KEY,
-  dangerouslyAllowBrowser: true, // ✅ consenti uso in ambiente browser
-});
-
-type Section = "tags" | "triggers" | "variables";
+type AnyRec = Record<string, any>;
 
 const SYSTEM_PROMPT =
   "Sei un consulente senior di digital analytics specializzato in Google Tag Manager. Rispondi solo in italiano e in Markdown.";
 const API_URL: string | undefined = (import.meta as any)?.env?.VITE_GTM_ANALYZER_API_URL;
 
-/* -------------------------------------------------------------------------- */
-/*  Util ▸ divide l’array in chunk sicuri per evitare il context-length error  */
-/* -------------------------------------------------------------------------- */
-function chunkItems<T>(items: T[], maxChars = 8000): T[][] {
-  const chunks: T[][] = [];
-  let buffer: T[] = [];
-  let size = 0;
+const openai = new OpenAI({
+  apiKey: import.meta.env.VITE_OPENAI_API_KEY,
+  dangerouslyAllowBrowser: true,
+});
 
-  for (const item of items) {
-    const itemSize = JSON.stringify(item).length;
-    if (size + itemSize > maxChars && buffer.length) {
-      chunks.push(buffer);
-      buffer = [];
-      size = 0;
-    }
-    buffer.push(item);
-    size += itemSize;
-  }
-  if (buffer.length) chunks.push(buffer);
-  return chunks;
-}
-
-// Compatta gli item per categoria, rimuovendo campi pesanti
-type AnyRec = Record<string, any>;
-function compactItemsForCategory(category: Section, items: AnyRec[]): AnyRec[] {
-  const pickParams = (params: AnyRec[] | undefined, allowed: string[]) => {
-    if (!Array.isArray(params)) return undefined;
-    return params
-      .filter(p => p && allowed.includes(p.key))
-      .map(p => ({ key: p.key, value: p.value }));
-  };
-
-  const basePick = (it: AnyRec) => ({
-    name: it?.name,
-    type: it?.type,
-    paused: it?.paused,
-    description: it?.description,
-  });
-
-  if (category === "tags") {
-    return items.map(it => ({
-      ...basePick(it),
-      tagId: it?.tagId,
-      firingTriggerId: it?.firingTriggerId,
-      parameter: pickParams(it?.parameter, [
-        "eventName",
-        "conversionId",
-        "conversionLabel",
-        "trackingId",
-        "consentType",
-      ]),
-    }));
-  }
-
-  if (category === "triggers") {
-    return items.map(it => ({
-      ...basePick(it),
-      triggerId: it?.triggerId,
-      parameter: pickParams(it?.parameter, [
-        "filter",
-        "event",
-        "waitForTags",
-        "checkValidation",
-      ]),
-    }));
-  }
-
-  // variables
-  return items.map(it => ({
-    ...basePick(it),
-    variableId: it?.variableId,
-    parameter: pickParams(it?.parameter, [
-      "dataLayerVariable",
-      "dataLayerVersion",
-      "defaultValue",
-      "pattern",
-      "selector",
-      "javascript",
-      "defaultTable",
-      "inputVariable",
-      "urlPart",
-      "cookieName",
-    ]),
-  }));
-}
-
-/* -------------------------------------------------------------------------- */
-/*  Chiamata singola al modello: usa server-proxy se configurato              */
-/* -------------------------------------------------------------------------- */
 async function callChatOnce(userPrompt: string): Promise<string> {
   if (API_URL) {
     const res = await fetch(API_URL, {
@@ -129,95 +40,57 @@ async function callChatOnce(userPrompt: string): Promise<string> {
   return res.choices[0].message.content ?? "";
 }
 
-/**
- * Polishes / rewrites the user-provided CONTEXT via the AI model.
- * Returns a concise, professional Italian paragraph suitable as document introduction.
- * If the model fails or the input is empty, returns a sensible fallback string.
- */
-export async function polishContext(
-  contextText?: string,
-  projectName?: string,
-): Promise<string> {
+export async function polishContext(contextText?: string, projectName?: string): Promise<string> {
   const fallback = "Alcuni dettagli non sono specificati nel container o nel contesto fornito.";
-
-  // Se non c'è contesto, restituisci fallback più esteso
   if (!contextText || !contextText.trim()) return fallback;
 
-  const userPrompt = [
-    `Sei un copywriter tecnico in italiano. Riformula e struttura il seguente CONTEXT in un testo discorsivo (non usare bullet) da inserire nella sezione "Introduzione" di un Measurement Plan.`,
-    `Requisiti di formato:`,
-    `- Produci un testo continuo di 5–8 righe (1–2 paragrafi massimo).`,
-    `- Includi, se presenti nel CONTEXT: cliente/brand, ambito del tracciamento, obiettivi di misurazione, KPI citati, perimetro del documento (cosa copre).`,
-    `- Non inserire placeholder tipo "inserire qui". Non inventare dati nuovi. Non usare elenchi né header. Non superare le 12 righe.`,
-    `- Restituisci solo il testo riformulato, senza intestazioni, markdown o commenti.`,
-    '',
-    `CONTEXT da riformulare:`,
-    '"""',
-    contextText.trim(),
-    '"""',
-  ].join('\n');
-
+  const userPrompt = buildPrompt("tags", [], projectName, contextText);
   try {
     const polished = await callChatOnce(userPrompt);
     if (!polished || !polished.trim()) return fallback;
-    // Limitare a primi 12 righe: manteniamo il testo così com'è ma tagliamo se troppo lungo
-    const lines = polished.trim().split(/\r?\n/).filter(l => l.trim() !== '');
-    const clipped = lines.slice(0, 12).join('\n');
-    return clipped;
+    return polished.trim();
   } catch (err) {
     console.error("polishContext failed:", err);
-    return contextText.trim();
+    return fallback;
   }
 }
 
-/* -------------------------------------------------------------------------- */
-/*  API ▸ Analizza una singola macro-categoria (Tags / Triggers / Variables)   */
-/* -------------------------------------------------------------------------- */
-export async function analyzeGtmSection(
-  category: Section,
-  items: unknown[],
-  projectName?: string,
-  contextText?: string,
+async function buildIntroSection(
+  contextText: string | undefined,
+  projectName: string | undefined,
+  stats: { totalTags: number; totalTriggers: number; totalVariables: number; pausedCount: number }
 ): Promise<string> {
-  const safeItems = Array.isArray(items) ? (items as AnyRec[]) : [];
-  const compacted = compactItemsForCategory(category, safeItems);
-  const batches = chunkItems(compacted);
-  const out: string[] = [];
+  const trimmed = contextText?.trim() ?? "";
+  const fallback = `Non sono stati forniti dettagli contestuali. L'audit GTM per "${projectName ?? "Senza nome"}" valuta configurazioni, qualita e coerenza di ${stats.totalTags} tag, ${stats.totalTriggers} trigger e ${stats.totalVariables} variabili, evidenziando ${stats.pausedCount} elementi in pausa o non utilizzati e le priorita di intervento.`;
 
-  for (const batch of batches) {
-  const userPrompt = buildPrompt(category, batch, projectName, contextText);
+  const prompt = [
+    "Scrivi 1-3 paragrafi di introduzione per un Audit GTM.",
+    "L'introduzione deve essere SOLO testo discorsivo (nessuna tabella, nessun elenco puntato).",
+    "Usa esclusivamente le informazioni fornite dall'utente nel contesto, migliorandole e ampliandole senza inventare dati mancanti.",
+    "Evidenzia obiettivi, scenario, criticita di business, tipologia di sito, aree tracciate o da tracciare, e lo scopo dell'audit GTM per questo caso specifico.",
+    "Tono: professionale e chiaro, comprensibile anche a non sviluppatori.",
+    "Non usare placeholder o testo generico; se mancano informazioni, dichiaralo esplicitamente.",
+    `Progetto: ${projectName ?? "Senza nome"}`,
+    "Contesto utente (usa solo questi dati):",
+    "'''",
+    trimmed || "Contesto non specificato.",
+    "'''",
+    "Statistiche disponibili:",
+    `- Tag: ${stats.totalTags}`,
+    `- Trigger: ${stats.totalTriggers}`,
+    `- Variabili: ${stats.totalVariables}`,
+    `- Elementi in pausa/non utilizzati: ${stats.pausedCount}`,
+  ].join("\n");
 
-    // Retry semplice con backoff
-    let attempt = 0;
-    let content = "";
-    let lastErr: any;
-    while (attempt < 2 && !content) {
-      try {
-        content = await callChatOnce(userPrompt);
-      } catch (e) {
-        lastErr = e;
-        await new Promise(r => setTimeout(r, 500 * (attempt + 1)));
-        attempt++;
-      }
-    }
-
-    if (!content) {
-      const title = category.charAt(0).toUpperCase() + category.slice(1);
-      content = `### ${title} Analysis\n| Nome | Criticità | Impatto | Raccomandazione |\n|------|-----------|---------|-----------------|\n| N/D | Errore di analisi | Batch non processato | Riprovare più tardi |`;
-      // Override fallback con stringa UTF-8 corretta
-      content = `### ${title} Analysis\n| Nome | Criticità | Impatto | Raccomandazione |\n|------|-----------|---------|-----------------|\n| N/D | Errore di analisi | Batch non processato | Riprovare più tardi |`;
-      console.error("analyzeGtmSection fallback:", lastErr);
-    }
-
-    out.push(content);
+  try {
+    const intro = await callChatOnce(prompt);
+    if (intro && intro.trim()) return intro.trim();
+  } catch (err) {
+    console.error("buildIntroSection failed:", err);
   }
-
-  return out.join("\n\n");
+  return fallback;
 }
 
-/* -------------------------------------------------------------------------- */
-/*  Retro-compatibilità ▸ genera l’intero documento completo se serve         */
-/* -------------------------------------------------------------------------- */
 export async function generateMeasurementDoc({
   tags,
   triggers,
@@ -231,106 +104,157 @@ export async function generateMeasurementDoc({
   projectName?: string;
   contextText?: string;
 }): Promise<string> {
-  // Costruisce la tabella dei tag a partire dal JSON del container (usa AI per normalizzare tipi e descrizioni)
   const tagsTable = await buildTagsTable(tags, triggers);
 
-  // Riformula il CONTEXT tramite AI in modo da ottenere un'introduzione professionale
-  const polished = await polishContext(contextText, projectName);
+  const totalTags = Array.isArray(tags) ? tags.length : 0;
+  const totalTriggers = Array.isArray(triggers) ? triggers.length : 0;
+  const totalVariables = Array.isArray(variables) ? variables.length : 0;
+  const pausedCount =
+    (Array.isArray(tags) ? (tags as AnyRec[]).filter(t => (t as AnyRec)?.paused).length : 0) +
+    (Array.isArray(triggers) ? (triggers as AnyRec[]).filter(t => (t as AnyRec)?.paused).length : 0) +
+    (Array.isArray(variables) ? (variables as AnyRec[]).filter(v => (v as AnyRec)?.paused).length : 0);
 
-  const summary = `# Measurement Plan — ${projectName ?? "Senza nome"}
+  const intro = await buildIntroSection(contextText, projectName, {
+    totalTags,
+    totalTriggers,
+    totalVariables,
+    pausedCount,
+  });
 
-## Introduzione
+  const summary = `# Audit GTM - ${projectName ?? "Senza nome"}
 
-${polished}
+## Introduzione / Contesto
 
-## Tag
+${intro}
 
-Obiettivo: fornire una panoramica strutturata dei tag presenti nel container, con informazioni su dove e quando scattano e cosa misurano.
+## Tabella Audit con Esito
 
-`;
+Di seguito la tabella di audit con valutazione sintetica per ciascun tag.`;
 
-  return [summary, tagsTable].join("\n\n");
+  const pausedLine =
+    pausedCount > 0
+      ? `Elementi in pausa/non utilizzati da verificare: ${pausedCount}.`
+      : "Non risultano elementi in pausa; mantenere un monitoraggio periodico.";
+  const coverageLine =
+    totalTags + totalTriggers > 0
+      ? `Coerenza tra tag e trigger da validare su ${totalTags} tag e ${totalTriggers} trigger.`
+      : "Dati di tag/trigger non disponibili; validare la coerenza appena possibile.";
+
+  const recommendations = `## Raccomandazioni
+
+### Principali criticita
+- ${pausedLine}
+- ${coverageLine}
+
+### Suggerimenti tecnici
+- Standardizza naming e descrizioni su tag/trigger/variabili (${totalTags}/${totalTriggers}/${totalVariables} elementi).
+- Documenta scopo e condizioni di firing nel campo descrizione in GTM.
+
+### Priorita (Alta / Media / Bassa)
+- **Alta**: risolvi duplicati e firing errato che impattano KPI o compliance.
+- **Media**: normalizza naming, condizioni di trigger e allinea consent.
+- **Bassa**: pulizia elementi legacy o in pausa e ottimizzazioni minori.
+
+### Raccomandazioni operative
+- Rimuovi o disattiva tag non utilizzati; valuta i tag in pausa.
+- Esegui review dedicata a consent mode e custom HTML.
+- Applica una checklist di governance (naming, descrizione, owner) per i nuovi rilasci.`;
+
+  return [summary, tagsTable, recommendations].join("\n\n");
 }
 
-// Helper: escape pipe characters in table cells
 function esc(cell: any) {
   if (cell === null || cell === undefined) return "Non specificato";
   return String(cell).replace(/\|/g, "\\|").replace(/\n/g, " ");
 }
 
-// Costruisce una tabella Markdown con le colonne richieste
 export async function buildTagsTable(tags: unknown[], triggers?: unknown[]): Promise<string> {
   const t = Array.isArray(tags) ? (tags as AnyRec[]) : [];
   const tr = Array.isArray(triggers) ? (triggers as AnyRec[]) : [];
 
-  // Prepara payload semplificato per l'AI: name, rawType, parameters (breve), triggerNames
   const rowsData = t.map(tag => {
-    const triggerIds = tag?.firingTriggerId ? (Array.isArray(tag.firingTriggerId) ? tag.firingTriggerId : [tag.firingTriggerId]) : (tag?.triggerId ? (Array.isArray(tag.triggerId) ? tag.triggerId : [tag.triggerId]) : []);
+    const triggerIds = tag?.firingTriggerId
+      ? Array.isArray(tag.firingTriggerId)
+        ? tag.firingTriggerId
+        : [tag.firingTriggerId]
+      : tag?.triggerId
+      ? Array.isArray(tag.triggerId)
+        ? tag.triggerId
+        : [tag.triggerId]
+      : [];
     const triggerNames = triggerIds.map((id: any) => {
       const f = tr.find(x => x?.triggerId === id || x?.id === id || x?.triggerId === String(id));
-      return f?.name ?? String(id ?? 'Non specificato');
+      return f?.name ?? String(id ?? "Non specificato");
     });
-
-    // compact params
-    let params: AnyRec | string = {};
-    if (Array.isArray(tag?.parameter)) {
-      params = {} as AnyRec;
-      for (const p of tag.parameter) if (p?.key) params[p.key] = p.value ?? p.type ?? p.name;
-    } else if (tag?.parameter && typeof tag.parameter === 'object') {
-      params = { ...tag.parameter };
-    } else {
-      params = {};
-    }
 
     return {
       id: tag?.tagId ?? tag?.id ?? null,
-      name: tag?.name ?? tag?.tagName ?? 'Non specificato',
-      rawType: tag?.type ?? tag?.tagType ?? '',
-      params,
+      name: tag?.name ?? tag?.tagName ?? "Non specificato",
+      rawType: tag?.type ?? tag?.tagType ?? "",
+      params: Array.isArray(tag?.parameter) || typeof tag?.parameter === "object" ? tag?.parameter : {},
       triggerNames,
+      paused: tag?.paused ?? false,
     };
   });
 
   const prompt = [
-    'Sei un assistente che aiuta a normalizzare e descrivere tag per un documento destinato a lettori non tecnici.',
-    'Riceverai un JSON con elementi: name, rawType, params, triggerNames (array).',
-    'Per ciascun elemento, restituisci UNA riga di tabella Markdown con esatti header: | Nome Tag | Tipo | Dove scatta |',
-    'Regole per il campo "Tipo": scegli **esattamente** una di queste etichette quando applicabile: "GA4 Configuration", "GA4 Event", "GA4 Tag", "HTML personalizzato", "Tag di terze parti", "Altro". Non usare codici interni (es. gaawe).',
-    'Regole per il campo "Dove scatta": scrivi il nome del trigger (non ID). Dopo il nome del trigger aggiungi, tra parentesi, una breve descrizione (1 frase, massimo 18-20 parole) in linguaggio non tecnico che spiega quando/come scatta il tag. Se ci sono più trigger, separali con "; ".',
-    'Non inventare dati; se qualcosa non è ricavabile scrivi "Non determinabile con le informazioni disponibili." come descrizione.',
-    'Rispondi SOLO con la tabella Markdown e nessun testo aggiuntivo.',
-    '',
-    'Input JSON:',
-    '```json',
+    "Sei un assistente che prepara un Audit GTM per lettori non tecnici.",
+    "Riceverai JSON con campi: name, rawType, params, triggerNames (array), paused.",
+    'Restituisci SOLO una tabella Markdown con header esatti: | Nome Tag | Tipo | Dove Scatta | Quando Scatta | Cosa Misura | Esito Audit |',
+    'Esito Audit deve essere una di queste stringhe: "OK", "Da migliorare", "Critico", "Non utilizzato", "In Pausa".',
+    'Campo "Tipo": scegli solo tra: "GA4 Configuration", "GA4 Event", "GA4 Tag", "HTML personalizzato", "Tag di terze parti", "Altro".',
+    'Campo "Dove Scatta": nome trigger; se piu trigger, separali con "; ".',
+    'Campo "Quando Scatta": breve descrizione (max 18-20 parole) non tecnica sulle condizioni/contesto; se non determinabile usa "Non determinabile con le informazioni disponibili."',
+    'Campo "Cosa Misura": frase sintetica su cosa traccia il tag; se non determinabile usa "Non determinabile con le informazioni disponibili."',
+    "Non aggiungere testo extra fuori dalla tabella.",
+    "",
+    "Input JSON:",
+    "```json",
     JSON.stringify(rowsData, null, 2),
-    '```',
-  ].join('\n');
+    "```",
+  ].join("\n");
 
   try {
     const aiRes = await callChatOnce(prompt);
     if (aiRes && aiRes.trim()) {
-      // Basic validation: should contain header
-      if (aiRes.includes('| Nome Tag') && aiRes.includes('| Tipo')) return aiRes.trim();
+      if (aiRes.includes("| Nome Tag") && aiRes.includes("| Esito Audit")) return aiRes.trim();
     }
   } catch (err) {
-    console.error('buildTagsTable AI failed:', err);
+    console.error("buildTagsTable AI failed:", err);
   }
 
-  // Fallback deterministico: produce tabella con trigger names (no descrizione AI)
-  const header = `| Nome Tag | Tipo | Dove scatta |
-|---------|------|-------------|`;
+  const header = `| Nome Tag | Tipo | Dove Scatta | Quando Scatta | Cosa Misura | Esito Audit |
+|---------|------|-------------|---------------|-------------|-------------|`;
   const rows = t.map(tag => {
-    const name = esc(tag?.name ?? tag?.tagName ?? 'Non specificato');
-    const raw = String(tag?.type ?? tag?.tagType ?? '');
-    // simple map
-    const typeLabel = (raw.toLowerCase().includes('gaa') || raw.toLowerCase().includes('ga4')) ? 'GA4 Tag' : (raw.toLowerCase().includes('html') ? 'HTML personalizzato' : 'Altro');
-    const ids = tag?.firingTriggerId ? (Array.isArray(tag.firingTriggerId) ? tag.firingTriggerId : [tag.firingTriggerId]) : (tag?.triggerId ? (Array.isArray(tag.triggerId) ? tag.triggerId : [tag.triggerId]) : []);
-    const triggerNames = ids.map((id: any) => {
-      const f = tr.find(x => x?.triggerId === id || x?.id === id || x?.triggerId === String(id));
-      return f?.name ?? String(id ?? 'Non specificato');
-    }).join('; ');
-    const where = esc(triggerNames || 'Non specificato');
-    return `| ${name} | ${esc(typeLabel)} | ${where} |`;
+    const name = esc(tag?.name ?? tag?.tagName ?? "Non specificato");
+    const raw = String(tag?.type ?? tag?.tagType ?? "");
+    const typeLabel =
+      raw.toLowerCase().includes("gaa") || raw.toLowerCase().includes("ga4")
+        ? "GA4 Tag"
+        : raw.toLowerCase().includes("html")
+        ? "HTML personalizzato"
+        : "Altro";
+    const ids = tag?.firingTriggerId
+      ? Array.isArray(tag.firingTriggerId)
+        ? tag.firingTriggerId
+        : [tag.firingTriggerId]
+      : tag?.triggerId
+      ? Array.isArray(tag.triggerId)
+        ? tag.triggerId
+        : [tag.triggerId]
+      : [];
+    const triggerNames = ids
+      .map((id: any) => {
+        const f = tr.find(x => x?.triggerId === id || x?.id === id || x?.triggerId === String(id));
+        return f?.name ?? String(id ?? "Non specificato");
+      })
+      .join("; ");
+    const where = esc(triggerNames || "Non specificato");
+    const paused = (tag as AnyRec)?.paused;
+    const esito = paused ? "In Pausa" : triggerNames ? "OK" : "Non utilizzato";
+    const quando = esc("Non determinabile con le informazioni disponibili.");
+    const cosa = esc("Non determinabile con le informazioni disponibili.");
+    return `| ${name} | ${esc(typeLabel)} | ${where} | ${quando} | ${cosa} | ${esito} |`;
   });
-  return [header, ...rows].join('\n');
+  return [header, ...rows].join("\n");
 }

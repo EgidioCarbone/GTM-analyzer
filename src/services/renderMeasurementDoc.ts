@@ -236,24 +236,17 @@ export async function renderMeasurementDoc(
   fileName: string = DEFAULT_FILENAME,
 ): Promise<void> {
   /* Logo ------------------------------------------------------------------- */
-  const logoBuf = await fetchLogoBuffer();
-  // docx ImageRun expects binary data as Uint8Array/Buffer (not ArrayBuffer).
-  // Convert the ArrayBuffer to Uint8Array to satisfy type requirements.
-  // Cast to `any` to satisfy docx union types (CoreImageOptions vs SvgMediaOptions).
-  // docx types expect different properties for SVG vs raster; we've rasterized SVG
-  // above, so providing a Uint8Array is correct at runtime. The cast avoids a
-  // TypeScript union incompatibility while keeping runtime behavior intact.
-  // Provide `type` and `fallback` to satisfy docx's union IImageOptions typing.
-  // We rasterized SVG to PNG above, so mark type as png and use the same buffer
-  // as a fallback value so TypeScript sees all required properties.
-  const logoData = new Uint8Array(logoBuf);
-  // Cast the whole options object to `any` to avoid mismatched docx union types.
-  // At runtime this is a Uint8Array (PNG) and works correctly; this cast keeps
-  // TypeScript satisfied without large type refactors across the repo.
-  const logoImg = new ImageRun(({
-    data: logoData,
-    transformation: { width: TARGET_LOGO_WIDTH, height: 50 }, // altezza si adatta
-  } as unknown) as any);
+  let logoImg: ImageRun | null = null;
+  try {
+    const logoBuf = await fetchLogoBuffer();
+    const logoData = new Uint8Array(logoBuf);
+    logoImg = new ImageRun(({
+      data: logoData,
+      transformation: { width: TARGET_LOGO_WIDTH, height: 50 }, // altezza si adatta
+    } as unknown) as any);
+  } catch (error) {
+    console.warn("[renderMeasurementDoc] Logo non disponibile, procedo senza header grafico.", error);
+  }
 
   /* Parsing contenuto ------------------------------------------------------- */
   const body = parseMarkdown(markdown);
@@ -262,17 +255,19 @@ export async function renderMeasurementDoc(
   const doc = new Document({
     sections: [
       {
-        headers: {
-          default: new Header({
-            children: [
-              new Paragraph({
-                alignment: AlignmentType.CENTER,
-                children: [logoImg],
+        headers: logoImg
+          ? {
+              default: new Header({
+                children: [
+                  new Paragraph({
+                    alignment: AlignmentType.CENTER,
+                    children: [logoImg],
+                  }),
+                  new Paragraph({}), // spaziatura
+                ],
               }),
-              new Paragraph({}), // spaziatura
-            ],
-          }),
-        },
+            }
+          : undefined,
         children: body,
       },
     ],
