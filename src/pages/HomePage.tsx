@@ -275,7 +275,7 @@ export default function HomePage() {
     } else {
       // Vai direttamente allo strumento
       if (tool.id === 'container-manager') {
-        navigate('/container-manager?mode=analytics');
+        navigate('/dashboard?mode=analytics');
       } else if (tool.id === 'ai-plan') {
         navigate('/plan?mode=plan');
       } else if (tool.id === 'ssd-test') {

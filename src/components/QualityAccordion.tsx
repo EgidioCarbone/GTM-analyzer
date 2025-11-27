@@ -12,7 +12,6 @@ export const LILAC_CHART_PALETTE = [
   '#4c1d95', // violet-900
 ];
 
-
 export interface QualityAccordionProps {
   children: React.ReactNode;
   score: number;
@@ -55,58 +54,54 @@ export const QualityAccordion: React.FC<QualityAccordionProps> = ({
   };
 
   return (
-    <div className="rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-sm" data-chart-palette="lilac">
-      {/* Header dell'accordion */}
-      <div className="flex items-center justify-between mb-4">
-        <InfoTooltip content="Calcolato su pulizia tag, qualità trigger e qualit?à variabili con pesi diversi. Clicca per i dettagli.">
-          <h2 className="text-xl font-semibold text-slate-900 dark:text-white flex items-center gap-2">
-            <Target className="w-5 h-5 text-violet-600 dark:text-violet-400" />
-            Qualità del Container
-          </h2>
+    <div className="ls-card" data-chart-palette="lilac">
+      <div className="flex items-start justify-between mb-3">
+        <InfoTooltip content="Calcolato su pulizia tag, qualità trigger e qualità variabili con pesi diversi. Clicca per i dettagli.">
+          <div className="flex items-center gap-3">
+            <span className="w-10 h-10 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center">
+              <Target className="w-5 h-5" />
+            </span>
+            <div>
+              <p className="ls-overline text-purple-600">Quality score</p>
+              <h2 className="text-2xl font-semibold text-slate-900">Qualità del Container</h2>
+            </div>
+          </div>
         </InfoTooltip>
-        
-        <div className="flex items-center gap-4">
-          
-          
-          {/* Toggle button */}
-          <button
-            onClick={toggleAccordion}
-            className="p-2 rounded-lg border border-transparent hover:border-slate-300 dark:hover:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
-            aria-expanded={isOpen}
-            aria-controls="quality-content"
-            aria-label={`${isOpen ? 'Chiudi' : 'Apri'} sezione qualit? del container`}
-            role="button"
-          >
-            {isOpen ? (
-              <ChevronUp className="w-5 h-5 text-slate-600 dark:text-slate-400" />
-            ) : (
-              <ChevronDown className="w-5 h-5 text-slate-600 dark:text-slate-400" />
-            )}
-          </button>
-        </div>
+
+        <button
+          onClick={toggleAccordion}
+          className="ls-btn-icon"
+          aria-expanded={isOpen}
+          aria-controls="quality-content"
+          aria-label={`${isOpen ? 'Chiudi' : 'Apri'} sezione qualità del container`}
+          role="button"
+        >
+          {isOpen ? (
+            <ChevronUp className="w-5 h-5 text-slate-600" />
+          ) : (
+            <ChevronDown className="w-5 h-5 text-slate-600" />
+          )}
+        </button>
       </div>
-      
-      {/* Barra di progresso */}
-      <div className="w-full bg-slate-200 dark:bg-slate-800 rounded-full h-3 mb-4">
+
+      <div className="w-full bg-slate-100 rounded-full h-3 mb-4">
         <div 
           className="bg-gradient-to-r from-violet-300 via-violet-500 to-violet-700 h-3 rounded-full transition-all duration-1000 ease-out"
           style={{ width: `${Math.max(0, Math.min(100, score))}%` }}
         />
       </div>
-      
-      {/* Potenziale miglioramento */}
+
       {score < 100 && (
-        <div className="text-center mb-4">
-          <p className="text-sm text-slate-600 dark:text-slate-400">
+        <div className="text-center mb-3">
+          <p className="text-sm text-slate-600">
              Potenziale miglioramento: <span className="font-semibold text-violet-700">{Math.max(0, 100 - score).toFixed(1)}%</span>
           </p>
-          <p className="text-xs text-slate-500 dark:text-slate-500 mt-1">
+          <p className="text-xs text-slate-500 mt-1">
             Ottimizza il container per raggiungere il 100% di qualità
           </p>
         </div>
       )}
 
-      {/* Contenuto dell'accordion con transizione */}
       <div
         id="quality-content"
         className={`overflow-hidden transition-all duration-300 ease-in-out ${

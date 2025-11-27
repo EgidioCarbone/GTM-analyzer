@@ -17,7 +17,6 @@ export const QualityOfContainer: React.FC<QualityOfContainerProps> = ({
   gtmMetrics,
   onMetricAction
 }) => {
-  // Funzione per determinare lo stato della qualità
   const getQualityStatus = (score: number) => {
     const safeScore = Number(score) || 0;
     if (safeScore >= 90) return { status: 'Eccellente', color: 'bg-green-100 text-green-800' };
@@ -27,19 +26,15 @@ export const QualityOfContainer: React.FC<QualityOfContainerProps> = ({
     return { status: 'Da migliorare', color: 'bg-red-100 text-red-800' };
   };
 
-  // Usa lo score trasparente
   const overallScore = gtmMetrics?.score?.total ? Number(gtmMetrics.score.total.toFixed(1)) : 0;
   const qualityStatus = getQualityStatus(overallScore);
 
-  // Utility per render sicuro
   const safeRender = (value: any): string => {
     if (value == null) return '';
     if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return String(value);
-    console.warn('⚠️ Attempting to render object directly:', value);
     return '[Object]';
   };
 
-  // Prepara le metriche ordinate per priorità
   const metrics = [
     { type: 'doublePageView' as const, count: gtmMetrics.kpi.doublePageView.isDoublePageView ? 1 : 0, priority: 1 },
     { type: 'consentMode' as const, count: gtmMetrics.kpi.consentMode.consent_coverage.missing + gtmMetrics.kpi.consentMode.consent_coverage.not_configured, priority: 2 },
@@ -80,13 +75,12 @@ export const QualityOfContainer: React.FC<QualityOfContainerProps> = ({
       }))}
     >
       {/* Grid responsiva con le card delle metriche */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 items-stretch auto-rows-fr">
         {metrics
           .map((metric) => {
             const info = getMetricInfo(metric.type);
             if (!info) return null;
 
-            // Bullets standard
             const bullets = (
               <div className="space-y-2">
                 <div className="flex items-start gap-2">
@@ -103,7 +97,6 @@ export const QualityOfContainer: React.FC<QualityOfContainerProps> = ({
               </div>
             );
 
-            // Dettagli/Breakdown
             let details: React.ReactNode = null;
             let breakdown: React.ReactNode = null;
             let subtitle: string | undefined;
@@ -129,7 +122,7 @@ export const QualityOfContainer: React.FC<QualityOfContainerProps> = ({
                   {gtmMetrics.kpi.doublePageView.overlap.sharedTriggers.length > 0 && (
                     <div>Trigger condivisi: {gtmMetrics.kpi.doublePageView.overlap.sharedTriggers.length}</div>
                   )}
-                  {gtmMetrics.kpi.doublePageView.overlap.hasHistoryChange && <div>⚠️ HISTORY_CHANGE rilevato</div>}
+                  {gtmMetrics.kpi.doublePageView.overlap.hasHistoryChange && <div>HISTORY_CHANGE rilevato</div>}
                 </div>
               );
             }
@@ -150,7 +143,6 @@ export const QualityOfContainer: React.FC<QualityOfContainerProps> = ({
               )}% degli elementi`;
             }
 
-            // CTA label
             let ctaLabel = '';
             let defaultExpanded = false;
             switch (metric.type) {
@@ -183,70 +175,82 @@ export const QualityOfContainer: React.FC<QualityOfContainerProps> = ({
                 break;
             }
 
-            // Card speciali
             if (metric.type === 'consentMode') {
               return (
-                <ConsentModeCard
-                  key={metric.type}
-                  consentResult={gtmMetrics.kpi.consentMode}
-                  onAction={() => onMetricAction(metric.type)}
-                />
+                <div key={metric.type} className="h-full flex">
+                  <div className="flex-1">
+                    <ConsentModeCard
+                      consentResult={gtmMetrics.kpi.consentMode}
+                      onAction={() => onMetricAction(metric.type)}
+                    />
+                  </div>
+                </div>
               );
             }
             if (metric.type === 'triggerQuality') {
               return (
-                <TriggerQualityCard
-                  key={metric.type}
-                  triggerResult={gtmMetrics.kpi.triggerQuality}
-                  onAction={() => onMetricAction(metric.type)}
-                />
+                <div key={metric.type} className="h-full flex">
+                  <div className="flex-1">
+                    <TriggerQualityCard
+                      triggerResult={gtmMetrics.kpi.triggerQuality}
+                      onAction={() => onMetricAction(metric.type)}
+                    />
+                  </div>
+                </div>
               );
             }
             if (metric.type === 'variableQuality') {
               return (
-                <VariableQualityCard
-                  key={metric.type}
-                  variableResult={gtmMetrics.kpi.variableQuality}
-                  onAction={() => onMetricAction(metric.type)}
-                />
+                <div key={metric.type} className="h-full flex">
+                  <div className="flex-1">
+                    <VariableQualityCard
+                      variableResult={gtmMetrics.kpi.variableQuality}
+                      onAction={() => onMetricAction(metric.type)}
+                    />
+                  </div>
+                </div>
               );
             }
             if (metric.type === 'htmlSecurity') {
               return (
-                <HtmlSecurityCard
-                  key={metric.type}
-                  htmlSecurityResult={gtmMetrics.kpi.htmlSecurity}
-                  onAction={() => onMetricAction(metric.type)}
-                />
+                <div key={metric.type} className="h-full flex">
+                  <div className="flex-1">
+                    <HtmlSecurityCard
+                      htmlSecurityResult={gtmMetrics.kpi.htmlSecurity}
+                      onAction={() => onMetricAction(metric.type)}
+                    />
+                  </div>
+                </div>
               );
             }
 
-            // ---- FIX specifico per Doppio Page View ----
             const isDPV = metric.type === 'doublePageView';
             const dpvStatus = isDPV
               ? (gtmMetrics.kpi.doublePageView.status === 'ok' ? 'ok' : 'critical')
               : undefined;
             const dpvSubtitle = isDPV
               ? gtmMetrics.kpi.doublePageView.status === 'ok'
-                ? '✓ Controllo superato'
+                ? 'Controllo superato'
                 : info.subtitle
               : undefined;
 
             return (
-              <IssueCard
-                key={metric.type}
-                title={info.title}
-                count={metric.count}
-                bullets={bullets}
-                ctaLabel={ctaLabel}
-                onCta={() => onMetricAction(metric.type)}
-                // quando è DPV passo lo status reale per rendere pill e colori coerenti
-                status={dpvStatus as any}
-                subtitle={dpvSubtitle ?? subtitle}
-                breakdown={breakdown}
-                details={details}
-                defaultExpanded={defaultExpanded}
-              />
+              <div key={metric.type} className="h-full flex">
+                <div className="flex-1">
+                  <IssueCard
+                    title={info.title}
+                    count={metric.count}
+                    bullets={bullets}
+                    ctaLabel={ctaLabel}
+                    onCta={() => onMetricAction(metric.type)}
+                    status={dpvStatus as any}
+                    subtitle={dpvSubtitle ?? subtitle}
+                    breakdown={breakdown}
+                    details={details}
+                    defaultExpanded={defaultExpanded}
+                  />
+                </div>
+              </div>
             );
           })
           .filter(Boolean)}

@@ -283,18 +283,18 @@ const Dashboard: React.FC = () => {
         // Component render (kept original JSX structure but all variables defined above)
         if (!gtmMetrics) {
           return (
-            <main className="p-6 min-h-screen bg-slate-50 dark:bg-slate-950">
-              <div className="max-w-5xl mx-auto space-y-6">
-                <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-8 shadow-sm">
-                  <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">Control room</p>
-                  <h1 className="text-4xl font-semibold text-slate-900 dark:text-white mt-2">LikeSense GTM AIntelligence</h1>
-                  <p className="mt-3 text-slate-600 dark:text-slate-300">Stiamo preparando una lettura accurata del container per offrirti indicazioni affidabili.</p>
+            <main className="p-6 min-h-screen ls-bg">
+              <div className="ls-container space-y-6">
+                <div className="ls-card space-y-2">
+                  <p className="ls-overline text-slate-600">Control room</p>
+                  <h1 className="text-4xl font-semibold text-slate-900 mt-1">LikeSense GTM AIntelligence</h1>
+                  <p className="mt-2 text-slate-600">Stiamo preparando una lettura accurata del container per offrirti indicazioni affidabili.</p>
                 </div>
-                <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-8 shadow-sm flex items-center gap-5">
-                  <div className="h-12 w-12 rounded-full border-2 border-slate-200 dark:border-slate-700 border-t-blue-500 animate-spin" />
+                <div className="ls-card flex items-center gap-5">
+                  <div className="h-12 w-12 rounded-full border-2 border-slate-200 border-t-blue-500 animate-spin" />
                   <div>
-                    <h2 className="text-xl font-semibold text-slate-900 dark:text-white">Calcoliamo le metriche GTM...</h2>
-                    <p className="text-sm text-slate-500 dark:text-slate-400">Analisi in corso. I risultati appariranno automaticamente appena pronti.</p>
+                    <h2 className="text-xl font-semibold text-slate-900">Calcoliamo le metriche GTM...</h2>
+                    <p className="text-sm text-slate-500">Analisi in corso. I risultati appariranno automaticamente appena pronti.</p>
                   </div>
                 </div>
               </div>
@@ -303,18 +303,22 @@ const Dashboard: React.FC = () => {
         }
 
         return (
-          <main className="p-6 bg-slate-50 min-h-screen dark:bg-slate-950">
-            <div className="max-w-6xl mx-auto space-y-6">
-            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-8 shadow-sm space-y-6">
+          <main className="relative min-h-screen ls-bg py-12 px-4">
+            <div className="absolute inset-0 overflow-hidden pointer-events-none">
+              <div className="absolute -top-48 -left-32 w-96 h-96 bg-purple-300 rounded-full mix-blend-multiply filter blur-3xl opacity-40" />
+              <div className="absolute -bottom-48 -right-24 w-[430px] h-[430px] bg-blue-200 rounded-full mix-blend-multiply filter blur-3xl opacity-30" />
+            </div>
+            <div className="ls-container space-y-8 relative z-10">
+            <div className="ls-card space-y-6">
               <div className="flex flex-wrap items-start justify-between gap-6">
-                <div className="space-y-3 max-w-3xl">
-                  <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">Control room</p>
-                  <h1 className="text-4xl font-semibold text-slate-900 dark:text-white">LikeSense GTM AIntelligence</h1>
-                  <p className="text-base text-slate-600 dark:text-slate-300">Supervisione professionale del container. Ogni insight nasce da metriche oggettive e verificabili.</p>
+                <div className="space-y-4 max-w-3xl">
+                  <span className="ls-pill ls-pill-soft">Control Room</span>
+                  <h1 className="text-4xl font-semibold text-slate-900">LikeSense GTM AIntelligence</h1>
+                  <p className="text-base text-slate-600">Supervisione professionale del container. Ogni insight nasce da metriche oggettive e verificabili.</p>
                 </div>
                 <div className="flex flex-col items-end gap-4">
-                  <div className="rounded-2xl bg-slate-900 text-white px-6 py-4 shadow-md min-w-[200px]">
-                    <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Quality score</p>
+                  <div className="ls-subcard bg-gradient-to-r from-[#7A5BFF] via-[#9D6BFF] to-[#ED5FA7] text-white shadow-xl min-w-[220px] border border-white/50">
+                    <p className="text-xs uppercase tracking-[0.28em] text-white/80">Quality score</p>
                     <div className="flex items-center gap-2">
                       <p className="text-4xl font-semibold">{formattedScore}%</p>
                       <InfoTooltip
@@ -327,68 +331,68 @@ const Dashboard: React.FC = () => {
                               {item.label}: {item.value}% x {item.weight}
                             </div>
                           ))}
-                          <div className="border-t border-slate-300 pt-1 mt-2 font-bold">
+                          <div className="border-t border-white/40 pt-1 mt-2 font-bold">
                             = Score {formattedScore}%
                           </div>
                         </div>}
                       />
                     </div>
                   </div>
-                  <button onClick={() => navigateToContainerManager('tags')} className="px-5 py-2 text-sm font-semibold text-slate-700 dark:text-white border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">Apri Container Manager</button>
+                  <button onClick={() => navigateToContainerManager('tags')} className="ls-btn-secondary">Apri Container Manager</button>
                 </div>
               </div>
             </div>
 
-            <ErrorBoundary fallback={<div className="rounded-2xl border border-red-200 dark:border-red-800 bg-white dark:bg-gray-900 p-6 shadow-sm"><p className="text-red-700 dark:text-red-300 text-sm font-medium">Errore nel calcolo della qualita del container. Riprova piu tardi.</p></div>}>
-              <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-sm">
+            <ErrorBoundary fallback={<div className="ls-card border-red-200"><p className="text-red-700 text-sm font-medium">Errore nel calcolo della qualità del container. Riprova piu tardi.</p></div>}>
+              <div className="ls-card">
                 <QualityOfContainer gtmMetrics={gtmMetrics} onMetricAction={handleMetricAction} />
               </div>
             </ErrorBoundary>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-2">
               {overviewCards.map((card) => (
-                <div key={card.label} className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-sm hover:shadow-md transition-shadow">
+                <div key={card.label} className="ls-card h-full">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{card.label}</p>
-                      <p className="text-3xl font-semibold text-slate-900 dark:text-white mt-2">{safeRender(card.value)}</p>
+                      <p className="ls-overline text-slate-500">{card.label}</p>
+                      <p className="text-3xl font-semibold text-slate-900 mt-2">{safeRender(card.value)}</p>
                     </div>
-                    <span className="h-12 w-12 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-200 flex items-center justify-center text-sm font-semibold">{card.acronym}</span>
+                    <span className="h-12 w-12 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center text-sm font-semibold">{card.acronym}</span>
                   </div>
-                  <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">{card.helper}</p>
+                  <p className="mt-3 text-sm text-slate-500">{card.helper}</p>
                 </div>
               ))}
             </div>
 
             {alerts.length > 0 && (
-              <section className="rounded-2xl border border-amber-200 dark:border-amber-400/30 bg-white dark:bg-slate-900 p-6 shadow-sm">
+              <section className="ls-card">
                 <div className="flex flex-wrap items-center justify-between gap-4">
                   <div>
-                    <p className="text-sm font-semibold text-slate-900 dark:text-white">Area di attenzione</p>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">Verifica prioritaria per mantenere governance e compliance.</p>
+                    <p className="text-sm font-semibold text-slate-900">Area di attenzione</p>
+                    <p className="text-xs text-slate-500">Verifica prioritaria per mantenere governance e compliance.</p>
                   </div>
-                  <span className="text-xs font-semibold text-amber-600 dark:text-amber-400">{alerts.length} {alerts.length === 1 ? 'segnalazione' : 'segnalazioni'}</span>
+                  <span className="ls-pill ls-pill-warn">{alerts.length} {alerts.length === 1 ? 'segnalazione' : 'segnalazioni'}</span>
                 </div>
                 <div className="mt-4 space-y-3">
                   {alerts.map((alert, index) => (
-                    <div key={index} className={`flex items-start gap-3 rounded-xl border p-3 ${alert.type === 'error' ? 'border-red-200 bg-red-50 text-red-800 dark:border-red-500/40 dark:bg-red-950/30 dark:text-red-200' : 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-500/40 dark:bg-amber-950/30 dark:text-amber-200'}`}>
-                      <div className="w-10 h-10 rounded-full bg-white/60 dark:bg-slate-900 flex items-center justify-center font-semibold text-base">{alert.icon}</div>
-                      <p className="text-sm font-medium leading-relaxed">{alert.message}</p>
+                    <div key={index} className={`ls-subcard flex items-start gap-3 border-l-4 ${alert.type === 'error' ? 'border-l-rose-400' : 'border-l-amber-400'}`}>
+                      <div className="w-10 h-10 rounded-full bg-white flex items-center justify-center font-semibold text-base text-slate-700">{alert.icon}</div>
+                      <p className="text-sm font-medium leading-relaxed text-slate-800">{alert.message}</p>
                     </div>
                   ))}
                 </div>
               </section>
             )}
 
-            <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-sm">
+            <section className="ls-card">
               <div className="flex flex-wrap items-center justify-between gap-4">
                 <div>
-                  <p className="text-sm font-semibold text-slate-900 dark:text-white">Piano d'Azione Prioritario</p>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">Interventi consigliati per massimizzare affidabilita e copertura dati.</p>
+                  <p className="text-sm font-semibold text-slate-900">Piano d'Azione Prioritario</p>
+                  <p className="text-xs text-slate-500">Interventi consigliati per massimizzare affidabilità e copertura dati.</p>
                 </div>
                 <div className="flex gap-2">
-                  <button onClick={() => exportCSV((gtmMetrics.lists?.uaTags as unknown[]) ?? [], 'ua_obsoleti.csv')} className="px-3 py-1.5 text-xs font-semibold border border-purple-300 dark:border-purple-700 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-900/30 text-purple-700 dark:text-purple-200 transition-colors" title="Esporta UA obsoleti">Esporta CSV</button>
-                  <button onClick={copyReport} className="px-3 py-1.5 text-xs font-semibold border border-purple-300 dark:border-purple-700 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-900/30 text-purple-700 dark:text-purple-200 transition-colors" title="Copia report completo">Copia Report</button>
+                  <button onClick={() => exportCSV((gtmMetrics.lists?.uaTags as unknown[]) ?? [], 'ua_obsoleti.csv')} className="ls-btn-secondary ls-btn-sm" title="Esporta UA obsoleti">Esporta CSV</button>
+                  <button onClick={copyReport} className="ls-btn-ghost ls-btn-sm" title="Copia report completo">Copia Report</button>
                 </div>
               </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mt-4">
@@ -397,19 +401,19 @@ const Dashboard: React.FC = () => {
                   const type = (item as any).type as string;
                   const info = getMetricInfo(type);
                   return (
-                    <div key={type} className="p-5 rounded-2xl border border-purple-200 dark:border-purple-800 bg-indigo-50/60 dark:bg-purple-900/20 hover:border-purple-400 transition-colors" onClick={() => handleMetricAction(type)}>
+                    <div key={type} className="ls-subcard cursor-pointer" onClick={() => handleMetricAction(type)}>
                       <div className="flex items-start justify-between gap-4">
                         <div className="flex items-center gap-3">
                           <div className="w-8 h-8 shrink-0 rounded-lg bg-purple-100 text-purple-700 flex items-center justify-center font-bold">{String(idx + 1).padStart(2,'0')}</div>
                           <div>
-                            <p className="text-sm font-semibold text-slate-900 dark:text-white">{info.title}</p>
-                            <p className="text-xs text-slate-500 dark:text-slate-400">{safeRender((item as any).count)} elementi</p>
+                            <p className="text-sm font-semibold text-slate-900">{info.title}</p>
+                            <p className="text-xs text-slate-500">{safeRender((item as any).count)} elementi</p>
                           </div>
                         </div>
                         <div className="text-right space-y-1">
-                          <p className="text-xs font-semibold text-purple-700 dark:text-purple-300">{safeRender((item as any).action)}</p>
-                          <p className="text-xs text-slate-500 dark:text-slate-400">Priorità  <span className="font-semibold">{safeRender((item as any).priority)}</span></p>
-                          <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 dark:text-emerald-300">+{safeRender((item as any).impact)}%</span>
+                          <p className="text-xs font-semibold text-purple-700">{safeRender((item as any).action)}</p>
+                          <p className="text-xs text-slate-500">Priorità  <span className="font-semibold">{safeRender((item as any).priority)}</span></p>
+                          <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600">+{safeRender((item as any).impact)}%</span>
                         </div>
                       </div>
                     </div>
@@ -418,20 +422,20 @@ const Dashboard: React.FC = () => {
               </div>
             </section>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-4">
-              <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-sm flex flex-col">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-4 items-stretch">
+              <section className="ls-card h-full flex flex-col">
                 <div className="flex items-center justify-between mb-4">
                   <div>
-                    <h2 className="text-base font-semibold text-slate-900 dark:text-white">Distribuzione tipi di tag</h2>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">Conta reale per tipo di template GTM.</p>
+                    <h2 className="text-base font-semibold text-slate-900">Distribuzione tipi di tag</h2>
+                    <p className="text-xs text-slate-500">Conta reale per tipo di template GTM.</p>
                   </div>
-                  <span className="text-xs font-semibold text-slate-900 dark:text-white">{safeRender(gtmMetrics.counts?.tags ?? 0)} totali</span>
+                  <span className="text-xs font-semibold text-slate-900">{safeRender(gtmMetrics.counts?.tags ?? 0)} totali</span>
                 </div>
-                <div className="rounded-2xl p-4 bg-slate-50 dark:bg-slate-900/40 h-[260px] flex items-center justify-center" >
+                <div className="ls-subcard h-[260px] flex items-center justify-center" >
                   {donutData.labels.length > 0 && (donutData.datasets?.[0]?.data ?? []).some((v: number) => v > 0) ? (
                     <Doughnut data={donutData} options={donutOptions as any} />
                   ) : (
-                    <div className="text-center py-8 text-slate-500 dark:text-slate-400"><p>Nessun dato disponibile per il grafico</p></div>
+                    <div className="ls-subcard text-center text-slate-500"><p>Nessun dato disponibile per il grafico</p></div>
                   )}
                 </div>
                 <div className="mt-4 space-y-2">
@@ -447,29 +451,29 @@ const Dashboard: React.FC = () => {
                 </div>
               </section>
 
-              <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-sm flex flex-col gap-4">
+              <section className="ls-card h-full flex flex-col gap-4">
                 <div className="flex items-center justify-between">
-                  <h2 className="text-base font-semibold text-slate-900 dark:text-white">Tag piu utilizzati</h2>
-                  <span className="text-xs text-slate-500 dark:text-slate-400">Top 5</span>
+                  <h2 className="text-base font-semibold text-slate-900">Tag piu utilizzati</h2>
+                  <span className="text-xs text-slate-500">Top 5</span>
                 </div>
                 <div className="space-y-3">
-                  {barData?.labels && barData.labels.length > 0 && (barData.datasets?.[0].data ?? []).some((v: number) => v > 0) ? barData.labels.slice(0, 5).map((label: string, index: number) => (<div key={label} className="flex items-center justify-between rounded-xl border border-slate-200 dark:border-slate-700 bg-white/70 dark:bg-slate-900/40 px-4 py-3"><div className="flex items-center gap-3"><span className="text-xs font-semibold text-slate-500 dark:text-slate-400">{String(index + 1).padStart(2, '0')}</span><span className="font-semibold text-slate-900 dark:text-white">{safeRender(label)}</span></div><span className="text-sm font-medium text-slate-600 dark:text-slate-300">{safeRender((barData.datasets?.[0].data as any[])[index] ?? 0)} tag</span></div>)) : <div className="text-center py-8 text-slate-500 dark:text-slate-400"><p>Nessun dato disponibile per i tag piu utilizzati</p></div>}
+                  {barData?.labels && barData.labels.length > 0 && (barData.datasets?.[0].data ?? []).some((v: number) => v > 0) ? barData.labels.slice(0, 5).map((label: string, index: number) => (<div key={label} className="ls-subcard flex items-center justify-between"><div className="flex items-center gap-3"><span className="text-xs font-semibold text-slate-500">{String(index + 1).padStart(2, '0')}</span><span className="font-semibold text-slate-900">{safeRender(label)}</span></div><span className="text-sm font-medium text-slate-600">{safeRender((barData.datasets?.[0].data as any[])[index] ?? 0)} tag</span></div>)) : <div className="ls-subcard text-center text-slate-500"><p>Nessun dato disponibile per i tag piu utilizzati</p></div>}
                 </div>
               </section>
 
-              <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-sm flex flex-col justify-between">
+              <section className="ls-card h-full flex flex-col justify-between">
                 <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-base font-semibold text-slate-900 dark:text-white">Analisi dettagliata</h2>
-                  <span className="text-xs text-slate-500 dark:text-slate-400">Aggiornata dal context</span>
+                  <h2 className="text-base font-semibold text-slate-900">Analisi dettagliata</h2>
+                  <span className="text-xs text-slate-500">Aggiornata dal context</span>
                 </div>
                 <div className="grid grid-cols-1 gap-3 text-sm">
                   {[
                     { label: 'Tag con trigger', type: 'tags', value: `${safeRender(gtmMetrics.quality?.tags ?? 0)}%`, subtitle: 'Non copre tipo tag o obsolescenza' },
-                    { label: 'Qualita Trigger', type: 'triggers', value: `${safeRender(gtmMetrics.quality?.triggers ?? 0)}%` },
-                    { label: 'Qualita Variabili', type: 'variables', value: `${safeRender(gtmMetrics.quality?.variables ?? 0)}%` },
+                    { label: 'Qualità Trigger', type: 'triggers', value: `${safeRender(gtmMetrics.quality?.triggers ?? 0)}%` },
+                    { label: 'Qualità Variabili', type: 'variables', value: `${safeRender(gtmMetrics.quality?.variables ?? 0)}%` },
                     { label: 'Consent Mode', type: 'consent', value: `${safeRender(gtmMetrics.quality?.consent ?? 0)}%` },
                     { label: 'Configurazione Trigger', type: 'triggerQuality', value: `${safeRender(gtmMetrics.quality?.triggerQuality ?? 0)}%` },
-                    { label: 'Qualita Variabili', type: 'variableQuality', value: `${safeRender(gtmMetrics.quality?.variableQuality ?? 0)}%` },
+                    { label: 'Qualità Variabili', type: 'variableQuality', value: `${safeRender(gtmMetrics.quality?.variableQuality ?? 0)}%` },
                     { label: 'Sicurezza HTML', type: 'htmlSecurity', value: `${safeRender(gtmMetrics.quality?.htmlSecurity ?? 0)}%` },
                   ].map((item) => {
                     // badge + CTA (UI-only)
@@ -498,17 +502,17 @@ const Dashboard: React.FC = () => {
                       }
                     };
                     return (
-                      <div key={item.type} className="rounded-2xl border border-slate-200 dark:border-slate-700 p-4 bg-white dark:bg-slate-900/40 shadow-sm">
+                      <div key={item.type} className="ls-subcard">
                         <div className="flex items-center justify-between mb-2">
-                          <p className="font-semibold text-slate-900 dark:text-white">{item.label}</p>
+                          <p className="font-semibold text-slate-900">{item.label}</p>
                           <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${badge.cls}`}>{badge.label}</span>
                         </div>
                         <div>
-                          <p className="text-2xl font-semibold text-slate-900 dark:text-white">{safeRender(item.value)}</p>
-                          {item.subtitle && <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">{item.subtitle}</p>}
+                          <p className="text-2xl font-semibold text-slate-900">{safeRender(item.value)}</p>
+                          {item.subtitle && <p className="text-xs text-slate-500 mt-1">{item.subtitle}</p>}
                         </div>
                         <div className="mt-3">
-                          <button onClick={onCta} className="text-xs font-semibold border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">Apri dettagli</button>
+                          <button onClick={onCta} className="ls-btn-ghost ls-btn-sm">Apri dettagli</button>
                         </div>
                       </div>
                     );
@@ -522,6 +526,26 @@ const Dashboard: React.FC = () => {
   };
 
   export default Dashboard;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

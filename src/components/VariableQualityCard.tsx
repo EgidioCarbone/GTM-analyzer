@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+﻿import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getVariableMetricInfo } from '../services/variableQualityService';
 import { VariableQualityResult } from '../types/gtm';
@@ -7,64 +7,44 @@ import { InfoTooltip } from './ui/InfoTooltip';
 interface VariableQualityCardProps {
   variableResult: VariableQualityResult;
   onAction?: () => void;
+  className?: string;
 }
 
 export const VariableQualityCard: React.FC<VariableQualityCardProps> = ({ 
   variableResult, 
-  onAction 
+  onAction,
+  className
 }) => {
   const { variable_quality, message } = variableResult;
   const metricInfo = getVariableMetricInfo(message.status);
   const [isExpanded, setIsExpanded] = useState(false);
   const navigate = useNavigate();
   
-  // Determina il colore e lo stile in base alla severità
   const getCardStyle = () => {
     switch (message.status) {
       case 'critical':
-        return {
-          bgColor: 'bg-fuchsia-50 dark:bg-fuchsia-900/20',
-          borderColor: 'border-fuchsia-200 dark:border-fuchsia-800',
-          textColor: 'text-fuchsia-700 dark:text-fuchsia-400',
-          buttonColor: 'bg-purple-600 hover:bg-purple-700 text-white'
-        };
+        return { accentBorder: 'border-rose-200', accentText: 'text-rose-700' };
       case 'major':
-        return {
-          bgColor: 'bg-purple-50 dark:bg-purple-900/20',
-          borderColor: 'border-purple-200 dark:border-purple-800',
-          textColor: 'text-purple-700 dark:text-purple-400',
-          buttonColor: 'bg-purple-600 hover:bg-purple-700 text-white'
-        };
+        return { accentBorder: 'border-purple-200', accentText: 'text-purple-700' };
       case 'minor':
-        return {
-          bgColor: 'bg-violet-50 dark:bg-violet-900/20',
-          borderColor: 'border-violet-200 dark:border-violet-800',
-          textColor: 'text-violet-700 dark:text-violet-400',
-          buttonColor: 'bg-purple-600 hover:bg-purple-700 text-white'
-        };
-      default: // 'ok'
-        return {
-          bgColor: 'bg-indigo-50 dark:bg-indigo-900/20',
-          borderColor: 'border-indigo-200 dark:border-indigo-800',
-          textColor: 'text-indigo-700 dark:text-indigo-400',
-          buttonColor: 'bg-indigo-600 hover:bg-indigo-700 text-white'
-        };
+        return { accentBorder: 'border-amber-200', accentText: 'text-amber-700' };
+      default:
+        return { accentBorder: 'border-emerald-200', accentText: 'text-emerald-700' };
     }
   };
   
   const cardStyle = getCardStyle();
   
-  // Se non ci sono variabili, mostra una card informativa
   if (variable_quality.stats.total === 0) {
     return (
-      <div className={`${cardStyle.bgColor} ${cardStyle.borderColor} border-2 rounded-xl p-6 shadow-md hover:shadow-lg transition-all duration-200`}>
+      <div className={`ls-card h-full flex flex-col min-h-[260px] ${cardStyle.accentBorder} ${className ?? ''}`}>
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
             <div>
-              <h3 className="text-lg font-semibold text-gray-800 dark:text-white">
+              <h3 className="text-lg font-semibold text-slate-900">
                 Qualità Variabili
               </h3>
-              <p className="text-sm text-gray-600 dark:text-gray-400">
+              <p className="text-sm text-slate-600">
                 Nessuna variabile rilevata
               </p>
             </div>
@@ -74,7 +54,7 @@ export const VariableQualityCard: React.FC<VariableQualityCardProps> = ({
         </div>
         
         <div className="text-center py-4">
-          <p className="text-sm text-gray-600 dark:text-gray-400">
+          <p className="text-sm text-slate-600">
             Container senza variabili
           </p>
         </div>
@@ -83,106 +63,101 @@ export const VariableQualityCard: React.FC<VariableQualityCardProps> = ({
   }
   
   return (
-    <div className={`${cardStyle.bgColor} ${cardStyle.borderColor} border-2 rounded-xl p-6 shadow-md hover:shadow-lg transition-all duration-200 cursor-pointer`}
+    <div className={`ls-card h-full flex flex-col flex-1 min-h-[260px] ${cardStyle.accentBorder} ${className ?? ''}`}
          onClick={() => setIsExpanded(!isExpanded)}>
       
-      {/* Header con icona e titolo */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
           <div>
-            <h3 className="text-lg font-semibold text-gray-800 dark:text-white">
+            <h3 className="text-lg font-semibold text-slate-900">
               {message.title}
             </h3>
-            <p className="text-sm text-gray-600 dark:text-gray-400">
+            <p className="text-sm text-slate-600">
               {message.summary}
             </p>
           </div>
         </div>
         
-        {/* Badge severità */}
         <div className={`px-3 py-1 rounded-full text-xs font-medium ${metricInfo.priorityColor}`}>
           {metricInfo.priority}
         </div>
       </div>
       
-      {/* Statistiche principali con colori semaforo */}
       <div className="grid grid-cols-3 gap-4 mb-4">
         <div className="text-center">
-          <div className="text-2xl font-bold text-gray-600 dark:text-gray-400">
+          <div className="text-2xl font-bold text-slate-700">
             {variable_quality.stats.total}
           </div>
-          <div className="text-xs text-gray-600 dark:text-gray-400">
+          <div className="text-xs text-slate-500">
             Variabili totali
           </div>
         </div>
         
         <div className="text-center">
-          <div className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">
+          <div className="text-2xl font-bold text-indigo-600">
             {variable_quality.stats.total - variable_quality.stats.unused}
           </div>
-          <div className="text-xs text-gray-600 dark:text-gray-400 flex items-center justify-center gap-1">
+          <div className="text-xs text-slate-500 flex items-center justify-center gap-1">
             <span>Utilizzate</span>
           </div>
         </div>
         
         <div className="text-center">
-          <div className="text-2xl font-bold text-fuchsia-600 dark:text-fuchsia-400">
+          <div className="text-2xl font-bold text-rose-600">
             {variable_quality.stats.unused}
           </div>
-          <div className="text-xs text-gray-600 dark:text-gray-400 flex items-center justify-center gap-1">
+          <div className="text-xs text-slate-500 flex items-center justify-center gap-1">
             <span>Non usate</span>
           </div>
         </div>
       </div>
 
-      {/* Badge per categorie di issue */}
       <div className="flex flex-wrap gap-2 mb-4">
         {variable_quality.stats.dlv_missing_fallback > 0 && (
-          <span className="px-2 py-1 text-xs bg-orange-100 text-orange-800 rounded-full flex items-center gap-1">
+          <span className="px-2 py-1 text-xs bg-amber-50 text-amber-800 rounded-full border border-amber-200">
             DLV senza fallback ({variable_quality.stats.dlv_missing_fallback})
           </span>
         )}
         {variable_quality.stats.lookup_without_default > 0 && (
-          <span className="px-2 py-1 text-xs bg-red-100 text-red-800 rounded-full flex items-center gap-1">
+          <span className="px-2 py-1 text-xs bg-rose-50 text-rose-800 rounded-full border border-rose-200">
             Lookup senza default ({variable_quality.stats.lookup_without_default})
           </span>
         )}
         {variable_quality.stats.duplicates > 0 && (
-          <span className="px-2 py-1 text-xs bg-yellow-100 text-yellow-800 rounded-full flex items-center gap-1">
+          <span className="px-2 py-1 text-xs bg-amber-50 text-amber-800 rounded-full border border-amber-200">
             Duplicati ({variable_quality.stats.duplicates})
           </span>
         )}
         {variable_quality.stats.regex_malformed > 0 && (
-          <span className="px-2 py-1 text-xs bg-red-100 text-red-800 rounded-full flex items-center gap-1">
+          <span className="px-2 py-1 text-xs bg-rose-50 text-rose-800 rounded-full border border-rose-200">
             Regex malformate ({variable_quality.stats.regex_malformed})
           </span>
         )}
         {variable_quality.stats.css_fragile_selectors > 0 && (
-          <span className="px-2 py-1 text-xs bg-yellow-100 text-yellow-800 rounded-full flex items-center gap-1">
+          <span className="px-2 py-1 text-xs bg-amber-50 text-amber-800 rounded-full border border-amber-200">
             Selettori fragili ({variable_quality.stats.css_fragile_selectors})
           </span>
         )}
         {variable_quality.stats.js_unsafe_code > 0 && (
-          <span className="px-2 py-1 text-xs bg-red-100 text-red-800 rounded-full flex items-center gap-1">
+          <span className="px-2 py-1 text-xs bg-rose-50 text-rose-800 rounded-full border border-rose-200">
             JS non sicuro ({variable_quality.stats.js_unsafe_code})
           </span>
         )}
       </div>
 
-      {/* Score parziali con mini barre */}
       <div className="mb-4">
-        <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+        <h4 className="text-sm font-medium text-slate-700 mb-2">
           Score per categoria:
         </h4>
         <div className="space-y-2">
           <div className="flex items-center justify-between text-xs">
-            <span className="text-gray-600 dark:text-gray-400">DLV:</span>
+            <span className="text-slate-600">DLV:</span>
             <div className="flex items-center gap-2">
-              <div className="w-16 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+              <div className="w-16 h-2 bg-slate-100 rounded-full overflow-hidden">
                 <div 
                   className={`h-full transition-all duration-300 ${
-                    variable_quality.breakdown.dlv >= 0.8 ? 'bg-green-500' : 
-                    variable_quality.breakdown.dlv >= 0.6 ? 'bg-yellow-500' : 'bg-red-500'
+                    variable_quality.breakdown.dlv >= 0.8 ? 'bg-emerald-500' : 
+                    variable_quality.breakdown.dlv >= 0.6 ? 'bg-amber-500' : 'bg-rose-500'
                   }`}
                   style={{ width: `${variable_quality.breakdown.dlv * 100}%` }}
                 />
@@ -194,13 +169,13 @@ export const VariableQualityCard: React.FC<VariableQualityCardProps> = ({
           </div>
           
           <div className="flex items-center justify-between text-xs">
-            <span className="text-gray-600 dark:text-gray-400">Lookup:</span>
+            <span className="text-slate-600">Lookup:</span>
             <div className="flex items-center gap-2">
-              <div className="w-16 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+              <div className="w-16 h-2 bg-slate-100 rounded-full overflow-hidden">
                 <div 
                   className={`h-full transition-all duration-300 ${
-                    variable_quality.breakdown.lookup >= 0.8 ? 'bg-green-500' : 
-                    variable_quality.breakdown.lookup >= 0.6 ? 'bg-yellow-500' : 'bg-red-500'
+                    variable_quality.breakdown.lookup >= 0.8 ? 'bg-emerald-500' : 
+                    variable_quality.breakdown.lookup >= 0.6 ? 'bg-amber-500' : 'bg-rose-500'
                   }`}
                   style={{ width: `${variable_quality.breakdown.lookup * 100}%` }}
                 />
@@ -212,13 +187,13 @@ export const VariableQualityCard: React.FC<VariableQualityCardProps> = ({
           </div>
           
           <div className="flex items-center justify-between text-xs">
-            <span className="text-gray-600 dark:text-gray-400">Igiene:</span>
+            <span className="text-slate-600">Igiene:</span>
             <div className="flex items-center gap-2">
-              <div className="w-16 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+              <div className="w-16 h-2 bg-slate-100 rounded-full overflow-hidden">
                 <div 
                   className={`h-full transition-all duration-300 ${
-                    variable_quality.breakdown.hygiene >= 0.8 ? 'bg-green-500' : 
-                    variable_quality.breakdown.hygiene >= 0.6 ? 'bg-yellow-500' : 'bg-red-500'
+                    variable_quality.breakdown.hygiene >= 0.8 ? 'bg-emerald-500' : 
+                    variable_quality.breakdown.hygiene >= 0.6 ? 'bg-amber-500' : 'bg-rose-500'
                   }`}
                   style={{ width: `${variable_quality.breakdown.hygiene * 100}%` }}
                 />
@@ -231,47 +206,45 @@ export const VariableQualityCard: React.FC<VariableQualityCardProps> = ({
         </div>
       </div>
 
-      {/* Esempi di problemi principali */}
       {variable_quality.issues.length > 0 && (
         <div className="mb-4">
-          <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+          <h4 className="text-sm font-medium text-slate-700 mb-2">
             Esempi di problemi:
           </h4>
           <div className="space-y-1">
             {variable_quality.issues
-              .slice(0, 3) // Mostra solo i primi 3
+              .slice(0, 3)
                 .map((issue: any, index: number) => (
-                <div key={`examples-${issue.variable_id || 'unknown'}-${index}`} className="text-xs text-gray-600 dark:text-gray-400">
-                  <span className="font-bold text-gray-800 dark:text-gray-200">{issue.name}</span>
-                  <span className="ml-2">→ {issue.reason}</span>
+                <div key={`examples-${issue.variable_id || 'unknown'}-${index}`} className="text-xs text-slate-600">
+                  <span className="font-bold text-slate-800">{issue.name}</span>
+                  <span className="ml-2">- {issue.reason}</span>
                 </div>
               ))}
           </div>
         </div>
       )}
       
-      {/* Analisi dettagliata - solo se espanso */}
       {isExpanded && (
         <div className="mb-4">
-          <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+          <h4 className="text-sm font-medium text-slate-700 mb-2">
             Analisi dettagliata completa:
           </h4>
           <div className="grid grid-cols-2 gap-2 text-xs">
             <div className="flex justify-between">
-              <span className="text-gray-600 dark:text-gray-400">Selettori:</span>
-              <span className={`font-medium ${variable_quality.breakdown.selectors >= 0.8 ? 'text-green-600' : variable_quality.breakdown.selectors >= 0.6 ? 'text-orange-600' : 'text-red-600'}`}>
+              <span className="text-slate-600">Selettori:</span>
+              <span className={`font-medium ${variable_quality.breakdown.selectors >= 0.8 ? 'text-emerald-600' : variable_quality.breakdown.selectors >= 0.6 ? 'text-amber-600' : 'text-rose-600'}`}>
                 {Math.round(variable_quality.breakdown.selectors * 100)}%
               </span>
             </div>
             <div className="flex justify-between">
-              <span className="text-gray-600 dark:text-gray-400">JavaScript:</span>
-              <span className={`font-medium ${variable_quality.breakdown.js >= 0.8 ? 'text-green-600' : variable_quality.breakdown.js >= 0.6 ? 'text-orange-600' : 'text-red-600'}`}>
+              <span className="text-slate-600">JavaScript:</span>
+              <span className={`font-medium ${variable_quality.breakdown.js >= 0.8 ? 'text-emerald-600' : variable_quality.breakdown.js >= 0.6 ? 'text-amber-600' : 'text-rose-600'}`}>
                 {Math.round(variable_quality.breakdown.js * 100)}%
               </span>
             </div>
             <div className="flex justify-between">
-              <span className="text-gray-600 dark:text-gray-400">Regex:</span>
-              <span className={`font-medium ${variable_quality.breakdown.regex >= 0.8 ? 'text-green-600' : variable_quality.breakdown.regex >= 0.6 ? 'text-orange-600' : 'text-red-600'}`}>
+              <span className="text-slate-600">Regex:</span>
+              <span className={`font-medium ${variable_quality.breakdown.regex >= 0.8 ? 'text-emerald-600' : variable_quality.breakdown.regex >= 0.6 ? 'text-amber-600' : 'text-rose-600'}`}>
                 {Math.round(variable_quality.breakdown.regex * 100)}%
               </span>
             </div>
@@ -279,27 +252,26 @@ export const VariableQualityCard: React.FC<VariableQualityCardProps> = ({
         </div>
       )}
       
-      {/* Problemi principali - solo se espanso */}
       {isExpanded && variable_quality.issues.length > 0 && (
         <div className="mb-4">
-          <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+          <h4 className="text-sm font-medium text-slate-700 mb-2">
             Problemi principali:
           </h4>
           <div className="space-y-1">
             {variable_quality.issues
-              .slice(0, 3) // Mostra solo i primi 3
+              .slice(0, 3)
               .map((issue: any, index: number) => (
-                <div key={`detailed-${issue.variable_id || 'unknown'}-${index}`} className="text-xs text-gray-600 dark:text-gray-400">
-                  <span className="font-bold text-gray-800 dark:text-gray-200">{issue.name}</span>
-                  <span className="ml-2">— {issue.reason}</span>
-                  <div className="text-xs text-blue-600 dark:text-blue-400 mt-1 ml-4">
-                    → {issue.suggestion}
+                <div key={`detailed-${issue.variable_id || 'unknown'}-${index}`} className="text-xs text-slate-600">
+                  <span className="font-bold text-slate-800">{issue.name}</span>
+                  <span className="ml-2">- {issue.reason}</span>
+                  <div className="text-xs text-blue-600 mt-1 ml-4">
+                    â†’ {issue.suggestion}
                   </div>
                 </div>
               ))}
             
             {variable_quality.issues.length > 3 && (
-              <div className="text-xs text-gray-500 dark:text-gray-500">
+              <div className="text-xs text-slate-500">
                 ... e altri {variable_quality.issues.length - 3} problemi
               </div>
             )}
@@ -307,9 +279,8 @@ export const VariableQualityCard: React.FC<VariableQualityCardProps> = ({
         </div>
       )}
       
-      {/* Statistiche aggiuntive - solo se espanso */}
       {isExpanded && (
-        <div className="mb-4 text-xs text-gray-600 dark:text-gray-400">
+        <div className="mb-4 text-xs text-slate-600 space-y-1">
           <div className="flex justify-between">
             <span>DLV senza fallback:</span>
             <span className="font-medium">{variable_quality.stats.dlv_missing_fallback}</span>
@@ -333,20 +304,18 @@ export const VariableQualityCard: React.FC<VariableQualityCardProps> = ({
           {variable_quality.stats.duplicates > 0 && (
             <div className="flex justify-between">
               <span>Duplicati:</span>
-              <span className="font-medium text-orange-600">{variable_quality.stats.duplicates}</span>
+              <span className="font-medium text-amber-600">{variable_quality.stats.duplicates}</span>
             </div>
           )}
         </div>
       )}
       
-      {/* CTA orientato all'azione */}
       <div className="flex justify-end">
         <button 
-          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${cardStyle.buttonColor}`}
+          className="ls-btn ls-btn-sm"
           onClick={(e) => {
             e.stopPropagation();
-            // Naviga al Container Manager con filtro appropriato
-            let filter = 'var-dlv'; // default
+            let filter = 'var-dlv';
             if (variable_quality.stats.lookup_without_default > 0) {
               filter = 'var-lookup';
             } else if (variable_quality.stats.dlv_missing_fallback > 0) {
@@ -370,7 +339,6 @@ export const VariableQualityCard: React.FC<VariableQualityCardProps> = ({
           }}
         >
           {(() => {
-            // Determina il CTA più specifico basandosi sui problemi più critici
             if (variable_quality.stats.lookup_without_default > 0) {
               return 'Esamina Lookup senza default';
             }
@@ -394,17 +362,18 @@ export const VariableQualityCard: React.FC<VariableQualityCardProps> = ({
         </button>
       </div>
       
-      {/* Indicatore espansione */}
       <div className="flex justify-center mt-2">
-        <span className="text-xs text-gray-500 dark:text-gray-400">
+        <span className="text-xs text-slate-500">
           {isExpanded ? 'Clicca per comprimere' : 'Clicca per espandere'}
         </span>
       </div>
       
-      {/* Tooltip informativo */}
       <InfoTooltip content={metricInfo.impact}>
         <div className="absolute top-2 right-2 w-4 h-4"></div>
       </InfoTooltip>
     </div>
   );
 };
+
+
+

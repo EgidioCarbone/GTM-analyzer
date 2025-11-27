@@ -132,11 +132,11 @@ export default function PlanPage() {
         <div className="text-center space-y-4">
           <div className="inline-flex items-center gap-2 px-4 py-1 rounded-full bg-white/80 shadow-sm text-purple-600 text-sm font-medium">
             <Tag className="w-4 h-4" />
-            AI-Powered Measurement Plan
+            AI-Audit
           </div>
-          <h1 className="text-4xl md:text-5xl font-semibold text-slate-900">Crea il tuo GTM Measurement Plan</h1>
+          <h1 className="text-4xl md:text-5xl font-semibold text-slate-900">Crea il tuo Audit</h1>
           <p className="text-slate-600 text-base md:text-lg max-w-3xl mx-auto">
-            Analizza il tuo container GTM, individua criticita e genera un piano di misurazione completo e professionale.
+           Audit sullo stato del tracciamento, mediante analisi del container Google Tag Manager finalizzata all'individuazione di eventuali criticità e alla formulazione di raccomandazioni operative per l'ottimizzazione del setup di tracking.
           </p>
         </div>
 
