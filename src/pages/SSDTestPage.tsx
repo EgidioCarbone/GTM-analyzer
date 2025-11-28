@@ -40,14 +40,15 @@ import type { ModuleId, ModuleScenario, ModuleEventDefinition, ScenarioStep, Eve
 import type { SSDModule } from '../modules/types';
 import { isModuleFieldEmpty } from '../modules/utils';
 import { extractExpectedPayloadExpression } from '../../shared/expectedPayload';
+import { useLanguage } from '../context/LanguageContext';
 
-const scenarioRunSteps = [
-  { id: 'browser_launch', title: 'Avvio Browser', description: 'Inizializzazione del browser Puppeteer...', phase: 'test' },
-  { id: 'navigation', title: 'Navigazione', description: 'Caricamento della pagina web...', phase: 'test' },
-  { id: 'cookie_consent', title: 'Gestione Cookie', description: 'Accettazione banner e allineamento del consenso...', phase: 'test' },
-  { id: 'test_execution', title: 'Esecuzione Test', description: 'Esecuzione delle azioni e verifica delle aspettative...', phase: 'test' },
-  { id: 'data_collection', title: 'Raccolta Dati', description: 'Cattura di screenshot e eventi dataLayer...', phase: 'test' },
-  { id: 'report_generation', title: 'Generazione Report', description: 'Creazione del report finale...', phase: 'test' },
+const scenarioRunStepIds = [
+  'browser_launch',
+  'navigation',
+  'cookie_consent',
+  'test_execution',
+  'data_collection',
+  'report_generation',
 ] as const;
 
 const ensureAbsoluteUrl = (url: string): string => {
@@ -322,6 +323,7 @@ const toValidUrl = (input: string): string | null => {
 };
 
 export default function SSDTestPage() {
+  const { t, language } = useLanguage();
   const apiBaseUrl =
     import.meta.env.VITE_API_BASE ||
     (window.location.origin === 'http://localhost:5173' ? 'http://localhost:3001' : '');
@@ -337,6 +339,30 @@ export default function SSDTestPage() {
   const [scenarioModalSaving, setScenarioModalSaving] = useState(false);
   const [deleteDialogScenario, setDeleteDialogScenario] = useState<ModuleScenario | null>(null);
   const [deleteDialogLoading, setDeleteDialogLoading] = useState(false);
+  const scenarioRunSteps = useMemo(
+    () =>
+      scenarioRunStepIds.map(id => {
+        switch (id) {
+          case 'browser_launch':
+            return { id, title: t('ssd.progress.browser'), description: t('ssd.progress.browser.desc'), phase: 'test' as const };
+          case 'navigation':
+            return { id, title: t('ssd.progress.navigation'), description: t('ssd.progress.navigation.desc'), phase: 'test' as const };
+          case 'cookie_consent':
+            return { id, title: t('ssd.progress.cookie'), description: t('ssd.progress.cookie.desc'), phase: 'test' as const };
+          case 'test_execution':
+            return { id, title: t('ssd.progress.execution'), description: t('ssd.progress.execution.desc'), phase: 'test' as const };
+          case 'data_collection':
+            return { id, title: t('ssd.progress.collection'), description: t('ssd.progress.collection.desc'), phase: 'test' as const };
+          case 'report_generation':
+            return { id, title: t('ssd.progress.report'), description: t('ssd.progress.report.desc'), phase: 'test' as const };
+          default:
+            return { id, title: id, description: '', phase: 'test' as const };
+        }
+      }),
+    [t]
+  );
+
+  const l = useCallback((it: string, en: string) => (language === 'en' ? en : it), [language]);
   const [isCmpModalOpen, setCmpModalOpen] = useState(false);
   const [cmpForm, setCmpForm] = useState({ selector: '', testUrl: '', vendor: '' });
   const [cmpModalSaving, setCmpModalSaving] = useState(false);
@@ -588,9 +614,9 @@ export default function SSDTestPage() {
     if (cmpReady) {
       return true;
     }
-    toast.error('Configura e verifica la CMP del modulo prima di lavorare sugli scenari');
+    toast.error(l('Configura e verifica la CMP del modulo prima di lavorare sugli scenari', 'Configure and validate the module CMP before working on scenarios'));
     return false;
-  }, [cmpReady]);
+  }, [cmpReady, l]);
 
   const { config: ssdConfig, loading: configLoading, error: configError } = useSSDConfig(apiBaseUrl);
 
@@ -1364,19 +1390,19 @@ const persistScenarioDraft = useCallback(
 
   const handleGenerateScenarioDsl = async () => {
     if (!state.moduleId) {
-      toast.error('Seleziona prima un modulo');
+      toast.error(l('Seleziona prima un modulo', 'Select a module first'));
       return;
     }
     if (!ensureCmpConfigured()) return;
 
     if (!state.scenarioId) {
-      toast.error('Crea o seleziona uno scenario prima di generare la DSL');
+      toast.error(l('Crea o seleziona uno scenario prima di generare la DSL', 'Create or select a scenario before generating the DSL'));
       return;
     }
 
     const scenario = state.scenarios.find(s => s.id === state.scenarioId);
     if (!scenario) {
-      toast.error('Scenario selezionato non trovato');
+      toast.error(l('Scenario selezionato non trovato', 'Selected scenario not found'));
       return;
     }
 
@@ -1388,7 +1414,7 @@ const persistScenarioDraft = useCallback(
       });
       if (!res.ok) {
         const error = await res.json().catch(() => ({}));
-        throw new Error(error.error || 'Impossibile generare la DSL per lo scenario');
+        throw new Error(error.error || l('Impossibile generare la DSL per lo scenario', 'Unable to generate DSL for this scenario'));
       }
       const data = await res.json();
       const dsl = data.dsl;
@@ -1404,10 +1430,10 @@ const persistScenarioDraft = useCallback(
         isLoading: false,
         url: scenario.url,
       }));
-      toast.success('DSL generata dallo scenario');
+      toast.success(t('ssd.toast.dslGenerated'));
     } catch (error) {
       setState(prev => ({ ...prev, isLoading: false }));
-      notifyError(error, 'Errore durante la generazione della DSL');
+      notifyError(error, l('Errore durante la generazione della DSL', 'Error while generating the DSL'));
     } finally {
       setLoadingType(null);
     }
@@ -1604,7 +1630,7 @@ const persistScenarioDraft = useCallback(
 
   const handleRunTests = async () => {
     if (!state.dsl) {
-      toast.error('Genera la DSL dello scenario prima di eseguire i test');
+      toast.error(t('ssd.toast.dslNeeded'));
       return;
     }
     if (!ensureCmpConfigured()) return;
@@ -1619,9 +1645,9 @@ const persistScenarioDraft = useCallback(
   };
 
   const progressStepsDefinition = [
-    { key: 'module', label: 'Modulo', icon: PackageSearch },
-    { key: 'scenario', label: 'Scenario', icon: Tag },
-    { key: 'run', label: 'Risultati', icon: Play },
+    { key: 'module', label: t('ssd.step.module'), icon: PackageSearch },
+    { key: 'scenario', label: t('ssd.step.scenario'), icon: Tag },
+    { key: 'run', label: t('ssd.step.results'), icon: Play },
   ] as const;
 
   const activeStepKey = state.currentStep === 'review' ? 'scenario' : state.currentStep;
@@ -1669,11 +1695,11 @@ const persistScenarioDraft = useCallback(
           <div className="text-center">
             <div className="inline-flex items-center gap-2 px-4 py-1 rounded-full bg-white/80 shadow-sm text-purple-600 text-sm font-medium">
               <Tag className="w-4 h-4" />
-              Scenario-based SDD Testing
+              {t('ssd.badge')}
             </div>
-            <h1 className="mt-4 text-4xl font-semibold text-slate-900">Configura e salva scenari di tracciamento</h1>
+            <h1 className="mt-4 text-4xl font-semibold text-slate-900">{t('ssd.hero.title')}</h1>
             <p className="mt-3 text-slate-600">
-              Seleziona un modulo verticale, scegli l'evento da monitorare e crea scenari riutilizzabili senza caricare PDF.
+              {t('ssd.hero.subtitle')}
             </p>
           </div>
 
@@ -1713,7 +1739,7 @@ const persistScenarioDraft = useCallback(
                   <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                     <div>
                       <p className="text-xs uppercase tracking-[0.3em] text-purple-500 mb-1">
-                        Modulo selezionato
+                        {t('ssd.selectedModule')}
                       </p>
                       <h2 className="text-2xl font-semibold text-gray-900">
                         {selectedModule.meta.title}
@@ -1973,8 +1999,7 @@ const persistScenarioDraft = useCallback(
                     <Button
                       onClick={requestDeleteScenario}
                       disabled={state.isLoading || !state.scenarioId || !cmpReady}
-                      variant="destructive"
-                      className="rounded-full px-5 py-2 font-semibold shadow-sm disabled:opacity-40"
+                      className="rounded-full px-5 py-2 font-semibold shadow-sm disabled:opacity-40 border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100"
                     >
                       <Trash2 className="w-4 h-4 mr-2" />
                       Elimina

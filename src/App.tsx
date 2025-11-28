@@ -23,18 +23,21 @@ import { DashboardStoreProvider } from "./context/DashboardStoreContext";
 import { SourceStoreProvider } from "./context/SourceStoreContext";
 import DashboardBuilder from "./pages/DashboardBuilder";
 import DashboardPublic from "./pages/DashboardPublic";
+import { LanguageSwitcher } from "./components/LanguageSwitcher";
+import { useLanguage } from "./context/LanguageContext";
 
 export default function App() {
   const { container } = useContainer();
   const navigate = useNavigate();
   const location = useLocation();
+  const { t } = useLanguage();
 
   useEffect(() => {
     const saved = localStorage.getItem("gtmContainer");
     if (saved) {
-      toast.success("Container ripristinato dall'ultima sessione.");
+      toast.success(t("toast.container.restored"));
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     const protectedRoutes = ["/container-manager", "/plan", "/testing", "/migration"];
@@ -56,6 +59,10 @@ export default function App() {
             <div className="absolute -bottom-48 -right-48 w-[600px] h-[600px] bg-pink-400 opacity-30 blur-3xl rounded-full z-0" />
 
             <Toaster position="top-right" />
+
+            <div className="fixed top-4 right-4 z-[10001]">
+              <LanguageSwitcher />
+            </div>
 
             {/* Sidebar off-canvas sempre disponibile */}
             <Sidebar />

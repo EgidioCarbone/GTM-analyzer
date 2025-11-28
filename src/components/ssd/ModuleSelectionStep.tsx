@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Card } from '../ui/card';
 import { Button } from '../ui/button';
 import { Skeleton } from '../ui/Skeleton';
@@ -20,6 +20,7 @@ import {
   Pencil,
 } from 'lucide-react';
 import type { ModuleId, SSDModule } from '../../modules/types';
+import { useLanguage } from '../../context/LanguageContext';
 
 type ModuleSelectionStepProps = {
   modules: SSDModule[];
@@ -69,6 +70,17 @@ export default function ModuleSelectionStep({
   onModuleDelete,
   onModuleEdit,
 }: ModuleSelectionStepProps) {
+  const { language } = useLanguage();
+  const l = (it: string, en: string) => (language === 'en' ? en : it);
+
+  const stepCopy = useMemo(
+    () => [
+      { title: l('Modulo', 'Module'), desc: l('Scegli la verticalizzazione con cui iniziare', 'Choose the vertical module to start') },
+      { title: l('Scenario', 'Scenario'), desc: l('Configura evento e parametri', 'Set event and parameters') },
+      { title: l('Risultati', 'Results'), desc: l('Genera DSL ed esegui il test', 'Generate DSL and run the test') },
+    ],
+    [language]
+  );
   const renderIcon = (name?: string) => {
     const IconComponent = (name && ICON_COMPONENTS[name]) || ShieldCheck;
     return <IconComponent className="h-5 w-5" />;
@@ -84,44 +96,45 @@ export default function ModuleSelectionStep({
           <div className="max-w-2xl space-y-4">
             <div className="inline-flex items-center gap-2 rounded-full border border-indigo-200/70 bg-indigo-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.25em] text-indigo-600 shadow-sm">
               <Sparkles className="h-3.5 w-3.5" />
-              SDD Vertical Modules
+              {l('Moduli verticali SDD', 'SDD Vertical Modules')}
             </div>
             <h1 className="text-4xl font-bold tracking-tight text-gray-900">
-              Scegli il modulo perfetto per i tuoi{' '}
+              {l('Scegli il modulo perfetto per i tuoi', 'Pick the perfect module for your')}{' '}
               <span className="bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 bg-clip-text text-transparent">
-                SDD Test
+                {l('SDD Test', 'SDD Tests')}
               </span>
             </h1>
-            <p className="text-lg leading-relaxed text-gray-600">
-              Ogni modulo definisce la pagina di riferimento, i suggerimenti sugli eventi più comuni e centralizza la
-              configurazione della CMP. È il punto di partenza per creare scenari che generano una DSL pronta all’uso e
-              validano il payload del dataLayer.
+                        <p className="text-lg leading-relaxed text-gray-600">
+              {l(
+                "Ogni modulo definisce la pagina di riferimento, i suggerimenti sugli eventi piu comuni e centralizza la configurazione della CMP. E il punto di partenza per creare scenari che generano una DSL pronta all uso e validano il payload del dataLayer.",
+                "Each module defines the reference page, common event hints, and centralizes CMP configuration. It is the starting point to create scenarios that output a ready-to-use DSL and validate the dataLayer payload."
+              )}
             </p>
             <div className="grid gap-4 sm:grid-cols-3">
               <div className="flex items-center gap-3 rounded-2xl border border-white/70 bg-white/80 px-4 py-3 text-sm text-gray-700 shadow-sm">
                 <BadgeCheck className="h-4 w-4 text-indigo-500" />
-                CMP configurabile per modulo
+                {l('CMP configurabile per modulo', 'CMP configurable per module')}
               </div>
               <div className="flex items-center gap-3 rounded-2xl border border-white/70 bg-white/80 px-4 py-3 text-sm text-gray-700 shadow-sm">
                 <Blocks className="h-4 w-4 text-purple-500" />
-                DSL generata dagli scenari
+                {l('DSL generata dagli scenari', 'DSL generated from scenarios')}
               </div>
               <div className="flex items-center gap-3 rounded-2xl border border-white/70 bg-white/80 px-4 py-3 text-sm text-gray-700 shadow-sm">
                 <CheckCircle2 className="h-4 w-4 text-pink-500" />
-                Confronto dataLayer vs payload atteso
+                {l('Confronto dataLayer vs payload atteso', 'Compare dataLayer vs expected payload')}
               </div>
             </div>
           </div>
           <div className="w-full max-w-sm space-y-4 rounded-3xl border border-white/70 bg-white/80 p-6 text-sm text-gray-700 shadow-lg">
-            <h2 className="text-sm font-semibold uppercase tracking-[0.3em] text-gray-500">Step corrente</h2>
+            <h2 className="text-sm font-semibold uppercase tracking-[0.3em] text-gray-500">{l('Step corrente', 'Current step')}</h2>
             <div className="space-y-3">
               <div className="flex items-center gap-3 rounded-2xl border border-indigo-100/80 bg-gradient-to-r from-indigo-500/10 to-purple-500/10 px-4 py-3 text-gray-800 shadow-sm">
                 <span className="flex h-8 w-8 items-center justify-center rounded-full bg-indigo-500/10 text-sm font-semibold text-indigo-600 shadow-inner">
                   1
                 </span>
                 <div>
-                  <p className="text-sm font-semibold text-gray-900">Modulo</p>
-                  <p className="text-xs text-gray-600">Scegli la verticalizzazione con cui iniziare</p>
+                  <p className="text-sm font-semibold text-gray-900">{stepCopy[0].title}</p>
+                  <p className="text-xs text-gray-600">{stepCopy[0].desc}</p>
                 </div>
               </div>
               <div className="flex items-center gap-3 rounded-2xl border border-white/70 bg-white/60 px-4 py-3 text-gray-400">
@@ -129,8 +142,8 @@ export default function ModuleSelectionStep({
                   2
                 </span>
                 <div>
-                  <p className="text-sm font-semibold">Scenario</p>
-                  <p className="text-xs">Configura evento e parametri</p>
+                  <p className="text-sm font-semibold">{stepCopy[1].title}</p>
+                  <p className="text-xs">{stepCopy[1].desc}</p>
                 </div>
               </div>
               <div className="flex items-center gap-3 rounded-2xl border border-white/70 bg-white/60 px-4 py-3 text-gray-400">
@@ -138,8 +151,8 @@ export default function ModuleSelectionStep({
                   3
                 </span>
                 <div>
-                  <p className="text-sm font-semibold">Risultati</p>
-                  <p className="text-xs">Genera DSL ed esegui il test</p>
+                  <p className="text-sm font-semibold">{stepCopy[2].title}</p>
+                  <p className="text-xs">{stepCopy[2].desc}</p>
                 </div>
               </div>
             </div>
@@ -150,7 +163,7 @@ export default function ModuleSelectionStep({
               disabled={loading}
             >
               {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlusCircle className="h-4 w-4" />}
-              Nuovo modulo
+              {l('Nuovo modulo', 'New module')}
             </Button>
           </div>
         </div>
@@ -160,7 +173,7 @@ export default function ModuleSelectionStep({
         <div className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50/80 px-4 py-3 text-sm text-amber-700 shadow-inner">
           <AlertTriangle className="h-5 w-5 text-amber-500" />
           <div>
-            <p className="font-semibold">Impossibile caricare i moduli</p>
+            <p className="font-semibold">{l('Impossibile caricare i moduli', 'Unable to load modules')}</p>
             <p className="text-amber-800">{error}</p>
           </div>
         </div>
@@ -173,9 +186,12 @@ export default function ModuleSelectionStep({
           ? (
             <Card className="border border-dashed border-slate-300 bg-white/80 p-6 shadow-inner md:col-span-2">
               <div className="flex flex-col gap-4 text-center">
-                <h3 className="text-xl font-semibold text-slate-800">Nessun modulo configurato</h3>
+                <h3 className="text-xl font-semibold text-slate-800">{l('Nessun modulo configurato', 'No module configured')}</h3>
                 <p className="text-sm text-slate-600">
-                  Crea il primo modulo per iniziare a definire scenari riutilizzabili. Ti basteranno nome, descrizione, dominio e URL principale.
+                  {l(
+                    'Crea il primo modulo per iniziare a definire scenari riutilizzabili. Ti basteranno nome, descrizione, dominio e URL principale.',
+                    'Create the first module to start defining reusable scenarios. You just need name, description, domain and main URL.'
+                  )}
                 </p>
                 <div>
                   <Button
@@ -183,7 +199,7 @@ export default function ModuleSelectionStep({
                     className="inline-flex items-center gap-2 bg-indigo-600 px-5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700"
                   >
                     <PlusCircle className="h-4 w-4" />
-                    Configura un modulo
+                    {l('Configura un modulo', 'Create a module')}
                   </Button>
                 </div>
               </div>
@@ -210,7 +226,7 @@ export default function ModuleSelectionStep({
                       onModuleEdit(mod);
                     }}
                     disabled={loading}
-                    aria-label={`Modifica modulo ${mod.meta.title}`}
+                    aria-label={l(`Modifica modulo ${mod.meta.title}`, `Edit module ${mod.meta.title}`)}
                   >
                     <Pencil className="h-4 w-4" />
                   </button>
@@ -222,7 +238,7 @@ export default function ModuleSelectionStep({
                       onModuleDelete(mod);
                     }}
                     disabled={loading || modules.length <= 1}
-                    aria-label={`Elimina modulo ${mod.meta.title}`}
+                    aria-label={l(`Elimina modulo ${mod.meta.title}`, `Delete module ${mod.meta.title}`)}
                   >
                     <Trash2 className="h-4 w-4" />
                   </button>
@@ -246,7 +262,7 @@ export default function ModuleSelectionStep({
                         {isActive && (
                           <span className="inline-flex items-center gap-1.5 rounded-full border border-indigo-200 bg-white/80 px-3 py-1 text-xs font-semibold text-indigo-600 shadow-sm backdrop-blur">
                             <CheckCircle2 className="h-3.5 w-3.5" />
-                            Modulo attivo
+                            {l('Modulo attivo', 'Active module')}
                           </span>
                         )}
                       </div>
@@ -274,7 +290,7 @@ export default function ModuleSelectionStep({
                   {mod.supportedHosts.length > 0 && (
                     <div className="rounded-2xl border border-white/70 bg-white/80 p-4 text-xs text-gray-500 shadow-inner">
                       <div className="flex items-center gap-2 text-gray-700">
-                        <span className="font-semibold text-gray-800">Domini supportati</span>
+                        <span className="font-semibold text-gray-800">{l('Domini supportati', 'Supported domains')}</span>
                       </div>
                       <ul className="mt-2 space-y-1 text-gray-600">
                         {mod.supportedHosts.map(host => (
@@ -289,10 +305,10 @@ export default function ModuleSelectionStep({
 
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-medium uppercase tracking-[0.25em] text-gray-400">
-                      MODULO #{mod.meta.id.toUpperCase()}
+                      {l('MODULO', 'MODULE')} #{mod.meta.id.toUpperCase()}
                     </span>
                     <span className={`text-xs font-semibold ${isActive ? 'text-indigo-600' : 'text-gray-400'}`}>
-                      {isActive ? 'Pronto per il prossimo step' : 'Clicca per selezionare'}
+                      {isActive ? l('Pronto per il prossimo step', 'Ready for next step') : l('Clicca per selezionare', 'Click to select')}
                     </span>
                   </div>
                 </div>
@@ -314,3 +330,4 @@ export default function ModuleSelectionStep({
     </div>
   );
 }
+

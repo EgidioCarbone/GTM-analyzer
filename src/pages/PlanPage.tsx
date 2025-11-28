@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -10,6 +10,7 @@ import { buildTagsTable, generateMeasurementDoc } from "../services/generateMeas
 import { renderMeasurementDoc } from "../services/renderMeasurementDoc";
 import { Card, CardContent } from "../components/ui/card";
 import { ScrollArea } from "../components/ui/scroll-area";
+import { useLanguage } from "../context/LanguageContext";
 
 import animationData from "../assets/background-ai-loader.json";
 
@@ -37,16 +38,20 @@ function useCyclingTypewriter(texts: string[], speed = 70, hold = 3000): { text:
 
 export default function PlanPage() {
   const { container } = useContainer();
+  const { t, language } = useLanguage();
 
   const [preview, setPreview] = useState<{ tags?: string }>({});
   const [loading, setLoading] = useState(false);
   const [contextText, setContextText] = useState("");
 
-  const steps = [
-    { label: "Step 1: Brief", desc: "Inserisci il contesto del cliente" },
-    { label: "Step 2: Analisi AI", desc: "Elaboriamo e normalizziamo i tag" },
-    { label: "Step 3: Documento", desc: "Scarica il Measurement Plan" },
-  ];
+  const steps = useMemo(
+    () => [
+      { label: t("plan.step1.label"), desc: t("plan.step1.desc") },
+      { label: t("plan.step2.label"), desc: t("plan.step2.desc") },
+      { label: t("plan.step3.label"), desc: t("plan.step3.desc") },
+    ],
+    [t]
+  );
 
   const { text: typing } = useCyclingTypewriter(steps.map((s) => s.label), 70, 3000);
   const CurrentIcon = Loader2;
@@ -70,9 +75,9 @@ export default function PlanPage() {
   const Spinner = () => <Loader2 className="h-4 w-4 animate-spin inline-block ml-1" />;
 
   const handleExport = async () => {
-    if (!container) return toast.error("Carica prima un container GTM!");
+    if (!container) return toast.error(t("plan.error.noContainer"));
     setLoading(true);
-    toast.loading("Analisi AI in corso.", { id: "plan" });
+    toast.loading(t("plan.toast.analyzing"), { id: "plan" });
 
     try {
       const tagsMd = await buildTagsTable(container.tag ?? [], container.trigger ?? []);
@@ -86,13 +91,14 @@ export default function PlanPage() {
         variables: container.variable ?? [],
         projectName: container.publicId,
         contextText,
+        language,
       });
 
       await renderMeasurementDoc(doc, `PianoMisurazione_${container.publicId ?? "SenzaNome"}.docx`);
-      toast.success("Documento Word generato!", { id: "plan" });
+      toast.success(t("plan.success.doc"), { id: "plan" });
     } catch (e) {
       console.error(e);
-      toast.error("Errore nella generazione del piano.", { id: "plan" });
+      toast.error(t("plan.error.generate"), { id: "plan" });
     } finally {
       setLoading(false);
       try {
@@ -104,7 +110,7 @@ export default function PlanPage() {
   const clearPreview = () => {
     localStorage.removeItem("gtmAnalyzerPreview");
     setPreview({});
-    toast("Anteprima resettata.", { icon: "i" });
+    toast(t("plan.toast.reset"), { icon: "i" });
   };
 
   return (
@@ -122,7 +128,7 @@ export default function PlanPage() {
             </div>
             <div className="flex items-center justify-center gap-2 mt-2 text-gray-800 text-sm font-semibold">
               <CurrentIcon className="w-4 h-4 text-gray-700 shrink-0 animate-spin" />
-              <p className="min-h-[1.5rem]">{typing || "Stiamo analizzando il tuo container."}</p>
+              <p className="min-h-[1.5rem]">{typing || t("plan.loading.default")}</p>
             </div>
           </div>
         </div>
@@ -132,25 +138,23 @@ export default function PlanPage() {
         <div className="text-center space-y-4">
           <div className="inline-flex items-center gap-2 px-4 py-1 rounded-full bg-white/80 shadow-sm text-purple-600 text-sm font-medium">
             <Tag className="w-4 h-4" />
-            AI-Audit
+            {t("plan.badge")}
           </div>
-          <h1 className="text-4xl md:text-5xl font-semibold text-slate-900">Crea il tuo Audit</h1>
-          <p className="text-slate-600 text-base md:text-lg max-w-3xl mx-auto">
-           Audit sullo stato del tracciamento, mediante analisi del container Google Tag Manager finalizzata all'individuazione di eventuali criticità e alla formulazione di raccomandazioni operative per l'ottimizzazione del setup di tracking.
-          </p>
+          <h1 className="text-4xl md:text-5xl font-semibold text-slate-900">{t("plan.title")}</h1>
+          <p className="text-slate-600 text-base md:text-lg max-w-3xl mx-auto">{t("plan.subtitle")}</p>
         </div>
 
         <div className="max-w-5xl w-full mx-auto">
           <div className="bg-white/80 backdrop-blur border border-white/60 rounded-3xl shadow-2xl p-6 space-y-6">
             <div>
-              <label className="block text-sm font-semibold text-slate-800 mb-2">Descrizione del container / contesto del cliente</label>
+              <label className="block text-sm font-semibold text-slate-800 mb-2">{t("plan.context.label")}</label>
               <textarea
                 value={contextText}
                 onChange={(e) => {
                   setContextText(e.target.value);
                   localStorage.setItem("gtmAnalyzerContext", e.target.value);
                 }}
-                placeholder="Inserisci informazioni contestuali: cliente, sito/area, obiettivi di misurazione, KPI, note..."
+                placeholder={t("plan.context.placeholder")}
                 className="w-full min-h-[200px] p-4 rounded-2xl border border-gray-200 bg-white/70 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-200 shadow-inner"
               />
             </div>
@@ -158,9 +162,7 @@ export default function PlanPage() {
             {preview.tags && (
               <div className="flex items-start gap-3 bg-amber-50 text-amber-800 text-sm px-4 py-3 rounded-2xl border border-amber-200 shadow-sm">
                 <span className="mt-0.5 font-bold">!</span>
-                <div>
-                  Hai gia una <strong>anteprima salvata</strong>. Puoi rigenerare o resettarla.
-                </div>
+                <div>{t("plan.preview.notice")}</div>
               </div>
             )}
 
@@ -170,7 +172,7 @@ export default function PlanPage() {
                 className="px-4 py-2 rounded-full border border-purple-200 text-sm font-semibold text-purple-700 bg-white hover:bg-purple-50 transition shadow-sm"
               >
                 <RefreshCcw className="inline-block mr-2 h-4 w-4 align-middle" />
-                Resetta anteprima
+                {t("plan.reset")}
               </button>
               <button
                 onClick={handleExport}
@@ -179,10 +181,10 @@ export default function PlanPage() {
               >
                 {loading ? (
                   <>
-                    Generazione in corso. <Spinner />
+                    {t("plan.generating")} <Spinner />
                   </>
                 ) : (
-                  "Genera il doc"
+                  t("plan.generate")
                 )}
               </button>
             </div>

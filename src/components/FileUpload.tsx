@@ -116,7 +116,6 @@ export default function FileUpload({ onFile }: { onFile: (f: File) => void }) {
             </h1>
             
             <h2 className="text-4xl md:text-5xl font-bold text-gray-900 dark:text-white mb-6">
-              GTM AIntelligence
             </h2>
             
             <p className="text-xl md:text-2xl text-gray-600 dark:text-gray-300 leading-relaxed mb-8">

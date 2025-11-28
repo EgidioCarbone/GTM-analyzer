@@ -1,8 +1,24 @@
 import React, { useEffect, useRef, useState } from "react";
 import { NavLink, useNavigate, useLocation } from "react-router-dom";
-import { Upload, Download, Moon, Sun, Brain, Settings, LayoutDashboard, Target, Shield, ChevronDown, ChevronUp, TestTube, CheckCircle } from "lucide-react";
+import {
+  Upload,
+  Download,
+  Moon,
+  Sun,
+  Brain,
+  Settings,
+  LayoutDashboard,
+  Target,
+  ChevronDown,
+  ChevronUp,
+  TestTube,
+  CheckCircle,
+} from "lucide-react";
 import useDarkMode from "../hooks/useDarkMode";
 import { useContainer } from "../context/ContainerContext";
+import { useLanguage } from "../context/LanguageContext";
+
+type LinkDef = { to: string; label: string; icon: React.ComponentType<any> };
 
 export default function Sidebar() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -10,33 +26,29 @@ export default function Sidebar() {
   const location = useLocation();
   const toggleButtonRef = useRef<HTMLButtonElement | null>(null);
   const firstLinkRef = useRef<HTMLAnchorElement | null>(null);
-  
-  // Controlla il mode per determinare quali voci mostrare
-  const mode = new URLSearchParams(location.search).get('mode');
-  
-  const links = mode === 'analytics' ? [
-    // Solo Dashboard e Container Manager per GTM Analytics
-    { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-    { to: "/container-manager", label: "Container Manager", icon: Settings },
-  ] : mode === 'plan' ? [
-    // Solo AI Plan per AI Plan
-    { to: "/plan", label: "AI Plan", icon: Target },
-  ] : mode === 'ssd' ? [
-    // Solo SDD Test per SDD Test
-    { to: "/ssd-test", label: "SDD Test", icon: TestTube },
-  ] : mode === 'ai-sentinel' ? [
-    // Solo AI Sentinel per AI Sentinel
-    { to: "/ai-sentinel", label: "AI Sentinel", icon: CheckCircle },
-  ] : [
-    // Tutte le voci per gli altri modi
-    { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-    { to: "/container-manager", label: "Container Manager", icon: Settings },
-    { to: "/plan", label: "AI Plan", icon: Target },
-    { to: "/ssd-test", label: "SDD Test", icon: TestTube },
-    // { to: "/testing", label: "Testing" },
-    // { to: "/migration", label: "UA → GA4" },
-    { to: "/ai-sentinel", label: "AI Sentinel", icon: CheckCircle },
-  ];
+  const { t } = useLanguage();
+
+  const mode = new URLSearchParams(location.search).get("mode");
+
+  const links: LinkDef[] =
+    mode === "analytics"
+      ? [
+          { to: "/dashboard", label: "nav.dashboard", icon: LayoutDashboard },
+          { to: "/container-manager", label: "nav.containerManager", icon: Settings },
+        ]
+      : mode === "plan"
+      ? [{ to: "/plan", label: "nav.aiPlan", icon: Target }]
+      : mode === "ssd"
+      ? [{ to: "/ssd-test", label: "nav.sddTest", icon: TestTube }]
+      : mode === "ai-sentinel"
+      ? [{ to: "/ai-sentinel", label: "nav.aiSentinel", icon: CheckCircle }]
+      : [
+          { to: "/dashboard", label: "nav.dashboard", icon: LayoutDashboard },
+          { to: "/container-manager", label: "nav.containerManager", icon: Settings },
+          { to: "/plan", label: "nav.aiPlan", icon: Target },
+          { to: "/ssd-test", label: "nav.sddTest", icon: TestTube },
+          { to: "/ai-sentinel", label: "nav.aiSentinel", icon: CheckCircle },
+        ];
 
   const [isDark, setIsDark] = useDarkMode();
   const { container, setContainer } = useContainer();
@@ -61,7 +73,6 @@ export default function Sidebar() {
     navigate("/dashboard");
   };
 
-  // ESC per chiudere
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") setIsOpen(false);
@@ -70,7 +81,6 @@ export default function Sidebar() {
     return () => document.removeEventListener("keydown", onKey);
   }, []);
 
-  // focus management
   useEffect(() => {
     if (isOpen) {
       firstLinkRef.current?.focus();
@@ -85,7 +95,7 @@ export default function Sidebar() {
         ref={toggleButtonRef}
         onClick={() => setIsOpen((v) => !v)}
         className="fixed top-4 left-4 z-[10000] w-10 h-10 rounded-full bg-white border border-gray-300 flex flex-col items-center justify-center gap-1 shadow-lg"
-        aria-label="Apri menu"
+        aria-label={t("nav.menu")}
         aria-expanded={isOpen}
         aria-controls="likesense-sidebar"
       >
@@ -94,7 +104,6 @@ export default function Sidebar() {
         <span className="block w-6 h-[2px] bg-gray-800" />
       </button>
 
-      {/* Overlay */}
       <div
         className={`fixed inset-0 z-[9999] bg-black/40 transition-opacity ${
           isOpen ? "opacity-100" : "opacity-0 pointer-events-none"
@@ -111,7 +120,6 @@ export default function Sidebar() {
           isOpen ? "translate-x-0 pointer-events-auto z-[10000]" : "-translate-x-full pointer-events-none z-[10000]"
         }`}
       >
-        {/* Header */}
         <div className="space-y-6">
           <div className="flex items-center justify-center gap-2 text-2xl font-bold px-4">
             <Brain className="w-6 h-6 text-pink-400" />
@@ -121,7 +129,6 @@ export default function Sidebar() {
             </span>
           </div>
 
-          {/* Nav */}
           <nav className="flex flex-col px-3 space-y-1 mt-4 overflow-y-auto">
             {links.map(({ to, label, icon: Icon }, idx) => {
               const currentSearch = location.search;
@@ -142,42 +149,34 @@ export default function Sidebar() {
                   onClick={() => setIsOpen(false)}
                 >
                   {Icon && <Icon className="w-4 h-4" />}
-                  {label}
+                  {t(label)}
                 </NavLink>
               );
             })}
           </nav>
         </div>
 
-        {/* Footer - Sezione Impostazioni */}
         <div className="px-4">
-          {/* Toggle Impostazioni */}
           <button
             onClick={() => setIsSettingsOpen(!isSettingsOpen)}
             className="w-full flex items-center justify-between px-3 py-2 text-white/80 hover:bg-white/10 rounded-md transition-all"
           >
             <div className="flex items-center gap-2">
               <Settings className="w-4 h-4" />
-              <span className="text-sm font-medium">Impostazioni</span>
+              <span className="text-sm font-medium">{t("nav.settings")}</span>
             </div>
-            {isSettingsOpen ? (
-              <ChevronUp className="w-4 h-4" />
-            ) : (
-              <ChevronDown className="w-4 h-4" />
-            )}
+            {isSettingsOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
           </button>
 
-          {/* Contenuto Impostazioni */}
           {isSettingsOpen && (
             <div className="mt-2 space-y-2 animate-slideDown">
-              {/* Azioni JSON */}
               <div className="space-y-2">
                 <button
                   onClick={handleReplaceJSON}
                   className="w-full flex items-center justify-center gap-2 bg-orange-500 text-white text-sm rounded-lg px-3 py-2 hover:brightness-110 transition"
                 >
                   <Upload className="w-4 h-4" />
-                  Sostituisci JSON
+                  {t("nav.replaceJson")}
                 </button>
 
                 <button
@@ -190,22 +189,17 @@ export default function Sidebar() {
                   disabled={!container}
                 >
                   <Download className="w-4 h-4" />
-                  Scarica JSON
+                  {t("nav.downloadJson")}
                 </button>
               </div>
 
-              {/* Dark Mode Toggle */}
               <div className="flex items-center justify-between text-xs text-white/70 bg-white/5 rounded-lg px-3 py-2">
-                <span>Dark Mode</span>
+                <span>{t("nav.darkMode")}</span>
                 <button
                   onClick={() => setIsDark(!isDark)}
                   className="p-2 bg-white/10 rounded hover:bg-white/20 transition"
                 >
-                  {isDark ? (
-                    <Sun className="w-4 h-4 text-yellow-300" />
-                  ) : (
-                    <Moon className="w-4 h-4 text-white" />
-                  )}
+                  {isDark ? <Sun className="w-4 h-4 text-yellow-300" /> : <Moon className="w-4 h-4 text-white" />}
                 </button>
               </div>
             </div>
