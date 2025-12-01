@@ -8,6 +8,10 @@ const SYSTEM_PROMPT: Record<SupportedLanguage, string> = {
   it: "Sei un consulente senior di digital analytics specializzato in Google Tag Manager. Rispondi solo in italiano e in Markdown.",
   en: "You are a senior digital analytics consultant specialized in Google Tag Manager. Reply only in English and in Markdown.",
 };
+const LANGUAGE_DIRECTIVE: Record<SupportedLanguage, string> = {
+  it: "Tutto il testo del documento (introduzione, tabella, esito audit, raccomandazioni) deve essere scritto in italiano, con tono professionale e comprensibile anche a persone non tecniche.",
+  en: "Write the entire document (introduction, audit table, findings, recommendations) in English, with a professional tone that is understandable also for non-technical stakeholders.",
+};
 const API_URL: string | undefined = (import.meta as any)?.env?.VITE_GTM_ANALYZER_API_URL;
 
 const openai = new OpenAI({
@@ -79,6 +83,7 @@ async function buildIntroSection(
       : `Non sono stati forniti dettagli contestuali. L'audit GTM per "${projectName ?? "Senza nome"}" valuta configurazioni, qualita e coerenza di ${stats.totalTags} tag, ${stats.totalTriggers} trigger e ${stats.totalVariables} variabili, evidenziando ${stats.pausedCount} elementi in pausa o non utilizzati e le priorita di intervento.`;
 
   const prompt = [
+    LANGUAGE_DIRECTIVE[language] ?? LANGUAGE_DIRECTIVE.it,
     language === "en"
       ? "Write 1-3 paragraphs of introduction for a GTM Audit."
       : "Scrivi 1-3 paragrafi di introduzione per un Audit GTM.",
@@ -249,8 +254,19 @@ export async function buildTagsTable(
   triggers?: unknown[],
   language: SupportedLanguage = "it"
 ): Promise<string> {
+  const langDirective = LANGUAGE_DIRECTIVE[language] ?? LANGUAGE_DIRECTIVE.it;
   const t = Array.isArray(tags) ? (tags as AnyRec[]) : [];
   const tr = Array.isArray(triggers) ? (triggers as AnyRec[]) : [];
+  const isEnglish = language === "en";
+
+  const headers = isEnglish
+    ? "| Tag Name | Type | Where It Fires | When It Fires | What It Measures | Audit Outcome |"
+    : "| Nome Tag | Tipo | Dove Scatta | Quando Scatta | Cosa Misura | Esito Audit |";
+  const auditOutcomes = isEnglish
+    ? ["OK", "Needs improvement", "Critical", "Paused", "Not used"]
+    : ["OK", "Da migliorare", "Critico", "In Pausa", "Non utilizzato"];
+  const notSpecified = isEnglish ? "Not specified" : "Non specificato";
+  const notDeterminable = isEnglish ? "Not determinable with the available information." : "Non determinabile con le informazioni disponibili.";
 
   const rowsData = t.map(tag => {
     const triggerIds = tag?.firingTriggerId
@@ -264,12 +280,12 @@ export async function buildTagsTable(
       : [];
     const triggerNames = triggerIds.map((id: any) => {
       const f = tr.find(x => x?.triggerId === id || x?.id === id || x?.triggerId === String(id));
-      return f?.name ?? String(id ?? "Non specificato");
+      return f?.name ?? String(id ?? notSpecified);
     });
 
     return {
       id: tag?.tagId ?? tag?.id ?? null,
-      name: tag?.name ?? tag?.tagName ?? "Non specificato",
+      name: tag?.name ?? tag?.tagName ?? notSpecified,
       rawType: tag?.type ?? tag?.tagType ?? "",
       params: Array.isArray(tag?.parameter) || typeof tag?.parameter === "object" ? tag?.parameter : {},
       triggerNames,
@@ -278,33 +294,32 @@ export async function buildTagsTable(
   });
 
   const prompt = [
-    language === "en"
-      ? "You prepare a GTM Audit for non-technical readers."
-      : "Sei un assistente che prepara un Audit GTM per lettori non tecnici.",
-    language === "en"
+    langDirective,
+    isEnglish ? "You prepare a GTM Audit for non-technical readers." : "Sei un assistente che prepara un Audit GTM per lettori non tecnici.",
+    isEnglish
       ? "You will receive JSON with fields: name, rawType, params, triggerNames (array), paused."
       : "Riceverai JSON con campi: name, rawType, params, triggerNames (array), paused.",
-    language === "en"
-      ? 'Return ONLY one Markdown table with headers exactly: | Nome Tag | Tipo | Dove Scatta | Quando Scatta | Cosa Misura | Esito Audit |'
-      : 'Restituisci SOLO una tabella Markdown con header esatti: | Nome Tag | Tipo | Dove Scatta | Quando Scatta | Cosa Misura | Esito Audit |',
-    language === "en"
-      ? 'Esito Audit must be one of: "OK", "Da migliorare", "Critico", "Non utilizzato", "In Pausa".'
-      : 'Esito Audit deve essere una di queste stringhe: "OK", "Da migliorare", "Critico", "Non utilizzato", "In Pausa".',
-    language === "en"
-      ? 'Field "Tipo": choose only among: "GA4 Configuration", "GA4 Event", "GA4 Tag", "HTML personalizzato", "Tag di terze parti", "Altro".'
+    isEnglish
+      ? `Return ONLY one Markdown table with headers exactly: ${headers}`
+      : `Restituisci SOLO una tabella Markdown con header esatti: ${headers}`,
+    isEnglish
+      ? `Audit Outcome must be one of: ${auditOutcomes.map(o => `"${o}"`).join(", ")}.`
+      : `Esito Audit deve essere una di queste stringhe: ${auditOutcomes.map(o => `"${o}"`).join(", ")}.`,
+    isEnglish
+      ? 'Field "Type": choose only among: "GA4 Configuration", "GA4 Event", "GA4 Tag", "Custom HTML", "Third-party tag", "Other".'
       : 'Campo "Tipo": scegli solo tra: "GA4 Configuration", "GA4 Event", "GA4 Tag", "HTML personalizzato", "Tag di terze parti", "Altro".',
-    language === "en"
-      ? 'Field "Dove Scatta": trigger name; if multiple triggers, separate with "; ".'
+    isEnglish
+      ? 'Field "Where It Fires": trigger name; if multiple triggers, separate with "; ".'
       : 'Campo "Dove Scatta": nome trigger; se piu trigger, separali con "; ".',
-    language === "en"
-      ? 'Field "Quando Scatta": short description (max ~18-20 words) in non-technical language about conditions/context; if not determinable use "Non determinabile con le informazioni disponibili."'
-      : 'Campo "Quando Scatta": breve descrizione (max 18-20 parole) non tecnica sulle condizioni/contesto; se non determinabile usa "Non determinabile con le informazioni disponibili."',
-    language === "en"
-      ? 'Field "Cosa Misura": short sentence on what the tag tracks; if not determinable use "Non determinabile con le informazioni disponibili."'
-      : 'Campo "Cosa Misura": frase sintetica su cosa traccia il tag; se non determinabile usa "Non determinabile con le informazioni disponibili."',
-    language === "en" ? "Do not add any text outside the table." : "Non aggiungere testo extra fuori dalla tabella.",
+    isEnglish
+      ? `Field "When It Fires": short description (max ~18-20 words) in non-technical language about conditions/context; if not determinable use "${notDeterminable}"`
+      : `Campo "Quando Scatta": breve descrizione (max 18-20 parole) non tecnica sulle condizioni/contesto; se non determinabile usa "${notDeterminable}"`,
+    isEnglish
+      ? `Field "What It Measures": short sentence on what the tag tracks; if not determinable use "${notDeterminable}"`
+      : `Campo "Cosa Misura": frase sintetica su cosa traccia il tag; se non determinabile usa "${notDeterminable}"`,
+    isEnglish ? "Do not add any text outside the table." : "Non aggiungere testo extra fuori dalla tabella.",
     "",
-    language === "en" ? "Input JSON:" : "Input JSON:",
+    isEnglish ? "Input JSON:" : "Input JSON:",
     "```json",
     JSON.stringify(rowsData, null, 2),
     "```",
@@ -313,22 +328,38 @@ export async function buildTagsTable(
   try {
     const aiRes = await callChatOnce(prompt, language);
     if (aiRes && aiRes.trim()) {
-      if (aiRes.includes("| Nome Tag") && aiRes.includes("| Esito Audit")) return aiRes.trim();
+      if (aiRes.includes(headers.split("|")[1]?.trim() ?? "")) return aiRes.trim();
     }
   } catch (err) {
     console.error("buildTagsTable AI failed:", err);
   }
 
-  const header = `| Nome Tag | Tipo | Dove Scatta | Quando Scatta | Cosa Misura | Esito Audit |
+  const header = isEnglish
+    ? `| Tag Name | Type | Where It Fires | When It Fires | What It Measures | Audit Outcome |
+|----------|------|----------------|---------------|------------------|---------------|`
+    : `| Nome Tag | Tipo | Dove Scatta | Quando Scatta | Cosa Misura | Esito Audit |
 |---------|------|-------------|---------------|-------------|-------------|`;
   const rows = t.map(tag => {
-    const name = esc(tag?.name ?? tag?.tagName ?? (language === "en" ? "Not specified" : "Non specificato"), language);
+    const name = esc(tag?.name ?? tag?.tagName ?? notSpecified, language);
     const raw = String(tag?.type ?? tag?.tagType ?? "");
+    const lower = raw.toLowerCase();
     const typeLabel =
-      raw.toLowerCase().includes("gaa") || raw.toLowerCase().includes("ga4")
+      lower.includes("config")
+        ? "GA4 Configuration"
+        : lower.includes("event")
+        ? "GA4 Event"
+        : lower.includes("gaa") || lower.includes("ga4")
         ? "GA4 Tag"
-        : raw.toLowerCase().includes("html")
-        ? "HTML personalizzato"
+        : lower.includes("html")
+        ? isEnglish
+          ? "Custom HTML"
+          : "HTML personalizzato"
+        : lower.includes("third")
+        ? isEnglish
+          ? "Third-party tag"
+          : "Tag di terze parti"
+        : isEnglish
+        ? "Other"
         : "Altro";
     const ids = tag?.firingTriggerId
       ? Array.isArray(tag.firingTriggerId)
@@ -342,20 +373,14 @@ export async function buildTagsTable(
     const triggerNames = ids
       .map((id: any) => {
         const f = tr.find(x => x?.triggerId === id || x?.id === id || x?.triggerId === String(id));
-        return f?.name ?? String(id ?? "Non specificato");
+        return f?.name ?? String(id ?? notSpecified);
       })
       .join("; ");
-    const where = esc(triggerNames || (language === "en" ? "Not specified" : "Non specificato"), language);
+    const where = esc(triggerNames || notSpecified, language);
     const paused = (tag as AnyRec)?.paused;
-    const esito = paused ? "In Pausa" : triggerNames ? "OK" : "Non utilizzato";
-    const quando = esc(
-      "Non determinabile con le informazioni disponibili.",
-      language
-    );
-    const cosa = esc(
-      "Non determinabile con le informazioni disponibili.",
-      language
-    );
+    const esito = paused ? (isEnglish ? "Paused" : "In Pausa") : triggerNames ? "OK" : isEnglish ? "Not used" : "Non utilizzato";
+    const quando = esc(notDeterminable, language);
+    const cosa = esc(notDeterminable, language);
     return `| ${name} | ${esc(typeLabel, language)} | ${where} | ${quando} | ${cosa} | ${esito} |`;
   });
   return [header, ...rows].join("\n");

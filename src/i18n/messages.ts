@@ -41,6 +41,9 @@ export const messages: Record<SupportedLanguage, Record<string, string>> = {
     "plan.step2.desc": "Elaboriamo e normalizziamo i tag",
     "plan.step3.label": "Step 3: Documento",
     "plan.step3.desc": "Scarica il Measurement Plan",
+    "plan.docLanguage.label": "Lingua documento",
+    "plan.docLanguage.it": "Italiano",
+    "plan.docLanguage.en": "English",
 
     "lang.switch.label": "Lingua",
 
@@ -186,6 +189,9 @@ export const messages: Record<SupportedLanguage, Record<string, string>> = {
     "plan.step2.desc": "We process and normalize the tags",
     "plan.step3.label": "Step 3: Document",
     "plan.step3.desc": "Download the Measurement Plan",
+    "plan.docLanguage.label": "Document language",
+    "plan.docLanguage.it": "Italian",
+    "plan.docLanguage.en": "English",
 
     "lang.switch.label": "Language",
 

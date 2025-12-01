@@ -11,6 +11,7 @@ import { renderMeasurementDoc } from "../services/renderMeasurementDoc";
 import { Card, CardContent } from "../components/ui/card";
 import { ScrollArea } from "../components/ui/scroll-area";
 import { useLanguage } from "../context/LanguageContext";
+import type { SupportedLanguage } from "../i18n/messages";
 
 import animationData from "../assets/background-ai-loader.json";
 
@@ -43,6 +44,9 @@ export default function PlanPage() {
   const [preview, setPreview] = useState<{ tags?: string }>({});
   const [loading, setLoading] = useState(false);
   const [contextText, setContextText] = useState("");
+  const [docLanguage, setDocLanguage] = useState<SupportedLanguage>(language);
+
+  const DOC_LANG_STORAGE_KEY = "gtmAnalyzerDocLanguage";
 
   const steps = useMemo(
     () => [
@@ -66,6 +70,23 @@ export default function PlanPage() {
     if (ctx) setContextText(ctx);
   }, []);
 
+  useEffect(() => {
+    const stored = localStorage.getItem(DOC_LANG_STORAGE_KEY) as SupportedLanguage | null;
+    if (stored === "it" || stored === "en") {
+      setDocLanguage(stored);
+    } else {
+      setDocLanguage(language);
+    }
+  }, [language]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(DOC_LANG_STORAGE_KEY, docLanguage);
+    } catch {
+      // ignore storage issues
+    }
+  }, [docLanguage]);
+
   const clean = (md: string) => {
     const lines = md.split("\n");
     const headerRe = /^#{0,6}\s*(Tags|Triggers|Variables) Analysis\s*$/i;
@@ -80,7 +101,7 @@ export default function PlanPage() {
     toast.loading(t("plan.toast.analyzing"), { id: "plan" });
 
     try {
-      const tagsMd = await buildTagsTable(container.tag ?? [], container.trigger ?? []);
+      const tagsMd = await buildTagsTable(container.tag ?? [], container.trigger ?? [], docLanguage);
       const cleaned = { tags: clean(tagsMd) };
       setPreview(cleaned);
       localStorage.setItem("gtmAnalyzerPreview", JSON.stringify(cleaned));
@@ -91,10 +112,12 @@ export default function PlanPage() {
         variables: container.variable ?? [],
         projectName: container.publicId,
         contextText,
-        language,
+        language: docLanguage,
       });
 
-      await renderMeasurementDoc(doc, `PianoMisurazione_${container.publicId ?? "SenzaNome"}.docx`);
+      const fileBase = docLanguage === "en" ? "MeasurementPlan" : "PianoMisurazione";
+      const projectId = container.publicId ?? (docLanguage === "en" ? "Untitled" : "SenzaNome");
+      await renderMeasurementDoc(doc, `${fileBase}_${projectId}.docx`, docLanguage);
       toast.success(t("plan.success.doc"), { id: "plan" });
     } catch (e) {
       console.error(e);
@@ -166,27 +189,57 @@ export default function PlanPage() {
               </div>
             )}
 
-            <div className="flex flex-col sm:flex-row gap-3 justify-end">
-              <button
-                onClick={clearPreview}
-                className="px-4 py-2 rounded-full border border-purple-200 text-sm font-semibold text-purple-700 bg-white hover:bg-purple-50 transition shadow-sm"
-              >
-                <RefreshCcw className="inline-block mr-2 h-4 w-4 align-middle" />
-                {t("plan.reset")}
-              </button>
-              <button
-                onClick={handleExport}
-                disabled={loading}
-                className="px-5 py-2 rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 text-white text-sm font-semibold shadow-lg shadow-purple-200/80 hover:opacity-95 disabled:opacity-60 transition"
-              >
-                {loading ? (
-                  <>
-                    {t("plan.generating")} <Spinner />
-                  </>
-                ) : (
-                  t("plan.generate")
-                )}
-              </button>
+            <div className="flex flex-col md:flex-row gap-4 md:items-center md:justify-between">
+              <div className="flex flex-col gap-2">
+                <span className="block text-sm font-semibold text-slate-800">{t("plan.docLanguage.label")}</span>
+                <div className="inline-flex rounded-full bg-slate-100 p-1 shadow-inner">
+                  <button
+                    type="button"
+                    onClick={() => setDocLanguage("it")}
+                    className={`px-4 py-2 rounded-full text-sm font-semibold transition ${
+                      docLanguage === "it"
+                        ? "bg-white text-purple-700 shadow-sm border border-purple-200"
+                        : "text-slate-600 hover:text-slate-800"
+                    }`}
+                  >
+                    {t("plan.docLanguage.it")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDocLanguage("en")}
+                    className={`px-4 py-2 rounded-full text-sm font-semibold transition ${
+                      docLanguage === "en"
+                        ? "bg-white text-purple-700 shadow-sm border border-purple-200"
+                        : "text-slate-600 hover:text-slate-800"
+                    }`}
+                  >
+                    {t("plan.docLanguage.en")}
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-3 justify-end">
+                <button
+                  onClick={clearPreview}
+                  className="px-4 py-2 rounded-full border border-purple-200 text-sm font-semibold text-purple-700 bg-white hover:bg-purple-50 transition shadow-sm"
+                >
+                  <RefreshCcw className="inline-block mr-2 h-4 w-4 align-middle" />
+                  {t("plan.reset")}
+                </button>
+                <button
+                  onClick={handleExport}
+                  disabled={loading}
+                  className="px-5 py-2 rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 text-white text-sm font-semibold shadow-lg shadow-purple-200/80 hover:opacity-95 disabled:opacity-60 transition"
+                >
+                  {loading ? (
+                    <>
+                      {t("plan.generating")} <Spinner />
+                    </>
+                  ) : (
+                    t("plan.generate")
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         </div>

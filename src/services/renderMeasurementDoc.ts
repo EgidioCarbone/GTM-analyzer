@@ -30,12 +30,16 @@ import {
   WidthType,
 } from "docx";
 import { saveAs } from "file-saver";
+import type { SupportedLanguage } from "../i18n/messages";
 
 /* -------------------------------------------------------------------------- */
 /*  CONFIGURAZIONE                                                            */
 /* -------------------------------------------------------------------------- */
 const LOGO_PATH = "../img/logo.svg"; // se domani diventa .png non serve cambiare nulla
-const DEFAULT_FILENAME = "MeasurementPlan.docx";
+const DEFAULT_FILENAME: Record<SupportedLanguage, string> = {
+  it: "PianoMisurazione.docx",
+  en: "MeasurementPlan.docx",
+};
 const TARGET_LOGO_WIDTH = 160; // px
 
 /* -------------------------------------------------------------------------- */
@@ -154,9 +158,10 @@ function mdTableToDocx(lines: string[]): Table {
 /* -------------------------------------------------------------------------- */
 /*  PARSER ▸ Markdown→(Paragraph|Table)[]                                     */
 /* -------------------------------------------------------------------------- */
-function parseMarkdown(md: string): (Paragraph | Table)[] {
+function parseMarkdown(md: string, language: SupportedLanguage): (Paragraph | Table)[] {
   const out: (Paragraph | Table)[] = [];
   const lines = md.split(/\r?\n/);
+  const descriptionLabel = language === "en" ? "Description" : "Descrizione";
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
@@ -182,7 +187,7 @@ function parseMarkdown(md: string): (Paragraph | Table)[] {
       out.push(
         new Paragraph({
           spacing: { after: 300 },
-          children: [new TextRun({ text: `Descrizione: ${text}`, italics: true })],
+          children: [new TextRun({ text: `${descriptionLabel}: ${text}`, italics: true })],
         }),
       );
       continue;
@@ -233,7 +238,8 @@ function parseMarkdown(md: string): (Paragraph | Table)[] {
  */
 export async function renderMeasurementDoc(
   markdown: string,
-  fileName: string = DEFAULT_FILENAME,
+  fileName?: string,
+  language: SupportedLanguage = "it",
 ): Promise<void> {
   /* Logo ------------------------------------------------------------------- */
   let logoImg: ImageRun | null = null;
@@ -249,7 +255,7 @@ export async function renderMeasurementDoc(
   }
 
   /* Parsing contenuto ------------------------------------------------------- */
-  const body = parseMarkdown(markdown);
+  const body = parseMarkdown(markdown, language);
 
   /* Documento --------------------------------------------------------------- */
   const doc = new Document({
@@ -275,5 +281,6 @@ export async function renderMeasurementDoc(
 
   /* Download ---------------------------------------------------------------- */
   const blob = await Packer.toBlob(doc);
-  saveAs(blob, fileName);
+  const resolvedFileName = fileName ?? DEFAULT_FILENAME[language] ?? DEFAULT_FILENAME.it;
+  saveAs(blob, resolvedFileName);
 }
