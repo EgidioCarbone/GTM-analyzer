@@ -3,7 +3,11 @@
   "version": "0.1.0",
   "type": "module",
   "private": true,
+  "engines": {
+    "node": "20.x"
+  },
   "scripts": {
+    "start": "npx tsx --tsconfig tsconfig.server.json server-ssd.ts",
     "frontend": "vite",
     "backend": "tsx --tsconfig tsconfig.server.json server-ssd.ts",
     "puppeteer": "node puppeteerServer.js",

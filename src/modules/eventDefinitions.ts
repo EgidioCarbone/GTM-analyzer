@@ -80,6 +80,14 @@ const actalisEvents: Record<string, ModuleEventDefinition> = {
             target: { kind: 'selector', value: step.selector },
             delayAfterMs: step.delayAfterMs,
           });
+        } else if (step.type === 'compila' && step.selector && step.value) {
+          testSteps.push({
+            description: step.label || 'Compila il campo configurato',
+            action: 'input',
+            target: { kind: 'selector', value: step.selector },
+            value: step.value,
+            delayAfterMs: step.delayAfterMs,
+          });
         }
       }
 
@@ -190,6 +198,18 @@ const actalisEvents: Record<string, ModuleEventDefinition> = {
               description: step.label || 'Clicca la CTA configurata',
               action: 'click',
               target: { kind: 'selector', value: selector },
+              delayAfterMs: step.delayAfterMs,
+            });
+          }
+        } else if (step.type === 'compila') {
+          const selector = (step.selector || '').trim();
+          const value = (step.value || '').trim();
+          if (selector && value) {
+            testSteps.push({
+              description: step.label || 'Compila il campo configurato',
+              action: 'input',
+              target: { kind: 'selector', value: selector },
+              value,
               delayAfterMs: step.delayAfterMs,
             });
           }

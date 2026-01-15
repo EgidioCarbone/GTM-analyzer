@@ -359,6 +359,229 @@
         "createdAt": "2025-11-27T12:43:07.790Z",
         "updatedAt": "2025-11-27T12:43:07.790Z"
       }
+    ],
+    "reply": [
+      {
+        "id": "3dc2cc67-d856-4b92-b4e0-809e6b591832",
+        "moduleId": "reply",
+        "name": "TEST",
+        "eventId": "manual",
+        "url": "https://www.reply.com/it/artificial-intelligence/affective-computing",
+        "config": {},
+        "steps": [
+          {
+            "id": "manual_1768487165277_77qrdh",
+            "type": "click",
+            "label": "Step 1",
+            "description": "",
+            "selector": "button.button.button-daben[role=\"button\"]",
+            "delayAfterMs": 10000
+          },
+          {
+            "id": "manual_1768487185692_p1arep",
+            "type": "compila",
+            "label": "Step 2",
+            "description": "",
+            "selector": "input[name=\"firstName\"]",
+            "value": "TESTTT",
+            "delayAfterMs": 10000
+          },
+          {
+            "id": "manual_1768487354726_hrr2lv",
+            "type": "compila",
+            "label": "Step 3",
+            "description": "",
+            "selector": "input[name=\"lastName\"]",
+            "value": "test",
+            "delayAfterMs": 10000
+          },
+          {
+            "id": "manual_1768487359524_xczu32",
+            "type": "compila",
+            "label": "Step 4",
+            "description": "",
+            "selector": "input[name=\"email\"]",
+            "value": "test@test.it",
+            "delayAfterMs": 10000
+          },
+          {
+            "id": "manual_1768487372508_6sevaa",
+            "type": "compila",
+            "label": "Step 5",
+            "description": "",
+            "selector": "input[name=\"telephone\"]",
+            "value": "111111",
+            "delayAfterMs": 10000
+          },
+          {
+            "id": "manual_1768487390161_fg4kn1",
+            "type": "compila",
+            "label": "Step 6",
+            "description": "",
+            "selector": "input[name=\"replySiteCompany\"]",
+            "value": "test",
+            "delayAfterMs": 10000
+          },
+          {
+            "id": "manual_1768487540379_q6bbtn",
+            "type": "click",
+            "label": "Step 7",
+            "description": "",
+            "selector": "#doBulkEmail_ZCwTy",
+            "delayAfterMs": 10000
+          },
+          {
+            "id": "manual_1768487885824_l77mbb",
+            "type": "click",
+            "label": "Step 8",
+            "description": "",
+            "selector": "button.button.button-aulya[name=\"confirmBtn\"]",
+            "delayAfterMs": 10000
+          }
+        ],
+        "expectedPayload": {
+          "event": "form_submit",
+          "eventAction": "TYP"
+        },
+        "testSpec": {
+          "site": "https://www.reply.com",
+          "allowed_hosts": [
+            "www.reply.com",
+            "reply.com"
+          ],
+          "consent": [
+            "accept"
+          ],
+          "tests": [
+            {
+              "section": "main",
+              "steps": [
+                {
+                  "description": "Vai al sito indicato",
+                  "action": "navigate",
+                  "target": {
+                    "kind": "href",
+                    "value": "https://www.reply.com/it/artificial-intelligence/affective-computing"
+                  },
+                  "expect": [
+                    {
+                      "type": "navigation",
+                      "url_contains": "www.reply.com"
+                    }
+                  ],
+                  "severity": "critical"
+                },
+                {
+                  "description": "Accetta tutti i cookie",
+                  "action": "click",
+                  "target": {
+                    "region": "any",
+                    "kind": "selector",
+                    "value": "#onetrust-accept-btn-handler"
+                  },
+                  "severity": "critical"
+                },
+                {
+                  "description": "Click on button with role button",
+                  "action": "click",
+                  "target": {
+                    "region": "main",
+                    "kind": "selector",
+                    "value": "button.button.button-daben[role=\"button\"]"
+                  },
+                  "severity": "major"
+                },
+                {
+                  "description": "Input first name",
+                  "action": "input",
+                  "target": {
+                    "region": "main",
+                    "kind": "selector",
+                    "value": "input[name=\"firstName\"]"
+                  },
+                  "value": "TESTTT",
+                  "severity": "major"
+                },
+                {
+                  "description": "Input last name",
+                  "action": "input",
+                  "target": {
+                    "region": "main",
+                    "kind": "selector",
+                    "value": "input[name=\"lastName\"]"
+                  },
+                  "value": "test",
+                  "severity": "major"
+                },
+                {
+                  "description": "Input email",
+                  "action": "input",
+                  "target": {
+                    "region": "main",
+                    "kind": "selector",
+                    "value": "input[name=\"email\"]"
+                  },
+                  "value": "test@test.it",
+                  "severity": "major"
+                },
+                {
+                  "description": "Input telephone",
+                  "action": "input",
+                  "target": {
+                    "region": "main",
+                    "kind": "selector",
+                    "value": "input[name=\"telephone\"]"
+                  },
+                  "value": "111111",
+                  "severity": "major"
+                },
+                {
+                  "description": "Input company name",
+                  "action": "input",
+                  "target": {
+                    "region": "main",
+                    "kind": "selector",
+                    "value": "input[name=\"replySiteCompany\"]"
+                  },
+                  "value": "test",
+                  "severity": "major"
+                },
+                {
+                  "description": "Click on button with ID doBulkEmail_ZCwTy",
+                  "action": "click",
+                  "target": {
+                    "region": "main",
+                    "kind": "selector",
+                    "value": "#doBulkEmail_ZCwTy"
+                  },
+                  "severity": "major"
+                },
+                {
+                  "description": "Click on confirm button",
+                  "action": "click",
+                  "target": {
+                    "region": "main",
+                    "kind": "selector",
+                    "value": "button.button.button-aulya[name=\"confirmBtn\"]"
+                  },
+                  "severity": "major"
+                }
+              ]
+            }
+          ]
+        },
+        "testSpecMeta": {
+          "generatedAt": "2026-01-15T14:40:47.385Z",
+          "model": "gpt-4o-mini-2024-07-18",
+          "tokens": {
+            "input": 1359,
+            "output": 802
+          },
+          "source": "scenario-llm"
+        },
+        "createdAt": "2026-01-15T14:26:50.532Z",
+        "updatedAt": "2026-01-15T14:40:47.385Z"
+      }
     ]
   }
 }

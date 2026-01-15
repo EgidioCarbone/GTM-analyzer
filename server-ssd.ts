@@ -805,6 +805,11 @@ const __dirname = dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 4000;
 
+// Healthcheck endpoint for load balancers / EB
+app.get('/api/health', (_req, res) => {
+  res.status(200).send('ok');
+});
+
 // Security middleware
 app.use(helmet({
   contentSecurityPolicy: false, // Disable CSP for development
@@ -2660,6 +2665,36 @@ async function runScenarioFlow(params: {
           await page
             .waitForNetworkIdle({ idleTime: 500, timeout: 5000 })
             .catch(() => undefined);
+        } else if (step.action === 'input') {
+          if (!step.target || step.target.kind !== 'selector') {
+            throw new Error('Input step requires a CSS selector target');
+          }
+          const selector = step.target.value;
+          if (!selector || selector.trim().length === 0) {
+            throw new Error('Input step selector is empty');
+          }
+          const value = typeof step.value === 'string' ? step.value : '';
+          if (!value || value.trim().length === 0) {
+            throw new Error('Input step value is empty');
+          }
+          await page.waitForSelector(selector, { timeout: stepTimeoutMs, visible: true });
+          await page.focus(selector);
+          await page.evaluate(
+            (inputSelector: string, inputValue: string) => {
+              const element = document.querySelector(inputSelector) as
+                | HTMLInputElement
+                | HTMLTextAreaElement
+                | null;
+              if (!element) return;
+              element.value = '';
+              element.focus();
+              element.value = inputValue;
+              element.dispatchEvent(new Event('input', { bubbles: true }));
+              element.dispatchEvent(new Event('change', { bubbles: true }));
+            },
+            selector,
+            value
+          );
         } else if (step.action === 'wait_for_selector') {
           if (!step.target || step.target.kind !== 'selector') {
             throw new Error('wait_for_selector requires a CSS selector target');
@@ -3740,6 +3775,11 @@ function sanitizeManualSteps(rawSteps: any[]): ScenarioStep[] {
     .filter(entry => entry && typeof entry === 'object')
     .map((entry, index) => {
       const selector = typeof entry.selector === 'string' ? entry.selector.trim() : '';
+      const rawType = entry.type === 'compila' ? 'compila' : 'click';
+      const value =
+        rawType === 'compila' && typeof entry.value === 'string'
+          ? entry.value.trim()
+          : undefined;
       const label =
         typeof entry.label === 'string' && entry.label.trim().length > 0
           ? entry.label.trim()
@@ -3752,11 +3792,11 @@ function sanitizeManualSteps(rawSteps: any[]): ScenarioStep[] {
 
       return {
         id,
-        type: 'click',
+        type: rawType,
         label,
         description: typeof entry.description === 'string' ? entry.description : undefined,
         selector: selector.length > 0 ? selector : undefined,
-        value: undefined,
+        value: value && value.length > 0 ? value : undefined,
         delayAfterMs,
       };
     });
@@ -4037,17 +4077,32 @@ function buildManualScenarioTestSpec(moduleId: ModuleId, scenario: ModuleScenari
   }
   steps.push(navigationStep);
 
-  const manualSteps = Array.isArray(scenario.steps)
-    ? scenario.steps.filter(step => step.type === 'click' && typeof step.selector === 'string' && step.selector.trim().length > 0)
-    : [];
+  const manualSteps = Array.isArray(scenario.steps) ? scenario.steps : [];
 
   manualSteps.forEach((step, index) => {
-    steps.push({
-      description: step.label || `Click step ${index + 1}`,
-      action: 'click',
-      target: { kind: 'selector', value: step.selector!.trim() },
-      delayAfterMs: typeof step.delayAfterMs === 'number' ? step.delayAfterMs : 10000,
-    });
+    if (step.type === 'click' && typeof step.selector === 'string' && step.selector.trim().length > 0) {
+      steps.push({
+        description: step.label || `Click step ${index + 1}`,
+        action: 'click',
+        target: { kind: 'selector', value: step.selector.trim() },
+        delayAfterMs: typeof step.delayAfterMs === 'number' ? step.delayAfterMs : 10000,
+      });
+    }
+    if (
+      step.type === 'compila' &&
+      typeof step.selector === 'string' &&
+      step.selector.trim().length > 0 &&
+      typeof step.value === 'string' &&
+      step.value.trim().length > 0
+    ) {
+      steps.push({
+        description: step.label || `Compilazione step ${index + 1}`,
+        action: 'input',
+        target: { kind: 'selector', value: step.selector.trim() },
+        value: step.value.trim(),
+        delayAfterMs: typeof step.delayAfterMs === 'number' ? step.delayAfterMs : 10000,
+      });
+    }
   });
 
   const rawEventName = extractEventNameFromPayload(scenario.expectedPayload);
@@ -4091,6 +4146,46 @@ async function generateScenarioTestSpecForScenario(
   let rawGeneratedSpec: TestSpec | null = null;
   let sanitizedGeneratedSpec: TestSpec | null = null;
 
+  const applyScenarioInputValues = (spec: TestSpec, scenarioSteps: ScenarioStep[] = []) => {
+    const inputQueue = scenarioSteps.filter(
+      step =>
+        step.type === 'compila' &&
+        typeof step.selector === 'string' &&
+        step.selector.trim().length > 0 &&
+        typeof step.value === 'string' &&
+        step.value.trim().length > 0
+    );
+    if (inputQueue.length === 0) return;
+
+    const selectorValueMap = new Map<string, string>();
+    inputQueue.forEach(step => {
+      selectorValueMap.set(step.selector!.trim(), step.value!.trim());
+    });
+
+    let queueIndex = 0;
+    (spec.tests || []).forEach(test => {
+      (test.steps || []).forEach(step => {
+        if (step.action !== 'input') return;
+        const currentValue =
+          typeof step.value === 'string' ? step.value.trim() : '';
+        if (currentValue.length > 0) return;
+        const targetSelector =
+          step.target?.kind === 'selector' && typeof step.target.value === 'string'
+            ? step.target.value.trim()
+            : '';
+        if (targetSelector && selectorValueMap.has(targetSelector)) {
+          step.value = selectorValueMap.get(targetSelector);
+          return;
+        }
+        const fallback = inputQueue[queueIndex];
+        if (fallback) {
+          step.value = fallback.value?.trim();
+          queueIndex += 1;
+        }
+      });
+    });
+  };
+
   if (openaiService) {
     try {
       const llmInput: ScenarioSpecBuildInput = {
@@ -4129,6 +4224,7 @@ async function generateScenarioTestSpecForScenario(
         scenario.url,
         cmpAcceptSelector
       );
+      applyScenarioInputValues(sanitizedGeneratedSpec, scenario.steps ?? []);
 
       if (!sanitizedGeneratedSpec.meta) {
         sanitizedGeneratedSpec.meta = {
@@ -4818,6 +4914,15 @@ app.post('/api/modules/:moduleId/scenarios', async (req, res) => {
           message: 'Ogni step clic deve includere un selettore CSS valido.',
         });
       }
+      const hasInvalidValue = mergedSteps.some(
+        step => step.type === 'compila' && (!step.value || step.value.trim().length === 0)
+      );
+      if (hasInvalidValue) {
+        return res.status(400).json({
+          error: 'INVALID_STEPS',
+          message: 'Ogni step di compilazione deve includere un valore da inserire.',
+        });
+      }
     }
     const requiredMissing = ensureRequiredInputs(eventDefinition, url, normalizedConfig, mergedSteps);
     if (requiredMissing.length > 0) {
@@ -4902,6 +5007,15 @@ app.put('/api/modules/:moduleId/scenarios/:scenarioId', async (req, res) => {
         return res.status(400).json({
           error: 'INVALID_STEPS',
           message: 'Ogni step clic deve includere un selettore CSS valido.',
+        });
+      }
+      const hasInvalidValue = mergedSteps.some(
+        step => step.type === 'compila' && (!step.value || step.value.trim().length === 0)
+      );
+      if (hasInvalidValue) {
+        return res.status(400).json({
+          error: 'INVALID_STEPS',
+          message: 'Ogni step di compilazione deve includere un valore da inserire.',
         });
       }
     }

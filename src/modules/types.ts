@@ -50,7 +50,7 @@ export interface ScenarioInputDefinition {
   placeholder?: string;
 }
 
-export type EventStepType = 'navigate' | 'click' | 'custom';
+export type EventStepType = 'navigate' | 'click' | 'compila' | 'custom';
 
 export interface EventStepDefinition {
   id: string;

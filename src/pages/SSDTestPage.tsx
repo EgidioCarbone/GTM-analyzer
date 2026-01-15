@@ -213,6 +213,7 @@ const extractEventNameFromPayload = (payload: any): string => {
 const STEP_TYPE_META: Record<EventStepType, { label: string; badgeClass: string }> = {
   navigate: { label: 'Navigazione', badgeClass: 'bg-sky-100 text-sky-700' },
   click: { label: 'Interazione', badgeClass: 'bg-emerald-100 text-emerald-700' },
+  compila: { label: 'Compilazione', badgeClass: 'bg-amber-100 text-amber-700' },
   custom: { label: 'Verifica', badgeClass: 'bg-purple-100 text-purple-700' },
 };
 
@@ -915,14 +916,15 @@ export default function SSDTestPage() {
     });
   };
 
-  const handleDraftAddClickStep = () => {
+  const handleDraftAddStep = (type: 'click' | 'compila') => {
     updateScenarioDraft(draft => {
       const nextIndex = draft.steps.length + 1;
       const newStep: ScenarioStep = {
         id: `manual_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-        type: 'click',
+        type,
         label: `Step ${nextIndex}`,
         selector: '',
+        value: type === 'compila' ? 'test' : undefined,
         delayAfterMs: 10000,
       };
       return {
@@ -1170,6 +1172,13 @@ const persistScenarioDraft = useCallback(
 
     if (!eventDefinitionForDraft && sanitizedSteps.some(step => step.selector === undefined)) {
       toast.error('Ogni step deve includere un selettore CSS valido');
+      return null;
+    }
+    if (
+      !eventDefinitionForDraft &&
+      sanitizedSteps.some(step => step.type === 'compila' && (!step.value || step.value.trim().length === 0))
+    ) {
+      toast.error('Ogni step di compilazione deve includere un valore da inserire');
       return null;
     }
 
@@ -2302,18 +2311,27 @@ const persistScenarioDraft = useCallback(
                           Step del test
                         </div>
                         <p className="mt-2 text-sm text-slate-600">
-                          Definisci i click necessari per riprodurre il tracciamento. Dopo ogni click il runner attende automaticamente 10 secondi prima di proseguire.
+                          Definisci gli step necessari per riprodurre il tracciamento. Puoi aggiungere click o compilazioni; dopo ogni step il runner attende automaticamente 10 secondi prima di proseguire.
                         </p>
                       </div>
                       <div className="flex flex-wrap gap-2">
                         <Button
                           type="button"
                           className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 disabled:opacity-40"
-                          onClick={handleDraftAddClickStep}
+                          onClick={() => handleDraftAddStep('click')}
                           disabled={scenarioModalSaving}
                         >
                           <Plus className="h-4 w-4" />
                           Aggiungi clic
+                        </Button>
+                        <Button
+                          type="button"
+                          className="flex items-center gap-2 rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-amber-600 disabled:opacity-40"
+                          onClick={() => handleDraftAddStep('compila')}
+                          disabled={scenarioModalSaving}
+                        >
+                          <Plus className="h-4 w-4" />
+                          Aggiungi compilazione
                         </Button>
                         <Button
                           type="button"
@@ -2330,7 +2348,7 @@ const persistScenarioDraft = useCallback(
 
                     {scenarioDraft.steps.length === 0 ? (
                       <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50/80 p-4 text-sm text-slate-600">
-                        Nessuna azione configurata. Aggiungi almeno un clic per istruire il runner su cosa eseguire dopo la CMP.
+                        Nessuna azione configurata. Aggiungi almeno uno step per istruire il runner su cosa eseguire dopo la CMP.
                       </div>
                     ) : (
                       scenarioDraft.steps.map((step, index) => {
@@ -2388,19 +2406,39 @@ const persistScenarioDraft = useCallback(
                             ) : (
                               <div className="mt-3 space-y-1">
                                 <label className="text-xs font-semibold text-slate-600">
-                                  Selettore CSS del click
+                                  {step.type === 'compila' ? 'Selettore CSS del campo' : 'Selettore CSS del click'}
                                 </label>
                                 <Input
                                   value={step.selector ?? ''}
-                                  placeholder=".btn.cta-purchase"
+                                  placeholder={step.type === 'compila' ? 'input[name="email"]' : '.btn.cta-purchase'}
                                   onChange={event =>
                                     handleDraftStepInputChange(step.id, 'selector', event.target.value)
                                   }
                                   disabled={scenarioModalSaving}
                                 />
                                 <p className="text-xs text-slate-500">
-                                  Il runner cliccherà questo elemento e attenderà 10 secondi prima di passare allo step successivo.
+                                  {step.type === 'compila'
+                                    ? 'Il runner inserirà il valore nel campo indicato e attenderà 10 secondi prima di passare allo step successivo.'
+                                    : 'Il runner cliccherà questo elemento e attenderà 10 secondi prima di passare allo step successivo.'}
                                 </p>
+                                {step.type === 'compila' && (
+                                  <div className="mt-3 space-y-1">
+                                    <label className="text-xs font-semibold text-slate-600">
+                                      Valore da inserire
+                                    </label>
+                                    <Input
+                                      value={step.value ?? ''}
+                                      placeholder="test"
+                                      onChange={event =>
+                                        handleDraftStepInputChange(step.id, 'value', event.target.value)
+                                      }
+                                      disabled={scenarioModalSaving}
+                                    />
+                                    <p className="text-xs text-slate-500">
+                                      Il valore viene inserito automaticamente nel campo selezionato.
+                                    </p>
+                                  </div>
+                                )}
                               </div>
                             )}
 

@@ -30,6 +30,11 @@ const __dirname = dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 4000;
 
+// Healthcheck endpoint for load balancers / EB
+app.get('/api/health', (_req, res) => {
+  res.status(200).send('ok');
+});
+
 // Security middleware
 app.use(helmet({
   contentSecurityPolicy: false, // Disable CSP for development

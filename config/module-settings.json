@@ -237,6 +237,61 @@
           ]
         }
       }
+    },
+    "reply": {
+      "moduleId": "reply",
+      "updatedAt": "2026-01-15T13:54:51.217Z",
+      "cmp": {
+        "selector": "#onetrust-accept-btn-handler",
+        "vendor": "onetrust",
+        "testUrl": "https://www.reply.com/it",
+        "validatedAt": "2026-01-15T13:54:51.214Z",
+        "lastValidation": {
+          "status": "ACCEPTED",
+          "reasoning": "Il banner cookie è stato accettato con successo, come indicato dall'evento 'consent update' con tutti i valori impostati su 'granted'. Inoltre, il click sul pulsante di accettazione è stato registrato.",
+          "executedAt": "2026-01-15T13:54:51.215Z",
+          "evidence": [
+            "gtm.click con gtm.elementId: onetrust-accept-btn-handler",
+            "consent update con ad_storage, analytics_storage, functionality_storage, personalization_storage, security_storage, ad_user_data, ad_personalization tutti impostati su 'granted'"
+          ],
+          "eventsCaptured": 14,
+          "sampleEvents": [
+            {
+              "0": "event",
+              "1": "trackOptanonEvent",
+              "2": {
+                "optanonCategory": "OneTrust Cookie Consent",
+                "optanonAction": "Banner Accept Cookies"
+              }
+            },
+            {
+              "0": "consent",
+              "1": "update",
+              "2": {
+                "ad_storage": "granted",
+                "analytics_storage": "granted",
+                "functionality_storage": "granted",
+                "personalization_storage": "granted",
+                "security_storage": "granted",
+                "ad_user_data": "granted",
+                "ad_personalization": "granted"
+              }
+            },
+            {
+              "event": "OneTrustLoaded",
+              "OnetrustActiveGroups": ",C0001,C0003,C0004,"
+            },
+            {
+              "event": "OptanonLoaded",
+              "OptanonActiveGroups": ",C0001,C0003,C0004,"
+            },
+            {
+              "event": "OneTrustGroupsUpdated",
+              "OnetrustActiveGroups": ",C0001,C0003,C0004,"
+            }
+          ]
+        }
+      }
     }
   }
 }

@@ -127,6 +127,24 @@
       ],
       "configFields": [],
       "defaultConfig": {}
+    },
+    {
+      "meta": {
+        "id": "reply",
+        "title": "Reply",
+        "description": "TEST",
+        "tags": [],
+        "accentColor": "#6366f1",
+        "icon": "ShieldCheck"
+      },
+      "supportedHosts": [
+        "www.reply.com"
+      ],
+      "defaultUrls": [
+        "https://www.reply.com/it"
+      ],
+      "configFields": [],
+      "defaultConfig": {}
     }
   ]
 }
