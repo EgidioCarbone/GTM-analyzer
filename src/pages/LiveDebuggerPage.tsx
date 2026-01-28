@@ -489,11 +489,12 @@ export default function LiveDebuggerPage() {
   }, [state.filters.isPaused]);
 
   const handleStart = async (url: string) => {
+    dispatch({ type: 'START', startTime: Date.now() });
     try {
       await api.startLiveDebugger({ url, headless: true, redactPII: true });
-      dispatch({ type: 'START', startTime: Date.now() });
     } catch (err: any) {
       console.error('Failed to start session:', err);
+      dispatch({ type: 'STOP' });
       alert(`Errore: ${err.message}`);
     }
   };

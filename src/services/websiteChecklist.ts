@@ -9,6 +9,7 @@ import type {
 } from "../types/websiteChecklist";
 import { cacheService } from "./cacheService";
 import { toast } from "react-hot-toast";
+import { getApiBaseUrl } from "../utils/api-base";
 
 export function normalizeInteractive(raw: any) {
   return (
@@ -246,9 +247,12 @@ async function fetchWebsiteData(url: string): Promise<{
   screenshots: string[];
   interactive?: any;
 }> {
-  const res = await fetch(
-    `http://localhost:4004/api/fetchHtmlPuppeteer?url=${encodeURIComponent(url)}&multiStep=true`
-  );
+  const apiBase = getApiBaseUrl();
+  const endpoint = apiBase
+    ? `${apiBase}/api/fetchHtmlPuppeteer?url=${encodeURIComponent(url)}&multiStep=true`
+    : `/api/fetchHtmlPuppeteer?url=${encodeURIComponent(url)}&multiStep=true`;
+
+  const res = await fetch(endpoint);
 
   if (!res.ok) throw new Error(`Errore da Puppeteer: ${res.status}`);
 

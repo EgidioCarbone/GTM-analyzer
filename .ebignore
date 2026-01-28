@@ -1,0 +1,14 @@
+node_modules/
+dist/
+artifacts/
+temp-html/
+temp-openai/
+temp-pdf/
+uploads/
+secret/
+.env
+.DS_Store
+npm-debug.log*
+*.log
+*.tar.gz
+*.zip

@@ -8,10 +8,27 @@ export const getApiBaseUrl = (): string => {
     const origin = window.location.origin.replace(/\/$/, '');
 
     if (/localhost:517\d$/i.test(origin)) {
-      return 'http://localhost:3001';
+      return 'http://localhost:3000';
     }
 
     return origin;
+  }
+
+  return '';
+};
+
+export const getWsBaseUrl = (): string => {
+  const envBase = (import.meta as any)?.env?.VITE_WS_BASE as string | undefined;
+  if (envBase && envBase.trim()) {
+    return envBase.replace(/\/$/, '');
+  }
+
+  if (typeof window !== 'undefined') {
+    const origin = window.location.origin.replace(/\/$/, '');
+    if (/localhost:517\d$/i.test(origin)) {
+      return 'ws://localhost:3000';
+    }
+    return origin.replace(/^http/i, 'ws');
   }
 
   return '';

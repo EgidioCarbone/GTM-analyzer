@@ -2,9 +2,15 @@ import type { StartPayload, NormalizedEvent } from '../types/live-debugger';
 import type { PushCase, PushCaseCreate, PushCaseUpdate } from '../types/push-cases';
 import type { PushUseCase, ExpectedCall, RunResultSummary } from '../../shared/types';
 import type { EventInsight } from '../../shared/analyzer';
+import { getApiBaseUrl, getWsBaseUrl } from '../utils/api-base';
 
-const API_BASE = import.meta.env.DEV ? '/live-debugger' : '';
-const WS_BASE = import.meta.env.DEV ? 'ws://localhost:5180' : `ws://${window.location.host}`;
+const baseUrl = getApiBaseUrl();
+const API_BASE = baseUrl ? `${baseUrl}/api/live` : '/api/live';
+const wsBase = getWsBaseUrl();
+const WS_BASE =
+  wsBase ||
+  (baseUrl ? baseUrl.replace(/^http/i, 'ws') : '') ||
+  (typeof window !== 'undefined' ? `ws://${window.location.host}` : '');
 
 export type PushUseCaseDraft = {
   name: string;
@@ -32,7 +38,7 @@ export interface AiAssistantResponse {
 }
 
 export async function startLiveDebugger(payload: StartPayload): Promise<void> {
-  const res = await fetch(`${API_BASE}/api/start`, {
+  const res = await fetch(`${API_BASE}/start`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -57,7 +63,7 @@ export async function startLiveDebugger(payload: StartPayload): Promise<void> {
 }
 
 export async function stopLiveDebugger(): Promise<void> {
-  const res = await fetch(`${API_BASE}/api/stop`, {
+  const res = await fetch(`${API_BASE}/stop`, {
     method: 'POST',
   });
 
@@ -68,7 +74,7 @@ export async function stopLiveDebugger(): Promise<void> {
 }
 
 export async function getLiveDebuggerStatus(): Promise<{ running: boolean }> {
-  const res = await fetch(`${API_BASE}/api/status`);
+  const res = await fetch(`${API_BASE}/status`);
   if (!res.ok) {
     throw new Error('Failed to get status');
   }
@@ -80,7 +86,7 @@ export async function getPushUseCases(origin?: string): Promise<PushUseCase[]> {
   const params = new URLSearchParams();
   if (origin) params.append('origin', origin);
 
-  const res = await fetch(`${API_BASE}/api/usecases?${params}`);
+  const res = await fetch(`${API_BASE}/usecases?${params}`);
   if (!res.ok) {
     throw new Error('Failed to get push use cases');
   }
@@ -88,7 +94,7 @@ export async function getPushUseCases(origin?: string): Promise<PushUseCase[]> {
 }
 
 export async function createPushUseCase(input: PushUseCaseDraft): Promise<PushUseCase> {
-  const res = await fetch(`${API_BASE}/api/usecases`, {
+  const res = await fetch(`${API_BASE}/usecases`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
@@ -103,7 +109,7 @@ export async function createPushUseCase(input: PushUseCaseDraft): Promise<PushUs
 }
 
 export async function updatePushUseCase(id: string, updates: PushUseCaseUpdateInput): Promise<PushUseCase> {
-  const res = await fetch(`${API_BASE}/api/usecases/${id}`, {
+  const res = await fetch(`${API_BASE}/usecases/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(updates),
@@ -118,7 +124,7 @@ export async function updatePushUseCase(id: string, updates: PushUseCaseUpdateIn
 }
 
 export async function deletePushUseCase(id: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/api/usecases/${id}`, {
+  const res = await fetch(`${API_BASE}/usecases/${id}`, {
     method: 'DELETE',
   });
 
@@ -129,7 +135,7 @@ export async function deletePushUseCase(id: string): Promise<void> {
 }
 
 export async function runPushUseCase(id: string): Promise<{ runId: string }> {
-  const res = await fetch(`${API_BASE}/api/usecases/${id}/run`, {
+  const res = await fetch(`${API_BASE}/usecases/${id}/run`, {
     method: 'POST',
   });
 
@@ -156,7 +162,7 @@ export async function requestAiAssistant(
     payload.question = question.trim();
   }
 
-  const res = await fetch(`${API_BASE}/api/ai/insight`, {
+  const res = await fetch(`${API_BASE}/ai/insight`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -182,7 +188,7 @@ export async function getPushCases(origin?: string, search?: string): Promise<Pu
   if (origin) params.append('origin', origin);
   if (search) params.append('search', search);
   
-  const res = await fetch(`${API_BASE}/api/cases?${params}`);
+  const res = await fetch(`${API_BASE}/cases?${params}`);
   if (!res.ok) {
     throw new Error('Failed to get push cases');
   }
@@ -190,7 +196,7 @@ export async function getPushCases(origin?: string, search?: string): Promise<Pu
 }
 
 export async function createPushCase(caseData: PushCaseCreate): Promise<PushCase> {
-  const res = await fetch(`${API_BASE}/api/cases`, {
+  const res = await fetch(`${API_BASE}/cases`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(caseData),
@@ -205,7 +211,7 @@ export async function createPushCase(caseData: PushCaseCreate): Promise<PushCase
 }
 
 export async function updatePushCase(id: string, updates: PushCaseUpdate): Promise<PushCase> {
-  const res = await fetch(`${API_BASE}/api/cases/${id}`, {
+  const res = await fetch(`${API_BASE}/cases/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(updates),
@@ -220,7 +226,7 @@ export async function updatePushCase(id: string, updates: PushCaseUpdate): Promi
 }
 
 export async function deletePushCase(id: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/api/cases/${id}`, {
+  const res = await fetch(`${API_BASE}/cases/${id}`, {
     method: 'DELETE',
   });
 
@@ -231,7 +237,7 @@ export async function deletePushCase(id: string): Promise<void> {
 }
 
 export async function runPushCase(id: string): Promise<{ id: string }> {
-  const res = await fetch(`${API_BASE}/api/cases/${id}/run`, {
+  const res = await fetch(`${API_BASE}/cases/${id}/run`, {
     method: 'POST',
   });
 
@@ -247,7 +253,7 @@ export async function exportPushCases(origin?: string): Promise<PushCase[]> {
   const params = new URLSearchParams();
   if (origin) params.append('origin', origin);
   
-  const res = await fetch(`${API_BASE}/api/cases/export?${params}`);
+  const res = await fetch(`${API_BASE}/cases/export?${params}`);
   if (!res.ok) {
     throw new Error('Failed to export push cases');
   }
@@ -255,7 +261,7 @@ export async function exportPushCases(origin?: string): Promise<PushCase[]> {
 }
 
 export async function importPushCases(cases: PushCase[], overwrite = false): Promise<{ imported: number; skipped: number; errors: string[] }> {
-  const res = await fetch(`${API_BASE}/api/cases/import`, {
+  const res = await fetch(`${API_BASE}/cases/import`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ cases, overwrite }),
@@ -273,27 +279,81 @@ export function connectLiveDebuggerEvents(
   onEvent: (event: NormalizedEvent) => void,
   onError?: (err: Event) => void
 ): WebSocket {
-  const ws = new WebSocket(`${WS_BASE}/events`);
+  const candidates: string[] = [];
+  if (WS_BASE) {
+    candidates.push(`${WS_BASE}/events`);
+  }
+  if (import.meta.env.DEV) {
+    candidates.push('ws://localhost:5180/events');
+  }
 
-  ws.onmessage = (msg) => {
-    try {
-      const event = JSON.parse(msg.data) as NormalizedEvent;
-      onEvent(event);
-    } catch (err) {
-      console.error('Failed to parse event:', err);
+  let ws: WebSocket | null = null;
+  let attemptIndex = 0;
+
+  const connectNext = () => {
+    if (attemptIndex >= candidates.length) {
+      console.error('[live-debugger] WS failed: no more candidates');
+      return;
     }
+    const wsUrl = candidates[attemptIndex++];
+    ws = new WebSocket(wsUrl);
+
+    ws.onopen = () => {
+      console.log('[live-debugger] WS connected:', wsUrl);
+    };
+
+    ws.onmessage = (msg) => {
+      const handleText = (text: string) => {
+        try {
+          const event = JSON.parse(text) as NormalizedEvent;
+          onEvent(event);
+        } catch (err) {
+          console.error('Failed to parse event:', err);
+        }
+      };
+
+      const data = msg.data as unknown;
+      if (typeof data === 'string') {
+        handleText(data);
+        return;
+      }
+      if (data instanceof Blob) {
+        data.text().then(handleText).catch((err) => {
+          console.error('Failed to read WS blob:', err);
+        });
+        return;
+      }
+      if (data instanceof ArrayBuffer) {
+        const text = new TextDecoder().decode(new Uint8Array(data));
+        handleText(text);
+        return;
+      }
+      try {
+        handleText(String(data));
+      } catch (err) {
+        console.error('Failed to parse event:', err);
+      }
+    };
+
+    ws.onerror = (err) => {
+      console.error('WebSocket error:', err);
+      onError?.(err);
+    };
+
+    ws.onclose = (evt) => {
+      console.warn('[live-debugger] WS closed:', evt.code, evt.reason);
+      if (evt.code !== 1000) {
+        connectNext();
+      }
+    };
   };
 
-  ws.onerror = (err) => {
-    console.error('WebSocket error:', err);
-    onError?.(err);
-  };
-
-  return ws;
+  connectNext();
+  return ws as WebSocket;
 }
 
 export async function pushLiveDebugger(cmd: Omit<import('../types/live-debugger').PushCommand, 'id'>): Promise<{ id: string }> {
-  const res = await fetch(`${API_BASE}/api/push`, {
+  const res = await fetch(`${API_BASE}/push`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(cmd),

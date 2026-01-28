@@ -29,8 +29,10 @@ interface AnalysisResponse {
   completedAt?: number;
 }
 
+import { getApiBaseUrl, getWsBaseUrl } from '../utils/api-base';
+
 class ApiService {
-  private baseUrl = 'http://localhost:4004/api';
+  private baseUrl = `${getApiBaseUrl() || ''}/api`;
   private requests = new Map<string, AnalysisResponse>();
 
   async analyzeWebsite(request: AnalysisRequest): Promise<ApiResponse<AnalysisResponse>> {
@@ -224,7 +226,9 @@ class ApiService {
   // WebSocket connection for real-time updates
   connectWebSocket(onMessage: (data: any) => void): WebSocket | null {
     try {
-      const ws = new WebSocket('ws://localhost:4004/ws');
+      const wsBase = getWsBaseUrl();
+      const wsUrl = wsBase ? `${wsBase}/ws` : 'ws://localhost:3000/ws';
+      const ws = new WebSocket(wsUrl);
       
       ws.onmessage = (event) => {
         try {
